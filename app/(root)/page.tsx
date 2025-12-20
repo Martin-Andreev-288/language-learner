@@ -89,7 +89,7 @@ export default function Home() {
   }, [processedText]);
 
   return (
-    <div className="min-h-screen w-full bg-linear-to-br from-[#f5f7fa] to-[#c3cfe2]">
+    <div className="w-full">
       <div className="mx-auto max-w-225 px-8 py-8">
         <header className="mb-12 text-center">
           <h1 className="m-0 text-4xl font-bold text-[#2c3e50] drop-shadow-sm">
