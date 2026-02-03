@@ -16,10 +16,10 @@ export default function Home() {
 
           {/* Call to Action Buttons */}
           <div className="flex flex-wrap justify-center gap-4">
-            <button className="rounded-lg bg-gradient-to-br from-[#667eea] to-[#764ba2] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0">
+            <button className="rounded-lg bg-linear-to-br from-[#667eea] to-[#764ba2] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0">
               Try as Guest
             </button>
-            <button className="rounded-lg bg-gradient-to-br from-[#f093fb] to-[#f5576c] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0">
+            <button className="rounded-lg bg-linear-to-br from-[#f093fb] to-[#f5576c] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0">
               Sign In
             </button>
           </div>
@@ -116,7 +116,7 @@ export default function Home() {
           <div className="flex justify-center">
             <Link
               href="/vocabulary-analyzer"
-              className="rounded-lg bg-gradient-to-br from-[#4facfe] to-[#00f2fe] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
+              className="rounded-lg bg-linear-to-br from-[#4facfe] to-[#00f2fe] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
             >
               Open Vocabulary Analyzer →
             </Link>
