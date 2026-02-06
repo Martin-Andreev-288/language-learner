@@ -9,3 +9,84 @@ generator client {
 datasource db {
     provider = "postgresql"
 }
+
+// User model - stores user information
+model User {
+    id        String   @id @default(cuid())
+    email     String   @unique
+    name      String?
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    // Relations
+    texts      Text[]
+    vocabulary VocabularyEntry[]
+    notes      Note[]
+
+    @@index([email])
+}
+
+// Text model - stores reading and writing sessions
+model Text {
+    id         String   @id @default(cuid())
+    userId     String
+    content    String   @db.Text
+    language   String
+    type       TextType
+    newWords   Int      @default(0)
+    totalWords Int      @default(0)
+    createdAt  DateTime @default(now())
+
+    // Relations
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@index([userId])
+    @@index([language])
+    @@index([type])
+    @@index([createdAt])
+}
+
+// Enum for text type
+enum TextType {
+    reading
+    writing
+}
+
+// VocabularyEntry model - tracks words encountered
+model VocabularyEntry {
+    id               String   @id @default(cuid())
+    userId           String
+    word             String
+    language         String
+    timesSeenReading Int      @default(0)
+    timesSeenWriting Int      @default(0)
+    firstSeen        DateTime @default(now())
+    lastSeen         DateTime @updatedAt
+
+    // Relations
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    // Unique constraint: one entry per word per language per user
+    @@unique([userId, word, language])
+    @@index([userId])
+    @@index([language])
+    @@index([word])
+}
+
+// Note model - stores user notes
+model Note {
+    id        String   @id @default(cuid())
+    userId    String
+    title     String
+    content   String   @db.Text
+    language  String?
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    // Relations
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@index([userId])
+    @@index([language])
+    @@index([createdAt])
+}
