@@ -1,7 +1,8 @@
 'use server';
 
 import { hashSync } from 'bcrypt-ts-edge';
-import { signIn } from '@/auth';
+import { signIn, signOut } from '@/auth';
+import { isRedirectError } from 'next/dist/client/components/redirect-error';
 import { prisma } from '@/lib/prisma';
 import { signUpFormSchema, signInFormSchema } from '@/lib/validations';
 
@@ -19,20 +20,11 @@ function formatPrismaError(error: any): string {
     return 'Something went wrong';
 }
 
-// Helper function to format NextAuth errors
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function formatAuthError(error: any): string {
-    if (error.name === 'PrismaClientKnownRequestError') {
-        return formatPrismaError(error);
-    }
-    if (error.code === 'P2002') {
-        return 'Email already exists';
-    }
-    return error.message || 'Invalid email or password';
-}
-
 // Server action for user sign-up
-export async function signUpUser(formData: FormData) {
+export async function signUpUser(
+    prevState: { success: boolean; message: string },
+    formData: FormData
+) {
     try {
         // Extract form data
         const data = {
@@ -79,40 +71,37 @@ export async function signUpUser(formData: FormData) {
 }
 
 // Server action for user sign-in
-export async function signInUser(formData: FormData) {
+export async function signInWithCredentials(
+    prevState: { success: boolean; message: string },
+    formData: FormData
+) {
     try {
-        // Extract form data
-        const data = {
+        // Extract and validate form data
+        const user = signInFormSchema.parse({
             email: formData.get('email'),
             password: formData.get('password'),
-        };
-
-        // Validate with Zod schema
-        const validated = signInFormSchema.parse(data);
+        });
 
         // Sign in with NextAuth
-        await signIn('credentials', {
-            email: validated.email,
-            password: validated.password,
-            redirect: false,
-        });
+        await signIn('credentials', user);
 
         return { success: true, message: 'Signed in successfully' };
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
-        console.error('Sign in error:', error);
-
-        // Handle validation errors
-        if (error.name === 'ZodError') {
-            return {
-                success: false,
-                message: error.errors[0].message
-            };
+        // NextAuth throws a redirect error on successful sign-in
+        // We need to re-throw it so the redirect happens
+        if (isRedirectError(error)) {
+            throw error;
         }
 
         return {
             success: false,
-            message: formatAuthError(error)
+            message: 'Invalid email or password'
         };
     }
+}
+
+// Sign the user out
+export async function signOutUser() {
+    await signOut();
 }
