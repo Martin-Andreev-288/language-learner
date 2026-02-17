@@ -5,20 +5,7 @@ import { signIn, signOut } from '@/auth';
 import { isRedirectError } from 'next/dist/client/components/redirect-error';
 import { prisma } from '@/lib/prisma';
 import { signUpFormSchema, signInFormSchema } from '@/lib/validations';
-
-// Helper function to format Prisma errors
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function formatPrismaError(error: any): string {
-    if (error.code === 'P2002') {
-        // Unique constraint failed
-        const field = error.meta?.target?.[0];
-        if (field === 'email') {
-            return 'Email already exists';
-        }
-        return `${field} already exists`;
-    }
-    return 'Something went wrong';
-}
+import { formatError } from '@/lib/utils';
 
 // Server action for user sign-up
 export async function signUpUser(
@@ -37,36 +24,34 @@ export async function signUpUser(
         // Validate with Zod schema
         const validated = signUpFormSchema.parse(data);
 
+        // Save the plain password before hashing (for auto sign-in)
+        const plainPassword = validated.password;
+
         // Hash password
-        const hashedPassword = hashSync(validated.password, 10);
+        validated.password = hashSync(validated.password, 10);
 
         // Create user in database
         await prisma.user.create({
             data: {
                 name: validated.name,
                 email: validated.email,
-                password: hashedPassword,
+                password: validated.password,
             },
         });
 
-        return { success: true, message: 'User created successfully' };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-        console.error('Sign up error:', error);
+        // Auto sign-in after successful registration
+        await signIn('credentials', {
+            email: validated.email,
+            password: plainPassword,
+        });
 
-        // Handle validation errors
-        if (error.name === 'ZodError') {
-            return {
-                success: false,
-                message: error.errors[0].message
-            };
+        return { success: true, message: 'User created successfully' };
+    } catch (error) {
+        if (isRedirectError(error)) {
+            throw error;
         }
 
-        // Handle Prisma errors
-        return {
-            success: false,
-            message: formatPrismaError(error)
-        };
+        return { success: false, message: formatError(error) };
     }
 }
 
@@ -86,18 +71,14 @@ export async function signInWithCredentials(
         await signIn('credentials', user);
 
         return { success: true, message: 'Signed in successfully' };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
+    } catch (error) {
         // NextAuth throws a redirect error on successful sign-in
         // We need to re-throw it so the redirect happens
         if (isRedirectError(error)) {
             throw error;
         }
 
-        return {
-            success: false,
-            message: 'Invalid email or password'
-        };
+        return { success: false, message: 'Invalid email or password' };
     }
 }
 
