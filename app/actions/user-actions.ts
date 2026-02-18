@@ -43,6 +43,7 @@ export async function signUpUser(
         await signIn('credentials', {
             email: validated.email,
             password: plainPassword,
+            redirectTo: '/',
         });
 
         return { success: true, message: 'User created successfully' };
@@ -68,7 +69,7 @@ export async function signInWithCredentials(
         });
 
         // Sign in with NextAuth
-        await signIn('credentials', user);
+        await signIn('credentials', { ...user, redirectTo: '/' });
 
         return { success: true, message: 'Signed in successfully' };
     } catch (error) {
