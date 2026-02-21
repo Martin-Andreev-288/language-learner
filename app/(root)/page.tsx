@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { APP_NAME, APP_DESCRIPTION } from "@/lib/constants";
+import { auth } from "@/auth";
 
-export default function Home() {
+export default async function Home() {
+  const session = await auth();
+
   return (
     <div className="w-full">
       <div className="mx-auto max-w-4xl px-8 py-16">
@@ -14,15 +17,23 @@ export default function Home() {
             {APP_DESCRIPTION}
           </p>
 
-          {/* Call to Action Buttons */}
-          <div className="flex flex-wrap justify-center gap-4">
-            <button className="rounded-lg bg-linear-to-br from-[#667eea] to-[#764ba2] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0">
-              Try as Guest
-            </button>
-            <button className="rounded-lg bg-linear-to-br from-[#f093fb] to-[#f5576c] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0">
-              Sign In
-            </button>
-          </div>
+          {/* Call to Action Buttons — shown to guests only */}
+          {!session && (
+            <div className="flex flex-wrap justify-center gap-4">
+              <Link
+                href="/vocabulary-analyzer"
+                className="rounded-lg bg-linear-to-br from-[#667eea] to-[#764ba2] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
+              >
+                Try as Guest
+              </Link>
+              <Link
+                href="/sign-in"
+                className="rounded-lg bg-linear-to-br from-[#f093fb] to-[#f5576c] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
+              >
+                Sign In
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* Features Section */}
