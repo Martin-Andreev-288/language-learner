@@ -2,9 +2,104 @@ import Link from "next/link";
 import { APP_NAME, APP_DESCRIPTION } from "@/lib/constants";
 import { auth } from "@/auth";
 
+// Dashboard feature cards for authenticated users
+const dashboardFeatures = [
+  {
+    href: "/reading",
+    emoji: "📖",
+    title: "Reading Practice",
+    description: "Read texts and track your vocabulary progress.",
+    gradient: "from-[#667eea] to-[#764ba2]",
+  },
+  {
+    href: "/writing",
+    emoji: "✍️",
+    title: "Writing Practice",
+    description: "Practice writing in your target language.",
+    gradient: "from-[#f093fb] to-[#f5576c]",
+  },
+  {
+    href: "/vocabulary",
+    emoji: "📝",
+    title: "Vocabulary",
+    description: "Track words from reading and writing practice.",
+    gradient: "from-[#4facfe] to-[#00f2fe]",
+  },
+  {
+    href: "/vocabulary-analyzer",
+    emoji: "🔍",
+    title: "Analyzer",
+    description: "Analyze any text for word frequency and progress.",
+    gradient: "from-[#43e97b] to-[#38f9d7]",
+  },
+  {
+    href: "/notes",
+    emoji: "📓",
+    title: "Notes",
+    description: "Take notes on grammar, vocabulary, and more.",
+    gradient: "from-[#fa709a] to-[#fee140]",
+  },
+];
+
 export default async function Home() {
   const session = await auth();
 
+  // ─── Authenticated View: Dashboard ───
+  if (session) {
+    return (
+      <div className="w-full">
+        <div className="mx-auto max-w-4xl px-8 py-16">
+          {/* Welcome Section */}
+          <div className="mb-12 text-center">
+            <h1 className="mb-3 text-4xl font-bold text-[#2c3e50]">
+              Welcome back, {session.user?.name} 👋
+            </h1>
+            <p className="text-lg text-[#5a6c7d]">
+              What would you like to work on today?
+            </p>
+          </div>
+
+          {/* Quick-Access Feature Cards */}
+          <div className="mb-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {dashboardFeatures.map((feature) => (
+              <Link
+                key={feature.href}
+                href={feature.href}
+                className="group rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+              >
+                <div
+                  className={`mb-4 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-linear-to-br ${feature.gradient} text-2xl`}
+                >
+                  {feature.emoji}
+                </div>
+                <h3 className="mb-1 text-lg font-semibold text-[#2c3e50] group-hover:text-[#667eea]">
+                  {feature.title}
+                </h3>
+                <p className="text-sm text-gray-600">{feature.description}</p>
+              </Link>
+            ))}
+          </div>
+
+          {/* Recent Activity Placeholder */}
+          <div className="rounded-xl bg-white p-8 shadow-lg">
+            <h2 className="mb-4 text-xl font-bold text-[#2c3e50]">
+              📊 Recent Activity
+            </h2>
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <p className="mb-2 text-gray-500">
+                Your learning activity will appear here as you use the app.
+              </p>
+              <p className="text-sm text-gray-400">
+                Start by analyzing a text or practicing your reading!
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Guest View: Marketing / Feature Showcase (unchanged) ───
   return (
     <div className="w-full">
       <div className="mx-auto max-w-4xl px-8 py-16">
@@ -17,23 +112,21 @@ export default async function Home() {
             {APP_DESCRIPTION}
           </p>
 
-          {/* Call to Action Buttons — shown to guests only */}
-          {!session && (
-            <div className="flex flex-wrap justify-center gap-4">
-              <Link
-                href="/vocabulary-analyzer"
-                className="rounded-lg bg-linear-to-br from-[#667eea] to-[#764ba2] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
-              >
-                Try as Guest
-              </Link>
-              <Link
-                href="/sign-in"
-                className="rounded-lg bg-linear-to-br from-[#f093fb] to-[#f5576c] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
-              >
-                Sign In
-              </Link>
-            </div>
-          )}
+          {/* Call to Action Buttons */}
+          <div className="flex flex-wrap justify-center gap-4">
+            <Link
+              href="/vocabulary-analyzer"
+              className="rounded-lg bg-linear-to-br from-[#667eea] to-[#764ba2] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
+            >
+              Try as Guest
+            </Link>
+            <Link
+              href="/sign-in"
+              className="rounded-lg bg-linear-to-br from-[#f093fb] to-[#f5576c] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
+            >
+              Sign In
+            </Link>
+          </div>
         </div>
 
         {/* Features Section */}
