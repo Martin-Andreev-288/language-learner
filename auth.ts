@@ -17,7 +17,10 @@ export const config = {
     },
     adapter: PrismaAdapter(prisma),
     providers: [
-        Google,
+        Google({
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        }),
         CredentialsProvider({
             credentials: {
                 email: { type: "email" },
