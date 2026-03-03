@@ -10,21 +10,42 @@ datasource db {
     provider = "postgresql"
 }
 
-// Text model - stores reading and writing sessions
+// Folder model - organises texts and dialogues into user folders
+model Folder {
+    id        String   @id @default(cuid())
+    userId    String
+    name      String
+    order     Int
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    // Relations
+    user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+    texts Text[]
+
+    @@index([userId])
+    @@index([order])
+}
+
+// Text model - stores reading, writing, and dialogue sessions
 model Text {
     id         String   @id @default(cuid())
     userId     String
+    title      String?
     content    String   @db.Text
     language   String
     type       TextType
     newWords   Int      @default(0)
     totalWords Int      @default(0)
+    folderId   String?
     createdAt  DateTime @default(now())
 
     // Relations
-    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    folder Folder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
 
     @@index([userId])
+    @@index([folderId])
     @@index([language])
     @@index([type])
     @@index([createdAt])
@@ -34,6 +55,20 @@ model Text {
 enum TextType {
     reading
     writing
+    dialogue
+}
+
+// SystemDialogue model - global seeded island dialogues (no userId)
+model SystemDialogue {
+    id        String   @id @default(cuid())
+    title     String
+    content   String   @db.Text
+    language  String
+    order     Int      @default(0)
+    createdAt DateTime @default(now())
+
+    @@index([language])
+    @@index([order])
 }
 
 // VocabularyEntry model - tracks words encountered
@@ -92,6 +127,7 @@ model User {
     sessions Session[]
 
     // Your existing relations
+    folders    Folder[]
     texts      Text[]
     vocabulary VocabularyEntry[]
     notes      Note[]
