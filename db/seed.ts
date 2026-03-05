@@ -70,9 +70,9 @@ function parseDialogueFile(filePath: string, language: string): DialogueRecord[]
 async function seedSystemDialogues() {
     const files = [
         { filename: "English_Dialogues.md", language: "English" },
-        // { filename: "German_Dialogues.md", language: "German" },
-        // { filename: "French_Dialogues.md", language: "French" },
-        // { filename: "Italian_Dialogues.md", language: "Italian" },
+        { filename: "German_Dialogues.md", language: "German" },
+        { filename: "French_Dialogues.md", language: "French" },
+        { filename: "Italian_Dialogues.md", language: "Italian" },
     ];
 
     let total = 0;
