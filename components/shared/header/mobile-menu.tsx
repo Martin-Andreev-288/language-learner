@@ -54,7 +54,7 @@ export default function MobileMenu({ session }: MobileMenuProps) {
       {/* Mobile Navigation Menu */}
       <nav
         className={`overflow-hidden transition-all duration-300 ease-in-out md:hidden ${
-          isMobileMenuOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+          isMobileMenuOpen ? "max-h-128 opacity-100" : "max-h-0 opacity-0"
         }`}
       >
         <div className="flex flex-col gap-1 border-t border-gray-700 px-4 py-3">
