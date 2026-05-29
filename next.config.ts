@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  transpilePackages: ["supertokens-auth-react", "supertokens-web-js"],
 };
 
 export default nextConfig;

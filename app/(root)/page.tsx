@@ -1,6 +1,11 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { getSSRSession } from "supertokens-node/nextjs";
 import { APP_NAME, APP_DESCRIPTION } from "@/lib/constants";
-import { auth } from "@/auth";
+import { ensureSuperTokensInit } from "@/app/config/backend";
+import { prisma } from "@/lib/prisma";
+
+ensureSuperTokensInit();
 
 // Dashboard feature cards for authenticated users
 const dashboardFeatures = [
@@ -42,17 +47,27 @@ const dashboardFeatures = [
 ];
 
 export default async function Home() {
-  const session = await auth();
+  const { accessTokenPayload, hasToken } = await getSSRSession(
+    (await cookies()).getAll(),
+  );
+  let user: { name: string | null; email: string | null } | null = null;
+  if (hasToken && accessTokenPayload?.sub) {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: accessTokenPayload.sub as string },
+      select: { name: true, email: true },
+    });
+    if (dbUser) user = dbUser;
+  }
 
   // ─── Authenticated View: Dashboard ───
-  if (session) {
+  if (user) {
     return (
       <div className="w-full">
         <div className="mx-auto max-w-4xl px-8 py-16">
           {/* Welcome Section */}
           <div className="mb-12 text-center">
             <h1 className="mb-3 text-4xl font-bold text-[#2c3e50]">
-              Welcome back, {session.user?.name} 👋
+              Welcome back, {user.name ?? user.email} 👋
             </h1>
             <p className="text-lg text-[#5a6c7d]">
               What would you like to work on today?
@@ -121,7 +136,7 @@ export default async function Home() {
               Try as Guest
             </Link>
             <Link
-              href="/sign-in"
+              href="/auth"
               className="rounded-lg bg-linear-to-br from-[#f093fb] to-[#f5576c] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
             >
               Sign In

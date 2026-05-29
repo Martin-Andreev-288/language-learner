@@ -1,10 +1,16 @@
-import { auth } from "@/auth";
+import { cookies } from "next/headers";
+import { getSSRSession } from "supertokens-node/nextjs";
+import { ensureSuperTokensInit } from "@/app/config/backend";
 import AuthPrompt from "@/components/shared/auth-prompt";
 
-export default async function WritingPage() {
-  const session = await auth();
+ensureSuperTokensInit();
 
-  if (!session) {
+export default async function WritingPage() {
+  const { accessTokenPayload, hasToken } = await getSSRSession(
+    (await cookies()).getAll(),
+  );
+
+  if (!hasToken || !accessTokenPayload) {
     return (
       <AuthPrompt
         featureName="Writing Practice"
@@ -20,7 +26,7 @@ export default async function WritingPage() {
           ✍️ Writing Practice
         </h1>
         <p className="mt-2 text-gray-600">
-          Welcome, {session.user?.name}! This feature is coming soon.
+          Welcome! This feature is coming soon.
         </p>
       </div>
 

@@ -6,15 +6,13 @@ import NavLinks from "./nav-links";
 import UserButton from "./user-button";
 
 interface MobileMenuProps {
-  session: {
-    user?: {
-      name?: string | null;
-      email?: string | null;
-    };
+  user: {
+    name?: string | null;
+    email?: string | null;
   } | null;
 }
 
-export default function MobileMenu({ session }: MobileMenuProps) {
+export default function MobileMenu({ user }: MobileMenuProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const toggleMobileMenu = () => {
@@ -62,32 +60,27 @@ export default function MobileMenu({ session }: MobileMenuProps) {
 
           {/* Auth section for mobile */}
           <div className="mt-2 pt-2 border-t border-gray-700">
-            {session ? (
+            {user ? (
               <div className="flex items-center gap-3 px-4 py-3">
-                <UserButton
-                  name={session.user?.name}
-                  email={session.user?.email}
-                />
+                <UserButton name={user.name} email={user.email} />
                 <div className="flex flex-col">
                   <p className="text-sm font-medium text-white truncate">
-                    {session.user?.name}
+                    {user.name}
                   </p>
-                  <p className="text-xs text-gray-400 truncate">
-                    {session.user?.email}
-                  </p>
+                  <p className="text-xs text-gray-400 truncate">{user.email}</p>
                 </div>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
                 <Link
-                  href="/sign-in"
+                  href="/auth"
                   onClick={closeMobileMenu}
                   className="block px-4 py-3 text-center text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 rounded-md transition-colors"
                 >
                   Sign In
                 </Link>
                 <Link
-                  href="/sign-up"
+                  href="/auth"
                   onClick={closeMobileMenu}
                   className="block px-4 py-3 text-center text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
                 >

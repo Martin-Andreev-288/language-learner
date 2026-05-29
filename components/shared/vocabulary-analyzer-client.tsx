@@ -202,13 +202,13 @@ export default function VocabularyAnalyzerClient({
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <Link
-                    href="/sign-in"
+                    href="/auth"
                     className="rounded-md bg-blue-600 px-4 py-2 font-medium text-white transition-colors hover:bg-blue-700"
                   >
                     Sign In
                   </Link>
                   <Link
-                    href="/sign-up"
+                    href="/auth"
                     className="rounded-md border border-blue-300 bg-white px-4 py-2 font-medium text-blue-700 transition-colors hover:bg-blue-100"
                   >
                     Create Account

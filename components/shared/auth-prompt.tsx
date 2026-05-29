@@ -33,13 +33,13 @@ const AuthPrompt = ({ featureName, description }: AuthPromptProps) => {
         {/* Auth Buttons */}
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
           <Link
-            href="/sign-in"
+            href="/auth"
             className="rounded-md bg-blue-600 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
           >
             Sign In
           </Link>
           <Link
-            href="/sign-up"
+            href="/auth"
             className="rounded-md border border-gray-300 bg-white px-6 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
             Create Account

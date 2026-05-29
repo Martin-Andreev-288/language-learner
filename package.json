@@ -10,19 +10,20 @@
     "seed": "npx tsx ./db/seed"
   },
   "dependencies": {
-    "@auth/prisma-adapter": "^2.11.1",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
     "@types/pg": "^8.16.0",
-    "bcrypt-ts-edge": "^3.0.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",
     "lucide-react": "^0.562.0",
     "next": "16.1.6",
-    "next-auth": "^5.0.0-beta.30",
+    "nextjs-cors": "^2.2.1",
     "pg": "^8.18.0",
     "react": "19.2.1",
     "react-dom": "19.2.1",
+    "supertokens-auth-react": "^0.51.2",
+    "supertokens-node": "^24.0.2",
+    "supertokens-web-js": "^0.16.0",
     "tailwind-merge": "^3.4.1"
   },
   "devDependencies": {

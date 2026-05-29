@@ -1,30 +1,27 @@
-import { auth } from "@/auth";
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 
-export default auth((req) => {
-    const isAuthenticated = !!req.auth;
-    const { pathname } = req.nextUrl;
+export function proxy(request: NextRequest) {
+    const { pathname } = request.nextUrl;
+    const hasSession = request.cookies.has("sAccessToken");
 
-    const isAuthPage =
-        pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
+    const isPublic =
+        pathname === "/" ||
+        pathname === "/access-denied" ||
+        pathname.startsWith("/auth") ||
+        pathname.startsWith("/api/auth") ||
+        pathname === "/rules";
 
-    // If a signed-in user visits an auth page, redirect them to home
-    if (isAuthenticated && isAuthPage) {
-        return NextResponse.redirect(new URL("/", req.url));
+    if (!hasSession && !isPublic) {
+        return NextResponse.redirect(new URL("/access-denied", request.url));
+    }
+
+    if (hasSession && pathname.startsWith("/auth")) {
+        return NextResponse.redirect(new URL("/", request.url));
     }
 
     return NextResponse.next();
-});
+}
 
 export const config = {
-    matcher: [
-        /*
-         * Match all request paths EXCEPT:
-         * - _next/static (static files)
-         * - _next/image (image optimization)
-         * - favicon.ico
-         * - public folder files
-         * - api routes
-         */
-        "/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)"],
+    matcher: ["/((?!_next/static|_next/image|favicon.ico|public/).*)"],
 };

@@ -1,8 +1,18 @@
-import { auth } from "@/auth";
+import { cookies } from "next/headers";
+import { getSSRSession } from "supertokens-node/nextjs";
+import { ensureSuperTokensInit } from "@/app/config/backend";
 import VocabularyAnalyzerClient from "@/components/shared/vocabulary-analyzer-client";
 
-export default async function VocabularyAnalyzerPage() {
-  const session = await auth();
+ensureSuperTokensInit();
 
-  return <VocabularyAnalyzerClient isAuthenticated={!!session} />;
+export default async function VocabularyAnalyzerPage() {
+  const { accessTokenPayload, hasToken } = await getSSRSession(
+    (await cookies()).getAll(),
+  );
+
+  return (
+    <VocabularyAnalyzerClient
+      isAuthenticated={!!(hasToken && accessTokenPayload)}
+    />
+  );
 }

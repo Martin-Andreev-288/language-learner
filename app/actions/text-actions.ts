@@ -1,15 +1,18 @@
 "use server";
 
-import { auth } from "@/auth";
+import { cookies } from "next/headers";
+import { getSSRSession } from "supertokens-node/nextjs";
+import { ensureSuperTokensInit } from "@/app/config/backend";
 import { prisma } from "@/lib/prisma";
 import { TextType } from "@/app/generated/prisma";
 
 async function requireUserId(): Promise<string> {
-    const session = await auth();
-    if (!session?.user?.id) {
+    ensureSuperTokensInit();
+    const { accessTokenPayload, hasToken } = await getSSRSession((await cookies()).getAll());
+    if (!hasToken || !accessTokenPayload) {
         throw new Error("Unauthorized");
     }
-    return session.user.id;
+    return accessTokenPayload.sub as string;
 }
 
 export async function createText(
