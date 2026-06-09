@@ -96,6 +96,49 @@ model VocabularyEntry {
     @@index([word])
 }
 
+// ShuffleList model - stores user-created vocabulary/phrase lists for shuffle review
+model ShuffleList {
+    id        String          @id @default(cuid())
+    userId    String
+    type      ShuffleListType
+    title     String
+    createdAt DateTime        @default(now())
+    updatedAt DateTime        @updatedAt
+
+    // Relations
+    user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+    cards ShuffleCard[]
+
+    @@index([userId])
+    @@index([userId, type])
+    @@index([createdAt])
+}
+
+// ShuffleCard model - stores card review state inside a shuffle list
+model ShuffleCard {
+    id        String   @id @default(cuid())
+    listId    String
+    text      String   @db.Text
+    memorized Boolean  @default(false)
+    favorite  Boolean  @default(false)
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    // Relations
+    list ShuffleList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+    @@index([listId])
+    @@index([memorized])
+    @@index([favorite])
+    @@index([createdAt])
+}
+
+// Enum for shuffle list types
+enum ShuffleListType {
+    word
+    phrase
+}
+
 // Note model - stores user notes
 model Note {
     id        String   @id @default(cuid())
@@ -131,10 +174,11 @@ model User {
     sessions Session[]
 
     // Your existing relations
-    folders    Folder[]
-    texts      Text[]
-    vocabulary VocabularyEntry[]
-    notes      Note[]
+    folders      Folder[]
+    texts        Text[]
+    vocabulary   VocabularyEntry[]
+    notes        Note[]
+    shuffleLists ShuffleList[]
 
     @@index([email])
 }
