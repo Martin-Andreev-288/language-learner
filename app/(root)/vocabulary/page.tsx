@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { auth } from "@/auth";
 import AuthPrompt from "@/components/shared/auth-prompt";
 
@@ -25,9 +26,17 @@ export default async function VocabularyPage() {
       </div>
 
       <div className="rounded-xl bg-white p-8 shadow-lg">
-        <p className="text-center text-gray-500">
-          Your vocabulary list will appear here.
-        </p>
+        <div className="space-y-4 text-center">
+          <p className="text-gray-500">
+            Your vocabulary list will appear here.
+          </p>
+          <Link
+            href="/vocabulary/shuffle"
+            className="inline-flex items-center rounded-lg bg-[#4facfe] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#2f8fe3]"
+          >
+            Open Vocab Shuffle →
+          </Link>
+        </div>
       </div>
     </div>
   );

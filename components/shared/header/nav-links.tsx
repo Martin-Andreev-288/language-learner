@@ -39,7 +39,7 @@ const navLinks: NavItem[] = [
     label: "Vocabulary",
     subLinks: [
       { href: "/vocabulary", label: "My Words" },
-      { href: "/vocabulary/word-lists", label: "Word Lists" },
+      { href: "/vocabulary/shuffle", label: "Vocab Shuffle" },
       { href: "/vocabulary/flashcards", label: "Flashcards" },
     ],
   },
@@ -93,13 +93,16 @@ export default function NavLinks({
     }, 150);
   };
 
+  const isPathActive = (href: string) =>
+    pathname === href || pathname.startsWith(`${href}/`);
+
   if (isMobile) {
     return (
       <>
         {navLinks.map((link) => {
           const isActive =
-            pathname === link.href ||
-            link.subLinks?.some((sub) => pathname === sub.href);
+            isPathActive(link.href) ||
+            link.subLinks?.some((sub) => isPathActive(sub.href));
           const isExpanded = expandedMobile === link.label;
 
           if (link.subLinks) {
@@ -234,7 +237,7 @@ export default function NavLinks({
                     key={sub.href}
                     href={sub.href}
                     className={`block px-4 py-2 text-sm transition-colors duration-150 ${
-                      pathname === sub.href
+                      isPathActive(sub.href)
                         ? "bg-gray-700 text-white"
                         : "text-gray-300 hover:bg-gray-700 hover:text-white"
                     }`}
