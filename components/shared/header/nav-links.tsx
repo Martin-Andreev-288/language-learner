@@ -22,6 +22,7 @@ const navLinks: NavItem[] = [
     label: "Reading",
     subLinks: [
       { href: "/reading", label: "My Reading Texts" },
+      { href: "/reading/shuffle", label: "Reading Shuffle" },
       { href: "/reading/island-dialogues", label: "Island Dialogues" },
     ],
   },
@@ -146,7 +147,7 @@ export default function NavLinks({
                       href={sub.href}
                       onClick={onLinkClick}
                       className={`block rounded-lg py-2 pl-8 pr-4 text-sm transition-all duration-200 ${
-                        pathname === sub.href
+                        isPathActive(sub.href)
                           ? "text-white"
                           : "text-gray-400 hover:text-white"
                       }`}
@@ -182,8 +183,8 @@ export default function NavLinks({
     <>
       {navLinks.map((link) => {
         const isActive =
-          pathname === link.href ||
-          link.subLinks?.some((sub) => pathname === sub.href);
+          isPathActive(link.href) ||
+          link.subLinks?.some((sub) => isPathActive(sub.href));
 
         if (link.subLinks) {
           return (
