@@ -18,10 +18,9 @@ interface NavItem {
 const navLinks: NavItem[] = [
   { href: "/", label: "Home" },
   {
-    href: "/reading",
+    href: "/reading/shuffle",
     label: "Reading",
     subLinks: [
-      { href: "/reading", label: "My Reading Texts" },
       { href: "/reading/shuffle", label: "Reading Shuffle" },
       { href: "/reading/island-dialogues", label: "Island Dialogues" },
     ],
@@ -36,10 +35,9 @@ const navLinks: NavItem[] = [
     ],
   },
   {
-    href: "/vocabulary",
+    href: "/vocabulary/shuffle",
     label: "Vocabulary",
     subLinks: [
-      { href: "/vocabulary", label: "My Words" },
       { href: "/vocabulary/shuffle", label: "Vocab Shuffle" },
       { href: "/vocabulary/flashcards", label: "Flashcards" },
     ],
