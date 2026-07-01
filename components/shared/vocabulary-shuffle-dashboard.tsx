@@ -203,7 +203,7 @@ export default function VocabularyShuffleDashboard({
             <button
               type="button"
               onClick={() =>
-                router.push(`${reviewBasePath}/all?filter=unmemorized`)
+                router.push(`/unmemorized?type=${type}&from=shuffle`)
               }
               className="group flex flex-col justify-between rounded-xl border border-emerald-500/40 bg-emerald-950/40 p-5 text-left transition-colors hover:bg-emerald-950/70"
             >

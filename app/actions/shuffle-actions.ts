@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { ShuffleListType } from "@/app/generated/prisma";
 
 export type ShuffleFilter = "all" | "unmemorized" | "memorized" | "favorites";
+export type ShuffleClientType = "word" | "phrase";
 
 async function requireUserId(): Promise<string> {
     const session = await auth();
@@ -325,6 +326,107 @@ export async function getShuffleReviewCards(options: {
 
     return {
         listIds,
+        cards,
+    };
+}
+
+export async function getShuffleLists(type?: ShuffleListType) {
+    const userId = await requireUserId();
+
+    return prisma.shuffleList.findMany({
+        where: {
+            userId,
+            ...(type ? { type } : {}),
+        },
+        orderBy: [{ title: "asc" }, { createdAt: "asc" }],
+        select: {
+            id: true,
+            title: true,
+            type: true,
+        },
+    });
+}
+
+export async function getUnmemorizedGroups(type?: ShuffleListType) {
+    const userId = await requireUserId();
+
+    const lists = await prisma.shuffleList.findMany({
+        where: {
+            userId,
+            ...(type ? { type } : {}),
+        },
+        orderBy: [{ title: "asc" }, { createdAt: "asc" }],
+        select: {
+            id: true,
+            title: true,
+            type: true,
+            cards: {
+                where: { memorized: false },
+                select: { id: true },
+            },
+        },
+    });
+
+    const groups = lists
+        .map((list) => ({
+            listId: list.id,
+            title: list.title,
+            type: list.type,
+            unmemorizedCount: list.cards.length,
+        }))
+        .filter((group) => group.unmemorizedCount > 0);
+
+    const total = groups.reduce((sum, group) => sum + group.unmemorizedCount, 0);
+
+    return {
+        groups,
+        totals: {
+            groups: groups.length,
+            cards: total,
+        },
+    };
+}
+
+export async function getUnmemorizedListDetail(
+    listId: string,
+    expectedType?: ShuffleListType,
+) {
+    const userId = await requireUserId();
+
+    const list = await requireOwnedList(userId, listId);
+
+    if (expectedType && list.type !== expectedType) {
+        throw new Error("List not found");
+    }
+
+    const cards = await prisma.shuffleCard.findMany({
+        where: {
+            listId,
+            memorized: false,
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: {
+            id: true,
+            listId: true,
+            text: true,
+            memorized: true,
+            favorite: true,
+            list: {
+                select: {
+                    id: true,
+                    title: true,
+                    type: true,
+                },
+            },
+        },
+    });
+
+    return {
+        list: {
+            id: list.id,
+            title: list.title,
+            type: list.type,
+        },
         cards,
     };
 }
