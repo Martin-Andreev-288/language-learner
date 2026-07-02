@@ -83,6 +83,14 @@ export default function VocabularyShuffleSession({
 
   const current = queue[index];
   const done = queue.length === 0 || index >= queue.length;
+
+  function handleStartEdit() {
+    if (!current) return;
+    setEditText(current.text);
+    setEditing(true);
+    setConfirmDelete(false);
+  }
+
   const currentMemorized = current?.memorized ?? false;
   const currentFavorite = current?.favorite ?? false;
   const totalInFilter = queue.length;
@@ -185,11 +193,61 @@ export default function VocabularyShuffleSession({
     setConfirmDelete(false);
   }
 
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (editing) return;
+
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+        return;
+      }
+
+      switch (event.key) {
+        case "Enter":
+        case " ":
+        case "ArrowRight":
+          event.preventDefault();
+          handleNext();
+          break;
+        case "m":
+        case "M":
+          event.preventDefault();
+          handleToggleMemorized();
+          break;
+        case "f":
+        case "F":
+          event.preventDefault();
+          handleToggleFavorite();
+          break;
+        case "e":
+        case "E":
+          event.preventDefault();
+          handleStartEdit();
+          break;
+        case "Delete":
+          event.preventDefault();
+          if (current) setConfirmDelete((value) => !value);
+          break;
+        case "b":
+        case "B":
+          event.preventDefault();
+          router.push(dashboardPath);
+          break;
+        default:
+          break;
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
       <div className="relative mx-4 w-full max-w-lg">
         <button
           onClick={() => router.push(dashboardPath)}
+          title="Shortcut: B"
           className="absolute -top-10 right-0 flex items-center gap-1.5 text-xs text-zinc-500 transition-colors hover:text-zinc-200"
         >
           <ChevronLeftIcon />
@@ -307,6 +365,7 @@ export default function VocabularyShuffleSession({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleToggleMemorized}
+                    title="Shortcut: M"
                     className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                       currentMemorized
                         ? "bg-emerald-900/60 text-emerald-400 hover:bg-emerald-900"
@@ -319,6 +378,7 @@ export default function VocabularyShuffleSession({
 
                   <button
                     onClick={handleToggleFavorite}
+                    title="Shortcut: F"
                     className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                       currentFavorite
                         ? "bg-amber-900/60 text-amber-400 hover:bg-amber-900"
@@ -338,11 +398,8 @@ export default function VocabularyShuffleSession({
                     </button>
                   ) : (
                     <button
-                      onClick={() => {
-                        setEditText(current?.text ?? "");
-                        setEditing(true);
-                        setConfirmDelete(false);
-                      }}
+                      onClick={handleStartEdit}
+                      title="Shortcut: E"
                       className="flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
                     >
                       <EditIcon />
@@ -353,6 +410,7 @@ export default function VocabularyShuffleSession({
                   {!editing && (
                     <button
                       onClick={() => setConfirmDelete((value) => !value)}
+                      title="Shortcut: Del"
                       className="flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-red-400"
                     >
                       <TrashIcon />
@@ -363,6 +421,7 @@ export default function VocabularyShuffleSession({
 
                 <button
                   onClick={handleNext}
+                  title="Shortcut: Enter / Space / →"
                   className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
                 >
                   Next
