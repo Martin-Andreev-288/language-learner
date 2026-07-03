@@ -94,6 +94,20 @@ export async function deleteShuffleList(listId: string) {
     });
 }
 
+export async function markShuffleListReviewed(listId: string) {
+    const userId = await requireUserId();
+
+    await requireOwnedList(userId, listId);
+
+    return prisma.shuffleList.update({
+        where: { id: listId },
+        data: {
+            reviewCount: { increment: 1 },
+            lastReviewedAt: new Date(),
+        },
+    });
+}
+
 export async function appendCardsToShuffleList(listId: string, items: string) {
     const userId = await requireUserId();
 
@@ -176,6 +190,8 @@ export async function getShuffleDashboard(type: ShuffleListType) {
             type: true,
             createdAt: true,
             updatedAt: true,
+            reviewCount: true,
+            lastReviewedAt: true,
         },
     });
 

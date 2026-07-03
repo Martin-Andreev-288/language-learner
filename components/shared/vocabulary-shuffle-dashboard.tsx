@@ -21,6 +21,8 @@ type DashboardList = {
     unmemorized: number;
     favorites: number;
   };
+  reviewCount: number;
+  lastReviewedAt: string | Date | null;
 };
 
 type DashboardData = {
@@ -57,6 +59,14 @@ type Props = {
   reviewBasePath: string;
   data: DashboardData;
 };
+
+function formatReviewDate(date: string | Date) {
+  const parsed = new Date(date);
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const year = String(parsed.getFullYear()).slice(-2);
+  return `${day}.${month}.${year}`;
+}
 
 export default function VocabularyShuffleDashboard({
   type,
@@ -289,6 +299,12 @@ export default function VocabularyShuffleDashboard({
                   </span>
                 )}
               </p>
+              {list.reviewCount > 0 && list.lastReviewedAt && (
+                <p className="mt-1 text-xs text-zinc-600">
+                  reviews: {list.reviewCount} · last:{" "}
+                  {formatReviewDate(list.lastReviewedAt)}
+                </p>
+              )}
             </div>
           ))}
 

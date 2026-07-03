@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   deleteShuffleCard,
+  markShuffleListReviewed,
   toggleShuffleCardFavorite,
   toggleShuffleCardMemorized,
   updateShuffleCardText,
@@ -72,6 +73,7 @@ export default function VocabularyShuffleSession({
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [reviewMarked, setReviewMarked] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -184,6 +186,7 @@ export default function VocabularyShuffleSession({
     setIndex(0);
     setEditing(false);
     setConfirmDelete(false);
+    setReviewMarked(false);
   }
 
   function handleRestart() {
@@ -191,6 +194,14 @@ export default function VocabularyShuffleSession({
     setIndex(0);
     setEditing(false);
     setConfirmDelete(false);
+    setReviewMarked(false);
+  }
+
+  function handleMarkReviewed() {
+    if (listId === "all" || reviewMarked) return;
+
+    void markShuffleListReviewed(listId);
+    setReviewMarked(true);
   }
 
   useEffect(() => {
@@ -284,12 +295,23 @@ export default function VocabularyShuffleSession({
                     You reviewed {totalInFilter} {label}
                     {totalInFilter !== 1 ? "s" : ""}.
                   </p>
-                  <button
-                    onClick={handleRestart}
-                    className="mt-2 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-                  >
-                    Restart &amp; reshuffle
-                  </button>
+                  <div className="mt-2 flex items-center gap-3">
+                    {listId !== "all" && (
+                      <button
+                        onClick={handleMarkReviewed}
+                        disabled={reviewMarked}
+                        className="rounded-lg bg-emerald-700 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {reviewMarked ? "Reviewed ✓" : "Mark as reviewed"}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleRestart}
+                      className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+                    >
+                      Restart &amp; reshuffle
+                    </button>
+                  </div>
                 </>
               )}
             </div>

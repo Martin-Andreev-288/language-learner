@@ -28,6 +28,8 @@ export default async function VocabularyShufflePage() {
           title: list.title,
           type: list.type,
           counts: list.counts,
+          reviewCount: list.reviewCount,
+          lastReviewedAt: list.lastReviewedAt,
         })),
         totals: dashboard.totals,
       }}
