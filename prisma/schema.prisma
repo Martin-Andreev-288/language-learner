@@ -96,6 +96,28 @@ model VocabularyEntry {
     @@index([word])
 }
 
+// ShuffleFolder model - organises shuffle lists into nested, user-created folders (unlimited depth)
+model ShuffleFolder {
+    id             String          @id @default(cuid())
+    userId         String
+    type           ShuffleListType
+    name           String
+    parentFolderId String?
+    order          Int             @default(0)
+    createdAt      DateTime        @default(now())
+    updatedAt      DateTime        @updatedAt
+
+    // Relations
+    user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+    parentFolder ShuffleFolder?  @relation("ShuffleFolderHierarchy", fields: [parentFolderId], references: [id], onDelete: Cascade)
+    childFolders ShuffleFolder[] @relation("ShuffleFolderHierarchy")
+    lists        ShuffleList[]
+
+    @@index([userId])
+    @@index([userId, type])
+    @@index([parentFolderId])
+}
+
 // ShuffleList model - stores user-created vocabulary/phrase lists for shuffle review
 model ShuffleList {
     id             String          @id @default(cuid())
@@ -104,15 +126,18 @@ model ShuffleList {
     title          String
     reviewCount    Int             @default(0)
     lastReviewedAt DateTime?
+    folderId       String?
     createdAt      DateTime        @default(now())
     updatedAt      DateTime        @updatedAt
 
     // Relations
-    user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-    cards ShuffleCard[]
+    user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+    folder ShuffleFolder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
+    cards  ShuffleCard[]
 
     @@index([userId])
     @@index([userId, type])
+    @@index([folderId])
     @@index([createdAt])
 }
 
@@ -176,11 +201,12 @@ model User {
     sessions Session[]
 
     // Your existing relations
-    folders      Folder[]
-    texts        Text[]
-    vocabulary   VocabularyEntry[]
-    notes        Note[]
-    shuffleLists ShuffleList[]
+    folders        Folder[]
+    texts          Text[]
+    vocabulary     VocabularyEntry[]
+    notes          Note[]
+    shuffleLists   ShuffleList[]
+    shuffleFolders ShuffleFolder[]
 
     @@index([email])
 }
