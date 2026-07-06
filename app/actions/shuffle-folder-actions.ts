@@ -200,8 +200,9 @@ export async function reorderShuffleFolders(
 
 // Returns every folder for this user/type as a flat list (folders can be
 // arbitrarily deep, so the tree is assembled in-memory rather than through
-// a fixed number of nested Prisma `include`s), plus every list's folderId
-// so the caller can group lists under their folder.
+// a fixed number of nested Prisma `include`s), plus every list with its
+// folderId and pre-computed card counts, so the caller can group lists
+// under their folder without a second round-trip for dashboard totals.
 export async function getShuffleFolderTree(type: ShuffleListType) {
     const userId = await requireUserId();
 
@@ -226,11 +227,48 @@ export async function getShuffleFolderTree(type: ShuffleListType) {
                 reviewCount: true,
                 lastReviewedAt: true,
                 cards: {
-                    select: { id: true, memorized: true, favorite: true },
+                    select: { memorized: true, favorite: true },
                 },
             },
         }),
     ]);
 
-    return { folders, lists };
+    const listsWithCounts = lists.map((list) => {
+        const total = list.cards.length;
+        const memorized = list.cards.filter((card) => card.memorized).length;
+        const favorites = list.cards.filter((card) => card.favorite).length;
+
+        return {
+            id: list.id,
+            title: list.title,
+            folderId: list.folderId,
+            reviewCount: list.reviewCount,
+            lastReviewedAt: list.lastReviewedAt,
+            counts: {
+                total,
+                memorized,
+                unmemorized: total - memorized,
+                favorites,
+            },
+        };
+    });
+
+    const totals = listsWithCounts.reduce(
+        (acc, list) => {
+            acc.cards += list.counts.total;
+            acc.memorized += list.counts.memorized;
+            acc.unmemorized += list.counts.unmemorized;
+            acc.favorites += list.counts.favorites;
+            return acc;
+        },
+        {
+            lists: listsWithCounts.length,
+            cards: 0,
+            memorized: 0,
+            unmemorized: 0,
+            favorites: 0,
+        },
+    );
+
+    return { folders, lists: listsWithCounts, totals };
 }

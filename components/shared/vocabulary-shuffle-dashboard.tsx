@@ -8,13 +8,27 @@ import {
   deleteShuffleList,
   renameShuffleList,
 } from "@/app/actions/shuffle-actions";
+import {
+  createShuffleFolder,
+  deleteShuffleFolder,
+  moveShuffleFolder,
+  moveShuffleListToFolder,
+  renameShuffleFolder,
+} from "@/app/actions/shuffle-folder-actions";
 
 type ShuffleType = "word" | "phrase";
+
+type DashboardFolder = {
+  id: string;
+  name: string;
+  parentFolderId: string | null;
+  order: number;
+};
 
 type DashboardList = {
   id: string;
   title: string;
-  type: ShuffleType;
+  folderId: string | null;
   counts: {
     total: number;
     memorized: number;
@@ -26,6 +40,7 @@ type DashboardList = {
 };
 
 type DashboardData = {
+  folders: DashboardFolder[];
   lists: DashboardList[];
   totals: {
     lists: number;
@@ -44,15 +59,30 @@ type AddModal =
       listId: string;
       title: string;
       items: string;
+      folderId: string | null;
     };
 
-type EditModal =
+type EditListModal =
   | { open: false }
   | { open: true; list: DashboardList; title: string };
-type DeleteModal = { open: false } | { open: true; list: DashboardList };
+type DeleteListModal = { open: false } | { open: true; list: DashboardList };
 type AppendModal =
   | { open: false }
   | { open: true; list: DashboardList; items: string };
+
+type FolderFormModal =
+  | { open: false }
+  | { open: true; mode: "create"; parentFolderId: string | null; name: string }
+  | { open: true; mode: "rename"; folder: DashboardFolder; name: string };
+
+type DeleteFolderModal =
+  | { open: false }
+  | { open: true; folder: DashboardFolder };
+
+type MoveModal =
+  | { open: false }
+  | { open: true; kind: "list"; list: DashboardList; targetFolderId: string }
+  | { open: true; kind: "folder"; folder: DashboardFolder; targetFolderId: string };
 
 type Props = {
   type: ShuffleType;
@@ -68,6 +98,73 @@ function formatReviewDate(date: string | Date) {
   return `${day}.${month}.${year}`;
 }
 
+function buildChildrenMap(folders: DashboardFolder[]) {
+  const map = new Map<string | null, DashboardFolder[]>();
+  for (const folder of folders) {
+    const key = folder.parentFolderId;
+    const existing = map.get(key);
+    if (existing) {
+      existing.push(folder);
+    } else {
+      map.set(key, [folder]);
+    }
+  }
+  return map;
+}
+
+function buildListsMap(lists: DashboardList[]) {
+  const map = new Map<string | null, DashboardList[]>();
+  for (const list of lists) {
+    const key = list.folderId;
+    const existing = map.get(key);
+    if (existing) {
+      existing.push(list);
+    } else {
+      map.set(key, [list]);
+    }
+  }
+  return map;
+}
+
+// Walks the folder tree from `rootId` down and returns every descendant id,
+// used to keep a folder (and its own subtree) out of its own "move" options.
+function getDescendantFolderIds(folders: DashboardFolder[], rootId: string) {
+  const childrenMap = buildChildrenMap(folders);
+  const result = new Set<string>();
+  const stack = [rootId];
+
+  while (stack.length > 0) {
+    const current = stack.pop() as string;
+    for (const child of childrenMap.get(current) ?? []) {
+      if (!result.has(child.id)) {
+        result.add(child.id);
+        stack.push(child.id);
+      }
+    }
+  }
+
+  return result;
+}
+
+function flattenFolderOptions(
+  folders: DashboardFolder[],
+  excludeIds: Set<string>,
+) {
+  const childrenMap = buildChildrenMap(folders);
+  const result: { id: string; name: string; depth: number }[] = [];
+
+  function walk(parentId: string | null, depth: number) {
+    for (const child of childrenMap.get(parentId) ?? []) {
+      if (excludeIds.has(child.id)) continue;
+      result.push({ id: child.id, name: child.name, depth });
+      walk(child.id, depth + 1);
+    }
+  }
+
+  walk(null, 0);
+  return result;
+}
+
 export default function VocabularyShuffleDashboard({
   type,
   reviewBasePath,
@@ -76,12 +173,25 @@ export default function VocabularyShuffleDashboard({
   const router = useRouter();
   const [isBusy, setIsBusy] = useState(false);
   const [addModal, setAddModal] = useState<AddModal>({ open: false });
-  const [editModal, setEditModal] = useState<EditModal>({ open: false });
-  const [deleteModal, setDeleteModal] = useState<DeleteModal>({ open: false });
+  const [editListModal, setEditListModal] = useState<EditListModal>({
+    open: false,
+  });
+  const [deleteListModal, setDeleteListModal] = useState<DeleteListModal>({
+    open: false,
+  });
   const [appendModal, setAppendModal] = useState<AppendModal>({ open: false });
+  const [folderFormModal, setFolderFormModal] = useState<FolderFormModal>({
+    open: false,
+  });
+  const [deleteFolderModal, setDeleteFolderModal] =
+    useState<DeleteFolderModal>({ open: false });
+  const [moveModal, setMoveModal] = useState<MoveModal>({ open: false });
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
-  const lists = data.lists;
+  const { folders, lists, totals } = data;
   const label = type === "word" ? "word" : "phrase";
+  const childrenMap = buildChildrenMap(folders);
+  const listsMap = buildListsMap(lists);
 
   async function runMutation(task: () => Promise<unknown>) {
     if (isBusy) return;
@@ -98,13 +208,26 @@ export default function VocabularyShuffleDashboard({
     }
   }
 
-  function openCreateModal() {
+  function toggleCollapse(folderId: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+  }
+
+  function openCreateListModal() {
     setAddModal({
       open: true,
       mode: lists.length > 0 ? "existing" : "new",
       listId: lists[0]?.id ?? "",
       title: "",
       items: "",
+      folderId: null,
     });
   }
 
@@ -120,26 +243,33 @@ export default function VocabularyShuffleDashboard({
     }
 
     void runMutation(async () => {
-      await createShuffleListWithCards(type, addModal.title, addModal.items);
+      const created = await createShuffleListWithCards(
+        type,
+        addModal.title,
+        addModal.items,
+      );
+      if (addModal.folderId) {
+        await moveShuffleListToFolder(created.id, addModal.folderId);
+      }
       setAddModal({ open: false });
     });
   }
 
-  function submitEditModal() {
-    if (!editModal.open) return;
+  function submitEditListModal() {
+    if (!editListModal.open) return;
 
     void runMutation(async () => {
-      await renameShuffleList(editModal.list.id, editModal.title);
-      setEditModal({ open: false });
+      await renameShuffleList(editListModal.list.id, editListModal.title);
+      setEditListModal({ open: false });
     });
   }
 
-  function submitDeleteModal() {
-    if (!deleteModal.open) return;
+  function submitDeleteListModal() {
+    if (!deleteListModal.open) return;
 
     void runMutation(async () => {
-      await deleteShuffleList(deleteModal.list.id);
-      setDeleteModal({ open: false });
+      await deleteShuffleList(deleteListModal.list.id);
+      setDeleteListModal({ open: false });
     });
   }
 
@@ -152,6 +282,58 @@ export default function VocabularyShuffleDashboard({
     });
   }
 
+  function submitFolderFormModal() {
+    if (!folderFormModal.open) return;
+
+    if (folderFormModal.mode === "create") {
+      void runMutation(async () => {
+        await createShuffleFolder(
+          type,
+          folderFormModal.name,
+          folderFormModal.parentFolderId,
+        );
+        setFolderFormModal({ open: false });
+      });
+      return;
+    }
+
+    void runMutation(async () => {
+      await renameShuffleFolder(folderFormModal.folder.id, folderFormModal.name);
+      setFolderFormModal({ open: false });
+    });
+  }
+
+  function submitDeleteFolderModal() {
+    if (!deleteFolderModal.open) return;
+
+    void runMutation(async () => {
+      await deleteShuffleFolder(deleteFolderModal.folder.id);
+      setDeleteFolderModal({ open: false });
+    });
+  }
+
+  function submitMoveModal() {
+    if (!moveModal.open) return;
+
+    const targetFolderId =
+      moveModal.targetFolderId === "" ? null : moveModal.targetFolderId;
+
+    if (moveModal.kind === "list") {
+      void runMutation(async () => {
+        await moveShuffleListToFolder(moveModal.list.id, targetFolderId);
+        setMoveModal({ open: false });
+      });
+      return;
+    }
+
+    void runMutation(async () => {
+      await moveShuffleFolder(moveModal.folder.id, targetFolderId);
+      setMoveModal({ open: false });
+    });
+  }
+
+  const isEmpty = totals.lists === 0 && folders.length === 0;
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-5xl px-6 py-10">
@@ -161,24 +343,41 @@ export default function VocabularyShuffleDashboard({
               {type === "word" ? "Vocab Shuffle" : "Phrase Shuffle"}
             </h1>
             <p className="mt-1 text-sm text-zinc-500">
-              {data.totals.lists} list{data.totals.lists !== 1 ? "s" : ""} ·{" "}
-              {data.totals.cards} {label}
-              {data.totals.cards !== 1 ? "s" : ""}
+              {totals.lists} list{totals.lists !== 1 ? "s" : ""} ·{" "}
+              {totals.cards} {label}
+              {totals.cards !== 1 ? "s" : ""}
             </p>
           </div>
 
-          <button
-            onClick={openCreateModal}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-            disabled={isBusy}
-          >
-            <PlusIcon />
-            Add new list
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() =>
+                setFolderFormModal({
+                  open: true,
+                  mode: "create",
+                  parentFolderId: null,
+                  name: "",
+                })
+              }
+              className="flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
+              disabled={isBusy}
+            >
+              <FolderPlusIcon />
+              New folder
+            </button>
+            <button
+              onClick={openCreateListModal}
+              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+              disabled={isBusy}
+            >
+              <PlusIcon />
+              Add new list
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {lists.length > 0 && (
+        {lists.length > 0 && (
+          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <button
               type="button"
               onClick={() => router.push(`${reviewBasePath}/all`)}
@@ -191,25 +390,23 @@ export default function VocabularyShuffleDashboard({
                 </span>
               </div>
               <p className="text-sm text-zinc-400">
-                {data.totals.cards} {label}
-                {data.totals.cards !== 1 ? "s" : ""} across all lists
-                {data.totals.memorized > 0 && (
+                {totals.cards} {label}
+                {totals.cards !== 1 ? "s" : ""} across all lists
+                {totals.memorized > 0 && (
                   <span className="text-zinc-600">
                     {" "}
-                    · {data.totals.memorized} memorized
+                    · {totals.memorized} memorized
                   </span>
                 )}
-                {data.totals.favorites > 0 && (
+                {totals.favorites > 0 && (
                   <span className="text-amber-500/80">
                     {" "}
-                    · {data.totals.favorites} favorites
+                    · {totals.favorites} favorites
                   </span>
                 )}
               </p>
             </button>
-          )}
 
-          {lists.length > 0 && (
             <button
               type="button"
               onClick={() =>
@@ -224,100 +421,74 @@ export default function VocabularyShuffleDashboard({
                 </span>
               </div>
               <p className="text-sm text-zinc-400">
-                {data.totals.unmemorized} unmemorized {label}
-                {data.totals.unmemorized !== 1 ? "s" : ""}
+                {totals.unmemorized} unmemorized {label}
+                {totals.unmemorized !== 1 ? "s" : ""}
               </p>
             </button>
-          )}
+          </div>
+        )}
 
-          {lists.map((list) => (
-            <div
-              key={list.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => router.push(`${reviewBasePath}/${list.id}`)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  router.push(`${reviewBasePath}/${list.id}`);
-                }
-              }}
-              className="group relative flex cursor-pointer flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition-colors hover:border-zinc-700"
-            >
-              <div className="absolute right-3 top-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                <button
-                  type="button"
-                  title="Add items"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setAppendModal({ open: true, list, items: "" });
-                  }}
-                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-indigo-300"
-                >
-                  <PlusIcon />
-                </button>
-                <button
-                  type="button"
-                  title="Edit list title"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setEditModal({ open: true, list, title: list.title });
-                  }}
-                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
-                >
-                  <EditIcon />
-                </button>
-                <button
-                  type="button"
-                  title="Delete list"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setDeleteModal({ open: true, list });
-                  }}
-                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-red-400"
-                >
-                  <TrashIcon />
-                </button>
-              </div>
-
-              <h2 className="mb-3 pr-16 font-semibold leading-snug text-zinc-100">
-                {list.title}
-              </h2>
-              <p className="text-sm text-zinc-500">
-                {list.counts.total} {label}
-                {list.counts.total !== 1 ? "s" : ""}
-                {list.counts.total > 0 && (
-                  <span className="text-zinc-600">
-                    {" "}
-                    · {list.counts.memorized}/{list.counts.total} memorized
-                  </span>
-                )}
-                {list.counts.favorites > 0 && (
-                  <span className="text-amber-500/80">
-                    {" "}
-                    · {list.counts.favorites} favorites
-                  </span>
-                )}
-              </p>
-              {list.reviewCount > 0 && list.lastReviewedAt && (
-                <p className="mt-1 text-xs text-zinc-600">
-                  reviews: {list.reviewCount} · last:{" "}
-                  {formatReviewDate(list.lastReviewedAt)}
-                </p>
-              )}
-            </div>
-          ))}
-
-          {lists.length === 0 && (
-            <div className="col-span-full flex flex-col items-center justify-center py-24 text-center">
-              <p className="mb-1 text-lg text-zinc-500">No lists yet</p>
-              <p className="text-sm text-zinc-600">
-                Click &ldquo;Add new list&rdquo; to create your first {label}{" "}
-                list.
-              </p>
-            </div>
-          )}
-        </div>
+        {isEmpty ? (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <p className="mb-1 text-lg text-zinc-500">No lists yet</p>
+            <p className="text-sm text-zinc-600">
+              Click &ldquo;Add new list&rdquo; to create your first {label}{" "}
+              list.
+            </p>
+          </div>
+        ) : (
+          <FolderSection
+            folder={null}
+            depth={0}
+            label={label}
+            reviewBasePath={reviewBasePath}
+            childrenMap={childrenMap}
+            listsMap={listsMap}
+            collapsed={collapsed}
+            onToggleCollapse={toggleCollapse}
+            onOpenList={(listId) => router.push(`${reviewBasePath}/${listId}`)}
+            onAppendList={(list) => setAppendModal({ open: true, list, items: "" })}
+            onEditList={(list) =>
+              setEditListModal({ open: true, list, title: list.title })
+            }
+            onDeleteList={(list) => setDeleteListModal({ open: true, list })}
+            onMoveList={(list) =>
+              setMoveModal({
+                open: true,
+                kind: "list",
+                list,
+                targetFolderId: list.folderId ?? "",
+              })
+            }
+            onCreateSubfolder={(parentFolderId) =>
+              setFolderFormModal({
+                open: true,
+                mode: "create",
+                parentFolderId,
+                name: "",
+              })
+            }
+            onRenameFolder={(folder) =>
+              setFolderFormModal({
+                open: true,
+                mode: "rename",
+                folder,
+                name: folder.name,
+              })
+            }
+            onDeleteFolder={(folder) =>
+              setDeleteFolderModal({ open: true, folder })
+            }
+            onMoveFolder={(folder) =>
+              setMoveModal({
+                open: true,
+                kind: "folder",
+                folder,
+                targetFolderId: folder.parentFolderId ?? "",
+              })
+            }
+          />
+        )}
       </div>
 
       {addModal.open && (
@@ -391,6 +562,32 @@ export default function VocabularyShuffleDashboard({
                 }
                 className="mb-4 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
               />
+
+              {folders.length > 0 && (
+                <>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-400">
+                    Folder
+                  </label>
+                  <select
+                    value={addModal.folderId ?? ""}
+                    onChange={(event) =>
+                      setAddModal({
+                        ...addModal,
+                        folderId:
+                          event.target.value === "" ? null : event.target.value,
+                      })
+                    }
+                    className="mb-4 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors focus:border-indigo-500"
+                  >
+                    <option value="">— Root —</option>
+                    {flattenFolderOptions(folders, new Set()).map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {"—".repeat(option.depth)} {option.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
             </>
           )}
 
@@ -439,8 +636,8 @@ export default function VocabularyShuffleDashboard({
         </Modal>
       )}
 
-      {editModal.open && (
-        <Modal onClose={() => setEditModal({ open: false })}>
+      {editListModal.open && (
+        <Modal onClose={() => setEditListModal({ open: false })}>
           <h2 className="mb-5 text-lg font-semibold text-zinc-100">
             Edit list title
           </h2>
@@ -450,25 +647,25 @@ export default function VocabularyShuffleDashboard({
           <input
             autoFocus
             type="text"
-            value={editModal.title}
+            value={editListModal.title}
             onChange={(event) =>
-              setEditModal({ ...editModal, title: event.target.value })
+              setEditListModal({ ...editListModal, title: event.target.value })
             }
-            onKeyDown={(event) => event.key === "Enter" && submitEditModal()}
+            onKeyDown={(event) => event.key === "Enter" && submitEditListModal()}
             className="mb-5 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors focus:border-indigo-500"
           />
           <div className="flex justify-end gap-3">
             <button
               type="button"
-              onClick={() => setEditModal({ open: false })}
+              onClick={() => setEditListModal({ open: false })}
               className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
             >
               Cancel
             </button>
             <button
               type="button"
-              onClick={submitEditModal}
-              disabled={isBusy || !editModal.title.trim()}
+              onClick={submitEditListModal}
+              disabled={isBusy || !editListModal.title.trim()}
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Save
@@ -477,29 +674,29 @@ export default function VocabularyShuffleDashboard({
         </Modal>
       )}
 
-      {deleteModal.open && (
-        <Modal onClose={() => setDeleteModal({ open: false })}>
+      {deleteListModal.open && (
+        <Modal onClose={() => setDeleteListModal({ open: false })}>
           <h2 className="mb-2 text-lg font-semibold text-zinc-100">
             Delete list?
           </h2>
           <p className="mb-6 text-sm text-zinc-400">
             This will permanently delete{" "}
             <span className="font-medium text-zinc-200">
-              &ldquo;{deleteModal.list.title}&rdquo;
+              &ldquo;{deleteListModal.list.title}&rdquo;
             </span>{" "}
             and all its {label}s.
           </p>
           <div className="flex justify-end gap-3">
             <button
               type="button"
-              onClick={() => setDeleteModal({ open: false })}
+              onClick={() => setDeleteListModal({ open: false })}
               className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
             >
               Cancel
             </button>
             <button
               type="button"
-              onClick={submitDeleteModal}
+              onClick={submitDeleteListModal}
               disabled={isBusy}
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -556,6 +753,380 @@ export default function VocabularyShuffleDashboard({
             </button>
           </div>
         </Modal>
+      )}
+
+      {folderFormModal.open && (
+        <Modal onClose={() => setFolderFormModal({ open: false })}>
+          <h2 className="mb-5 text-lg font-semibold text-zinc-100">
+            {folderFormModal.mode === "create" ? "New folder" : "Rename folder"}
+          </h2>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-400">
+            Folder name
+          </label>
+          <input
+            autoFocus
+            type="text"
+            value={folderFormModal.name}
+            onChange={(event) =>
+              setFolderFormModal({ ...folderFormModal, name: event.target.value })
+            }
+            onKeyDown={(event) =>
+              event.key === "Enter" && submitFolderFormModal()
+            }
+            placeholder="e.g. 17 topics"
+            className="mb-5 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors focus:border-indigo-500"
+          />
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setFolderFormModal({ open: false })}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitFolderFormModal}
+              disabled={isBusy || !folderFormModal.name.trim()}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {folderFormModal.mode === "create" ? "Create" : "Save"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {deleteFolderModal.open && (
+        <Modal onClose={() => setDeleteFolderModal({ open: false })}>
+          <h2 className="mb-2 text-lg font-semibold text-zinc-100">
+            Delete folder?
+          </h2>
+          <p className="mb-6 text-sm text-zinc-400">
+            This will permanently delete{" "}
+            <span className="font-medium text-zinc-200">
+              &ldquo;{deleteFolderModal.folder.name}&rdquo;
+            </span>{" "}
+            and everything inside it — all subfolders, all {label} lists, and
+            all {label}s in those lists. This cannot be undone.
+          </p>
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setDeleteFolderModal({ open: false })}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitDeleteFolderModal}
+              disabled={isBusy}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Delete everything
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {moveModal.open && (
+        <Modal onClose={() => setMoveModal({ open: false })}>
+          <h2 className="mb-2 text-lg font-semibold text-zinc-100">
+            Move {moveModal.kind === "list" ? "list" : "folder"}
+          </h2>
+          <p className="mb-4 text-sm text-zinc-500">
+            {moveModal.kind === "list"
+              ? moveModal.list.title
+              : moveModal.folder.name}
+          </p>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-400">
+            Destination folder
+          </label>
+          <select
+            value={moveModal.targetFolderId}
+            onChange={(event) =>
+              setMoveModal({ ...moveModal, targetFolderId: event.target.value })
+            }
+            className="mb-5 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors focus:border-indigo-500"
+          >
+            <option value="">— Root —</option>
+            {flattenFolderOptions(
+              folders,
+              moveModal.kind === "folder"
+                ? new Set([
+                    moveModal.folder.id,
+                    ...getDescendantFolderIds(folders, moveModal.folder.id),
+                  ])
+                : new Set<string>(),
+            ).map((option) => (
+              <option key={option.id} value={option.id}>
+                {"—".repeat(option.depth)} {option.name}
+              </option>
+            ))}
+          </select>
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setMoveModal({ open: false })}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitMoveModal}
+              disabled={isBusy}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Move
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+type FolderSectionProps = {
+  folder: DashboardFolder | null;
+  depth: number;
+  label: string;
+  reviewBasePath: string;
+  childrenMap: Map<string | null, DashboardFolder[]>;
+  listsMap: Map<string | null, DashboardList[]>;
+  collapsed: Set<string>;
+  onToggleCollapse: (folderId: string) => void;
+  onOpenList: (listId: string) => void;
+  onAppendList: (list: DashboardList) => void;
+  onEditList: (list: DashboardList) => void;
+  onDeleteList: (list: DashboardList) => void;
+  onMoveList: (list: DashboardList) => void;
+  onCreateSubfolder: (parentFolderId: string | null) => void;
+  onRenameFolder: (folder: DashboardFolder) => void;
+  onDeleteFolder: (folder: DashboardFolder) => void;
+  onMoveFolder: (folder: DashboardFolder) => void;
+};
+
+function FolderSection(props: FolderSectionProps) {
+  const {
+    folder,
+    depth,
+    label,
+    childrenMap,
+    listsMap,
+    collapsed,
+    onToggleCollapse,
+    onOpenList,
+    onAppendList,
+    onEditList,
+    onDeleteList,
+    onMoveList,
+    onCreateSubfolder,
+    onRenameFolder,
+    onDeleteFolder,
+    onMoveFolder,
+  } = props;
+
+  const folderId = folder?.id ?? null;
+  const childFolders = childrenMap.get(folderId) ?? [];
+  const directLists = listsMap.get(folderId) ?? [];
+  const isCollapsed = folder ? collapsed.has(folder.id) : false;
+
+  return (
+    <div className={depth > 0 ? "mb-2 border-l border-zinc-800 pl-4" : ""}>
+      {folder && (
+        <div className="group relative mb-3 flex items-center gap-2 rounded-lg bg-zinc-900/60 px-3 py-2.5">
+          <button
+            type="button"
+            onClick={() => onToggleCollapse(folder.id)}
+            title={isCollapsed ? "Expand" : "Collapse"}
+            className="shrink-0 rounded p-0.5 text-zinc-500 hover:text-zinc-200"
+          >
+            <ChevronDownIcon className={isCollapsed ? "-rotate-90" : ""} />
+          </button>
+          <FolderIcon className="shrink-0 text-zinc-500" />
+          <span className="min-w-0 flex-1 truncate font-medium text-zinc-200">
+            {folder.name}
+          </span>
+          <span className="shrink-0 text-xs text-zinc-600">
+            {childFolders.length} folder{childFolders.length !== 1 ? "s" : ""} ·{" "}
+            {directLists.length} list{directLists.length !== 1 ? "s" : ""}
+          </span>
+          <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <button
+              type="button"
+              title="New subfolder"
+              onClick={() => onCreateSubfolder(folder.id)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-indigo-300"
+            >
+              <FolderPlusIcon />
+            </button>
+            <button
+              type="button"
+              title="Move folder"
+              onClick={() => onMoveFolder(folder)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+            >
+              <MoveIcon />
+            </button>
+            <button
+              type="button"
+              title="Rename folder"
+              onClick={() => onRenameFolder(folder)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+            >
+              <EditIcon />
+            </button>
+            <button
+              type="button"
+              title="Delete folder"
+              onClick={() => onDeleteFolder(folder)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-red-400"
+            >
+              <TrashIcon />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isCollapsed && (
+        <>
+          {directLists.length > 0 && (
+            <div
+              className={`grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 ${
+                childFolders.length > 0 ? "mb-4" : "mb-6"
+              }`}
+            >
+              {directLists.map((list) => (
+                <ListCard
+                  key={list.id}
+                  list={list}
+                  label={label}
+                  onOpen={() => onOpenList(list.id)}
+                  onAppend={() => onAppendList(list)}
+                  onEdit={() => onEditList(list)}
+                  onDelete={() => onDeleteList(list)}
+                  onMove={() => onMoveList(list)}
+                />
+              ))}
+            </div>
+          )}
+
+          {childFolders.map((child) => (
+            <FolderSection
+              key={child.id}
+              {...props}
+              folder={child}
+              depth={depth + 1}
+            />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ListCard({
+  list,
+  label,
+  onOpen,
+  onAppend,
+  onEdit,
+  onDelete,
+  onMove,
+}: {
+  list: DashboardList;
+  label: string;
+  onOpen: () => void;
+  onAppend: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onMove: () => void;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      className="group relative flex cursor-pointer flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition-colors hover:border-zinc-700"
+    >
+      <div className="absolute right-3 top-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          title="Add items"
+          onClick={(event) => {
+            event.stopPropagation();
+            onAppend();
+          }}
+          className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-indigo-300"
+        >
+          <PlusIcon />
+        </button>
+        <button
+          type="button"
+          title="Move to folder"
+          onClick={(event) => {
+            event.stopPropagation();
+            onMove();
+          }}
+          className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+        >
+          <MoveIcon />
+        </button>
+        <button
+          type="button"
+          title="Edit list title"
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit();
+          }}
+          className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+        >
+          <EditIcon />
+        </button>
+        <button
+          type="button"
+          title="Delete list"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-red-400"
+        >
+          <TrashIcon />
+        </button>
+      </div>
+
+      <h2 className="mb-3 pr-28 font-semibold leading-snug text-zinc-100">
+        {list.title}
+      </h2>
+      <p className="text-sm text-zinc-500">
+        {list.counts.total} {label}
+        {list.counts.total !== 1 ? "s" : ""}
+        {list.counts.total > 0 && (
+          <span className="text-zinc-600">
+            {" "}
+            · {list.counts.memorized}/{list.counts.total} memorized
+          </span>
+        )}
+        {list.counts.favorites > 0 && (
+          <span className="text-amber-500/80">
+            {" "}
+            · {list.counts.favorites} favorites
+          </span>
+        )}
+      </p>
+      {list.reviewCount > 0 && list.lastReviewedAt && (
+        <p className="mt-1 text-xs text-zinc-600">
+          reviews: {list.reviewCount} · last:{" "}
+          {formatReviewDate(list.lastReviewedAt)}
+        </p>
       )}
     </div>
   );
@@ -672,6 +1243,84 @@ function TrashIcon() {
         d="M1.5 3.5h10M4.5 3.5V2.5h4v1M5 5.5v4M8 5.5v4M2.5 3.5l.7 7.5h6.6l.7-7.5"
         stroke="currentColor"
         strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      className={`transition-transform ${className ?? ""}`}
+    >
+      <path
+        d="M2.5 4.5 6 8l3.5-3.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function FolderIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 15 15"
+      fill="none"
+      className={className}
+    >
+      <path
+        d="M1.5 3.5a1 1 0 0 1 1-1h3l1.2 1.5H12a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1v-7.5Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function FolderPlusIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path
+        d="M1.5 3a1 1 0 0 1 1-1h2.6l1 1.2H10.5a1 1 0 0 1 1 1v5.3a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1V3Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.5 6v3M5 7.5h3"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function MoveIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path
+        d="M1.5 2.5h4l1 1.2H11a.5.5 0 0 1 .5.5v6.3a.5.5 0 0 1-.5.5H1.5a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4.5 8.5 8.5 5.5M8.5 5.5H6M8.5 5.5V8"
+        stroke="currentColor"
+        strokeWidth="1.1"
         strokeLinecap="round"
         strokeLinejoin="round"
       />

@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import AuthPrompt from "@/components/shared/auth-prompt";
-import { getShuffleDashboard } from "@/app/actions/shuffle-actions";
+import { getShuffleFolderTree } from "@/app/actions/shuffle-folder-actions";
 import { ShuffleListType } from "@/app/generated/prisma";
 import VocabularyShuffleDashboard from "@/components/shared/vocabulary-shuffle-dashboard";
 
@@ -16,23 +16,13 @@ export default async function ReadingShufflePage() {
     );
   }
 
-  const dashboard = await getShuffleDashboard(ShuffleListType.phrase);
+  const tree = await getShuffleFolderTree(ShuffleListType.phrase);
 
   return (
     <VocabularyShuffleDashboard
       type="phrase"
       reviewBasePath="/reading/shuffle/review"
-      data={{
-        lists: dashboard.lists.map((list) => ({
-          id: list.id,
-          title: list.title,
-          type: list.type,
-          counts: list.counts,
-          reviewCount: list.reviewCount,
-          lastReviewedAt: list.lastReviewedAt,
-        })),
-        totals: dashboard.totals,
-      }}
+      data={tree}
     />
   );
 }
