@@ -84,6 +84,12 @@ type MoveModal =
   | { open: true; kind: "list"; list: DashboardList; targetFolderId: string }
   | { open: true; kind: "folder"; folder: DashboardFolder; targetFolderId: string };
 
+type DragItem = { kind: "list" | "folder"; id: string };
+
+// Sentinel used as a drop-target id for "move to root" — distinct from any
+// real folder id, which is always a cuid.
+const ROOT_DROP_TARGET = "__root__";
+
 type Props = {
   type: ShuffleType;
   reviewBasePath: string;
@@ -187,6 +193,8 @@ export default function VocabularyShuffleDashboard({
     useState<DeleteFolderModal>({ open: false });
   const [moveModal, setMoveModal] = useState<MoveModal>({ open: false });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [dragItem, setDragItem] = useState<DragItem | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
 
   const { folders, lists, totals } = data;
   const label = type === "word" ? "word" : "phrase";
@@ -217,6 +225,47 @@ export default function VocabularyShuffleDashboard({
         next.add(folderId);
       }
       return next;
+    });
+  }
+
+  function handleDragEnd() {
+    setDragItem(null);
+    setDragOverTarget(null);
+  }
+
+  function handleDrop(target: string) {
+    const dragged = dragItem;
+    setDragItem(null);
+    setDragOverTarget(null);
+
+    if (!dragged) return;
+
+    const targetFolderId = target === ROOT_DROP_TARGET ? null : target;
+
+    if (dragged.kind === "list") {
+      const list = lists.find((item) => item.id === dragged.id);
+      if (!list || list.folderId === targetFolderId) return;
+
+      void runMutation(async () => {
+        await moveShuffleListToFolder(dragged.id, targetFolderId);
+      });
+      return;
+    }
+
+    if (dragged.id === targetFolderId) return;
+
+    const folder = folders.find((item) => item.id === dragged.id);
+    if (!folder || folder.parentFolderId === targetFolderId) return;
+
+    if (
+      targetFolderId &&
+      getDescendantFolderIds(folders, dragged.id).has(targetFolderId)
+    ) {
+      return;
+    }
+
+    void runMutation(async () => {
+      await moveShuffleFolder(dragged.id, targetFolderId);
     });
   }
 
@@ -437,57 +486,95 @@ export default function VocabularyShuffleDashboard({
             </p>
           </div>
         ) : (
-          <FolderSection
-            folder={null}
-            depth={0}
-            label={label}
-            reviewBasePath={reviewBasePath}
-            childrenMap={childrenMap}
-            listsMap={listsMap}
-            collapsed={collapsed}
-            onToggleCollapse={toggleCollapse}
-            onOpenList={(listId) => router.push(`${reviewBasePath}/${listId}`)}
-            onAppendList={(list) => setAppendModal({ open: true, list, items: "" })}
-            onEditList={(list) =>
-              setEditListModal({ open: true, list, title: list.title })
-            }
-            onDeleteList={(list) => setDeleteListModal({ open: true, list })}
-            onMoveList={(list) =>
-              setMoveModal({
-                open: true,
-                kind: "list",
-                list,
-                targetFolderId: list.folderId ?? "",
-              })
-            }
-            onCreateSubfolder={(parentFolderId) =>
-              setFolderFormModal({
-                open: true,
-                mode: "create",
-                parentFolderId,
-                name: "",
-              })
-            }
-            onRenameFolder={(folder) =>
-              setFolderFormModal({
-                open: true,
-                mode: "rename",
-                folder,
-                name: folder.name,
-              })
-            }
-            onDeleteFolder={(folder) =>
-              setDeleteFolderModal({ open: true, folder })
-            }
-            onMoveFolder={(folder) =>
-              setMoveModal({
-                open: true,
-                kind: "folder",
-                folder,
-                targetFolderId: folder.parentFolderId ?? "",
-              })
-            }
-          />
+          <>
+            {dragItem && (
+              <div
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragOverTarget(ROOT_DROP_TARGET);
+                }}
+                onDragLeave={() =>
+                  setDragOverTarget((prev) =>
+                    prev === ROOT_DROP_TARGET ? null : prev,
+                  )
+                }
+                onDrop={(event) => {
+                  event.preventDefault();
+                  handleDrop(ROOT_DROP_TARGET);
+                }}
+                className={`mb-4 flex items-center justify-center rounded-lg border-2 border-dashed px-4 py-3 text-xs font-medium transition-colors ${
+                  dragOverTarget === ROOT_DROP_TARGET
+                    ? "border-indigo-500 bg-indigo-950/40 text-indigo-300"
+                    : "border-zinc-800 text-zinc-600"
+                }`}
+              >
+                Drop here to move to Root
+              </div>
+            )}
+
+            <FolderSection
+              folder={null}
+              depth={0}
+              label={label}
+              reviewBasePath={reviewBasePath}
+              childrenMap={childrenMap}
+              listsMap={listsMap}
+              collapsed={collapsed}
+              dragItem={dragItem}
+              dragOverTarget={dragOverTarget}
+              onToggleCollapse={toggleCollapse}
+              onOpenList={(listId) => router.push(`${reviewBasePath}/${listId}`)}
+              onAppendList={(list) =>
+                setAppendModal({ open: true, list, items: "" })
+              }
+              onEditList={(list) =>
+                setEditListModal({ open: true, list, title: list.title })
+              }
+              onDeleteList={(list) => setDeleteListModal({ open: true, list })}
+              onMoveList={(list) =>
+                setMoveModal({
+                  open: true,
+                  kind: "list",
+                  list,
+                  targetFolderId: list.folderId ?? "",
+                })
+              }
+              onCreateSubfolder={(parentFolderId) =>
+                setFolderFormModal({
+                  open: true,
+                  mode: "create",
+                  parentFolderId,
+                  name: "",
+                })
+              }
+              onRenameFolder={(folder) =>
+                setFolderFormModal({
+                  open: true,
+                  mode: "rename",
+                  folder,
+                  name: folder.name,
+                })
+              }
+              onDeleteFolder={(folder) =>
+                setDeleteFolderModal({ open: true, folder })
+              }
+              onMoveFolder={(folder) =>
+                setMoveModal({
+                  open: true,
+                  kind: "folder",
+                  folder,
+                  targetFolderId: folder.parentFolderId ?? "",
+                })
+              }
+              onDragStartItem={setDragItem}
+              onDragEndItem={handleDragEnd}
+              onDragOverTarget={setDragOverTarget}
+              onDragLeaveTarget={(target) =>
+                setDragOverTarget((prev) => (prev === target ? null : prev))
+              }
+              onDropTarget={handleDrop}
+            />
+          </>
         )}
       </div>
 
@@ -895,6 +982,8 @@ type FolderSectionProps = {
   childrenMap: Map<string | null, DashboardFolder[]>;
   listsMap: Map<string | null, DashboardList[]>;
   collapsed: Set<string>;
+  dragItem: DragItem | null;
+  dragOverTarget: string | null;
   onToggleCollapse: (folderId: string) => void;
   onOpenList: (listId: string) => void;
   onAppendList: (list: DashboardList) => void;
@@ -905,6 +994,11 @@ type FolderSectionProps = {
   onRenameFolder: (folder: DashboardFolder) => void;
   onDeleteFolder: (folder: DashboardFolder) => void;
   onMoveFolder: (folder: DashboardFolder) => void;
+  onDragStartItem: (item: DragItem) => void;
+  onDragEndItem: () => void;
+  onDragOverTarget: (target: string) => void;
+  onDragLeaveTarget: (target: string) => void;
+  onDropTarget: (target: string) => void;
 };
 
 function FolderSection(props: FolderSectionProps) {
@@ -915,6 +1009,8 @@ function FolderSection(props: FolderSectionProps) {
     childrenMap,
     listsMap,
     collapsed,
+    dragItem,
+    dragOverTarget,
     onToggleCollapse,
     onOpenList,
     onAppendList,
@@ -925,17 +1021,45 @@ function FolderSection(props: FolderSectionProps) {
     onRenameFolder,
     onDeleteFolder,
     onMoveFolder,
+    onDragStartItem,
+    onDragEndItem,
+    onDragOverTarget,
+    onDragLeaveTarget,
+    onDropTarget,
   } = props;
 
   const folderId = folder?.id ?? null;
   const childFolders = childrenMap.get(folderId) ?? [];
   const directLists = listsMap.get(folderId) ?? [];
   const isCollapsed = folder ? collapsed.has(folder.id) : false;
+  const isBeingDragged =
+    !!folder && dragItem?.kind === "folder" && dragItem.id === folder.id;
+  const isDropTarget = !!folder && dragOverTarget === folder.id;
 
   return (
     <div className={depth > 0 ? "mb-2 border-l border-zinc-800 pl-4" : ""}>
       {folder && (
-        <div className="group relative mb-3 flex items-center gap-2 rounded-lg bg-zinc-900/60 px-3 py-2.5">
+        <div
+          draggable
+          onDragStart={() => onDragStartItem({ kind: "folder", id: folder.id })}
+          onDragEnd={onDragEndItem}
+          onDragOver={(event) => {
+            event.preventDefault();
+            onDragOverTarget(folder.id);
+          }}
+          onDragLeave={() => onDragLeaveTarget(folder.id)}
+          onDrop={(event) => {
+            event.preventDefault();
+            onDropTarget(folder.id);
+          }}
+          className={`group relative mb-3 flex items-center gap-2 rounded-lg px-3 py-2.5 transition-colors ${
+            isBeingDragged ? "opacity-50" : ""
+          } ${
+            isDropTarget
+              ? "bg-indigo-950/40 ring-1 ring-indigo-500"
+              : "bg-zinc-900/60"
+          }`}
+        >
           <button
             type="button"
             onClick={() => onToggleCollapse(folder.id)}
@@ -1002,11 +1126,16 @@ function FolderSection(props: FolderSectionProps) {
                   key={list.id}
                   list={list}
                   label={label}
+                  isDragging={
+                    dragItem?.kind === "list" && dragItem.id === list.id
+                  }
                   onOpen={() => onOpenList(list.id)}
                   onAppend={() => onAppendList(list)}
                   onEdit={() => onEditList(list)}
                   onDelete={() => onDeleteList(list)}
                   onMove={() => onMoveList(list)}
+                  onDragStart={() => onDragStartItem({ kind: "list", id: list.id })}
+                  onDragEnd={onDragEndItem}
                 />
               ))}
             </div>
@@ -1029,24 +1158,33 @@ function FolderSection(props: FolderSectionProps) {
 function ListCard({
   list,
   label,
+  isDragging,
   onOpen,
   onAppend,
   onEdit,
   onDelete,
   onMove,
+  onDragStart,
+  onDragEnd,
 }: {
   list: DashboardList;
   label: string;
+  isDragging: boolean;
   onOpen: () => void;
   onAppend: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onMove: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
 }) {
   return (
     <div
       role="button"
       tabIndex={0}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -1054,7 +1192,9 @@ function ListCard({
           onOpen();
         }
       }}
-      className="group relative flex cursor-pointer flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition-colors hover:border-zinc-700"
+      className={`group relative flex cursor-pointer flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition-colors hover:border-zinc-700 ${
+        isDragging ? "opacity-50" : ""
+      }`}
     >
       <div className="absolute right-3 top-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
         <button
