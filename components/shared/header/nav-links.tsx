@@ -42,6 +42,8 @@ const navLinks: NavItem[] = [
       { href: "/vocabulary/flashcards", label: "Flashcards" },
     ],
   },
+  { href: "/listening", label: "Listening" },
+  { href: "/speaking", label: "Speaking" },
   {
     href: "/vocabulary-analyzer",
     label: "Analyzer",

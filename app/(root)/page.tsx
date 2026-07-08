@@ -26,6 +26,20 @@ const dashboardFeatures = [
     gradient: "from-[#4facfe] to-[#00f2fe]",
   },
   {
+    href: "/listening",
+    emoji: "🎧",
+    title: "Listening",
+    description: "Sharpen your listening comprehension with audio practice.",
+    gradient: "from-[#30cfd0] to-[#330867]",
+  },
+  {
+    href: "/speaking",
+    emoji: "🗣️",
+    title: "Speaking",
+    description: "Practice speaking and pronunciation in your target language.",
+    gradient: "from-[#f6d365] to-[#fda085]",
+  },
+  {
     href: "/vocabulary-analyzer",
     emoji: "🔍",
     title: "Analyzer",
@@ -168,6 +182,28 @@ export default async function Home() {
               <p className="text-gray-600">
                 Keep track of all the words you&apos;ve encountered in reading
                 and writing practice.
+              </p>
+            </div>
+
+            {/* Listening Feature */}
+            <div className="rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
+              <div className="mb-4 text-4xl">🎧</div>
+              <h3 className="mb-2 text-xl font-semibold text-[#2c3e50]">
+                Listening
+              </h3>
+              <p className="text-gray-600">
+                Sharpen your listening comprehension with audio practice.
+              </p>
+            </div>
+
+            {/* Speaking Feature */}
+            <div className="rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
+              <div className="mb-4 text-4xl">🗣️</div>
+              <h3 className="mb-2 text-xl font-semibold text-[#2c3e50]">
+                Speaking
+              </h3>
+              <p className="text-gray-600">
+                Practice speaking and pronunciation in your target language.
               </p>
             </div>
 
