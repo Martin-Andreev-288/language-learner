@@ -166,22 +166,62 @@ enum ShuffleListType {
     phrase
 }
 
-// Note model - stores user notes
-model Note {
-    id        String   @id @default(cuid())
-    userId    String
-    title     String
-    content   String   @db.Text
-    language  String?
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+// NoteFolder model - organises notes into nested, user-created folders (unlimited depth),
+// scoped per page the same way ShuffleFolder is scoped per ShuffleListType
+model NoteFolder {
+    id             String   @id @default(cuid())
+    userId         String
+    page           NotePage
+    name           String
+    parentFolderId String?
+    order          Int      @default(0)
+    createdAt      DateTime @default(now())
+    updatedAt      DateTime @updatedAt
 
     // Relations
-    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+    parentFolder NoteFolder?  @relation("NoteFolderHierarchy", fields: [parentFolderId], references: [id], onDelete: Cascade)
+    childFolders NoteFolder[] @relation("NoteFolderHierarchy")
+    notes        Note[]
 
     @@index([userId])
+    @@index([userId, page])
+    @@index([parentFolderId])
+}
+
+// Note model - stores user notes; a note is a single document (no separate
+// card/list sub-model the way ShuffleList/ShuffleCard has one)
+model Note {
+    id        String      @id @default(cuid())
+    userId    String
+    page      NotePage
+    title     String
+    content   String      @db.Text
+    language  String?
+    folderId  String?
+    createdAt DateTime    @default(now())
+    updatedAt DateTime    @updatedAt
+
+    // Relations
+    user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+    folder NoteFolder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+    @@index([userId])
+    @@index([userId, page])
+    @@index([folderId])
     @@index([language])
     @@index([createdAt])
+}
+
+// Enum for which page a note (or note folder) belongs to; "general" is the
+// standalone Notes page, not tied to any other page
+enum NotePage {
+    reading
+    writing
+    vocabulary
+    listening
+    speaking
+    general
 }
 
 // User model - stores user information
@@ -205,6 +245,7 @@ model User {
     texts          Text[]
     vocabulary     VocabularyEntry[]
     notes          Note[]
+    noteFolders    NoteFolder[]
     shuffleLists   ShuffleList[]
     shuffleFolders ShuffleFolder[]
 
