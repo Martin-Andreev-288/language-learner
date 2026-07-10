@@ -1,0 +1,902 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  createNote,
+  deleteNote,
+  getNote,
+  renameNote,
+  updateNoteContent,
+} from "@/app/actions/note-actions";
+import {
+  createNoteFolder,
+  deleteNoteFolder,
+  moveNoteFolder,
+  moveNoteToFolder,
+  renameNoteFolder,
+} from "@/app/actions/note-folder-actions";
+import {
+  buildChildrenMap,
+  buildItemsMap,
+  flattenFolderOptions,
+  getDescendantFolderIds,
+} from "@/lib/folder-tree";
+
+type NotePage =
+  | "reading"
+  | "writing"
+  | "vocabulary"
+  | "listening"
+  | "speaking"
+  | "general";
+
+type DashboardFolder = {
+  id: string;
+  name: string;
+  parentFolderId: string | null;
+  order: number;
+};
+
+type DashboardNote = {
+  id: string;
+  title: string;
+  folderId: string | null;
+  preview: string;
+  updatedAt: string | Date;
+};
+
+type DashboardData = {
+  folders: DashboardFolder[];
+  notes: DashboardNote[];
+};
+
+type NoteEditorModal =
+  | { open: false }
+  | {
+      open: true;
+      mode: "create";
+      folderId: string | null;
+      title: string;
+      content: string;
+    }
+  | {
+      open: true;
+      mode: "edit";
+      note: DashboardNote;
+      title: string;
+      content: string;
+    };
+
+type DeleteNoteModal = { open: false } | { open: true; note: DashboardNote };
+
+type FolderFormModal =
+  | { open: false }
+  | { open: true; mode: "create"; parentFolderId: string | null; name: string }
+  | { open: true; mode: "rename"; folder: DashboardFolder; name: string };
+
+type DeleteFolderModal =
+  | { open: false }
+  | { open: true; folder: DashboardFolder };
+
+type MoveModal =
+  | { open: false }
+  | { open: true; kind: "note"; note: DashboardNote; targetFolderId: string }
+  | {
+      open: true;
+      kind: "folder";
+      folder: DashboardFolder;
+      targetFolderId: string;
+    };
+
+type Props = {
+  page: NotePage;
+  data: DashboardData;
+};
+
+function formatNoteDate(date: string | Date) {
+  const parsed = new Date(date);
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const year = String(parsed.getFullYear()).slice(-2);
+  return `${day}.${month}.${year}`;
+}
+
+export default function NoteDashboard({ page, data }: Props) {
+  const router = useRouter();
+  const [isBusy, setIsBusy] = useState(false);
+  const [noteEditorModal, setNoteEditorModal] = useState<NoteEditorModal>({
+    open: false,
+  });
+  const [deleteNoteModal, setDeleteNoteModal] = useState<DeleteNoteModal>({
+    open: false,
+  });
+  const [folderFormModal, setFolderFormModal] = useState<FolderFormModal>({
+    open: false,
+  });
+  const [deleteFolderModal, setDeleteFolderModal] =
+    useState<DeleteFolderModal>({ open: false });
+  const [moveModal, setMoveModal] = useState<MoveModal>({ open: false });
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const { folders, notes } = data;
+  const childrenMap = buildChildrenMap(folders);
+  const notesMap = buildItemsMap(notes);
+  const isEmpty = notes.length === 0 && folders.length === 0;
+
+  async function runMutation(task: () => Promise<unknown>) {
+    if (isBusy) return;
+    setIsBusy(true);
+    try {
+      await task();
+      router.refresh();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Something went wrong";
+      window.alert(message);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  function toggleCollapse(folderId: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+  }
+
+  function submitNoteEditorModal() {
+    if (!noteEditorModal.open) return;
+
+    if (noteEditorModal.mode === "create") {
+      void runMutation(async () => {
+        await createNote(
+          page,
+          noteEditorModal.title,
+          noteEditorModal.content,
+          noteEditorModal.folderId,
+        );
+        setNoteEditorModal({ open: false });
+      });
+      return;
+    }
+
+    void runMutation(async () => {
+      await Promise.all([
+        renameNote(noteEditorModal.note.id, noteEditorModal.title),
+        updateNoteContent(noteEditorModal.note.id, noteEditorModal.content),
+      ]);
+      setNoteEditorModal({ open: false });
+    });
+  }
+
+  function submitDeleteNoteModal() {
+    if (!deleteNoteModal.open) return;
+
+    void runMutation(async () => {
+      await deleteNote(deleteNoteModal.note.id);
+      setDeleteNoteModal({ open: false });
+    });
+  }
+
+  function submitFolderFormModal() {
+    if (!folderFormModal.open) return;
+
+    if (folderFormModal.mode === "create") {
+      void runMutation(async () => {
+        await createNoteFolder(
+          page,
+          folderFormModal.name,
+          folderFormModal.parentFolderId,
+        );
+        setFolderFormModal({ open: false });
+      });
+      return;
+    }
+
+    void runMutation(async () => {
+      await renameNoteFolder(folderFormModal.folder.id, folderFormModal.name);
+      setFolderFormModal({ open: false });
+    });
+  }
+
+  function submitDeleteFolderModal() {
+    if (!deleteFolderModal.open) return;
+
+    void runMutation(async () => {
+      await deleteNoteFolder(deleteFolderModal.folder.id);
+      setDeleteFolderModal({ open: false });
+    });
+  }
+
+  function submitMoveModal() {
+    if (!moveModal.open) return;
+
+    const targetFolderId =
+      moveModal.targetFolderId === "" ? null : moveModal.targetFolderId;
+
+    if (moveModal.kind === "note") {
+      void runMutation(async () => {
+        await moveNoteToFolder(moveModal.note.id, targetFolderId);
+        setMoveModal({ open: false });
+      });
+      return;
+    }
+
+    void runMutation(async () => {
+      await moveNoteFolder(moveModal.folder.id, targetFolderId);
+      setMoveModal({ open: false });
+    });
+  }
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <div className="mx-auto max-w-5xl px-6 py-10">
+        <div className="mb-8 flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Notes</h1>
+            <p className="mt-1 text-sm text-zinc-500">
+              {notes.length} note{notes.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() =>
+                setFolderFormModal({
+                  open: true,
+                  mode: "create",
+                  parentFolderId: null,
+                  name: "",
+                })
+              }
+              className="flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
+              disabled={isBusy}
+            >
+              <FolderPlusIcon />
+              New folder
+            </button>
+            <button
+              onClick={() =>
+                setNoteEditorModal({
+                  open: true,
+                  mode: "create",
+                  folderId: null,
+                  title: "",
+                  content: "",
+                })
+              }
+              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+              disabled={isBusy}
+            >
+              <PlusIcon />
+              New note
+            </button>
+          </div>
+        </div>
+
+        {isEmpty ? (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <p className="mb-1 text-lg text-zinc-500">No notes yet</p>
+            <p className="text-sm text-zinc-600">
+              Click &ldquo;New note&rdquo; to create your first note.
+            </p>
+          </div>
+        ) : (
+          <FolderSection
+            folder={null}
+            depth={0}
+            childrenMap={childrenMap}
+            notesMap={notesMap}
+            collapsed={collapsed}
+            onToggleCollapse={toggleCollapse}
+            onOpenNote={(note) => {
+              void getNote(note.id).then((full) => {
+                setNoteEditorModal({
+                  open: true,
+                  mode: "edit",
+                  note,
+                  title: full.title,
+                  content: full.content,
+                });
+              });
+            }}
+            onDeleteNote={(note) => setDeleteNoteModal({ open: true, note })}
+            onMoveNote={(note) =>
+              setMoveModal({
+                open: true,
+                kind: "note",
+                note,
+                targetFolderId: note.folderId ?? "",
+              })
+            }
+            onCreateSubfolder={(parentFolderId) =>
+              setFolderFormModal({
+                open: true,
+                mode: "create",
+                parentFolderId,
+                name: "",
+              })
+            }
+            onRenameFolder={(folder) =>
+              setFolderFormModal({
+                open: true,
+                mode: "rename",
+                folder,
+                name: folder.name,
+              })
+            }
+            onDeleteFolder={(folder) =>
+              setDeleteFolderModal({ open: true, folder })
+            }
+            onMoveFolder={(folder) =>
+              setMoveModal({
+                open: true,
+                kind: "folder",
+                folder,
+                targetFolderId: folder.parentFolderId ?? "",
+              })
+            }
+          />
+        )}
+      </div>
+
+      {noteEditorModal.open && (
+          <Modal onClose={() => setNoteEditorModal({ open: false })}>
+            <h2 className="mb-5 text-lg font-semibold text-zinc-100">
+              {noteEditorModal.mode === "create" ? "New note" : "Edit note"}
+            </h2>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-400">
+              Title
+            </label>
+            <input
+              autoFocus
+              type="text"
+              value={noteEditorModal.title}
+              onChange={(event) =>
+                setNoteEditorModal({
+                  ...noteEditorModal,
+                  title: event.target.value,
+                })
+              }
+              placeholder="e.g. Subjunctive mood notes"
+              className="mb-4 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+            />
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-400">
+              Content
+            </label>
+            <textarea
+              value={noteEditorModal.content}
+              onChange={(event) =>
+                setNoteEditorModal({
+                  ...noteEditorModal,
+                  content: event.target.value,
+                })
+              }
+              placeholder="Write your note here…"
+              rows={10}
+              className="mb-5 w-full resize-y rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setNoteEditorModal({ open: false })}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitNoteEditorModal}
+                disabled={isBusy || !noteEditorModal.title.trim()}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {noteEditorModal.mode === "create" ? "Create" : "Save"}
+              </button>
+            </div>
+          </Modal>
+      )}
+
+      {deleteNoteModal.open && (
+        <Modal onClose={() => setDeleteNoteModal({ open: false })}>
+          <h2 className="mb-2 text-lg font-semibold text-zinc-100">
+            Delete note?
+          </h2>
+          <p className="mb-6 text-sm text-zinc-400">
+            This will permanently delete{" "}
+            <span className="font-medium text-zinc-200">
+              &ldquo;{deleteNoteModal.note.title}&rdquo;
+            </span>
+            .
+          </p>
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setDeleteNoteModal({ open: false })}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitDeleteNoteModal}
+              disabled={isBusy}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Delete
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {folderFormModal.open && (
+        <Modal onClose={() => setFolderFormModal({ open: false })}>
+          <h2 className="mb-5 text-lg font-semibold text-zinc-100">
+            {folderFormModal.mode === "create" ? "New folder" : "Rename folder"}
+          </h2>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-400">
+            Folder name
+          </label>
+          <input
+            autoFocus
+            type="text"
+            value={folderFormModal.name}
+            onChange={(event) =>
+              setFolderFormModal({ ...folderFormModal, name: event.target.value })
+            }
+            onKeyDown={(event) =>
+              event.key === "Enter" && submitFolderFormModal()
+            }
+            placeholder="e.g. Grammar"
+            className="mb-5 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors focus:border-indigo-500"
+          />
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setFolderFormModal({ open: false })}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitFolderFormModal}
+              disabled={isBusy || !folderFormModal.name.trim()}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {folderFormModal.mode === "create" ? "Create" : "Save"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {deleteFolderModal.open && (
+        <Modal onClose={() => setDeleteFolderModal({ open: false })}>
+          <h2 className="mb-2 text-lg font-semibold text-zinc-100">
+            Delete folder?
+          </h2>
+          <p className="mb-6 text-sm text-zinc-400">
+            This will permanently delete{" "}
+            <span className="font-medium text-zinc-200">
+              &ldquo;{deleteFolderModal.folder.name}&rdquo;
+            </span>{" "}
+            and everything inside it — all subfolders and all notes in them.
+            This cannot be undone.
+          </p>
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setDeleteFolderModal({ open: false })}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitDeleteFolderModal}
+              disabled={isBusy}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Delete everything
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {moveModal.open && (
+        <Modal onClose={() => setMoveModal({ open: false })}>
+          <h2 className="mb-2 text-lg font-semibold text-zinc-100">
+            Move {moveModal.kind === "note" ? "note" : "folder"}
+          </h2>
+          <p className="mb-4 text-sm text-zinc-500">
+            {moveModal.kind === "note"
+              ? moveModal.note.title
+              : moveModal.folder.name}
+          </p>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-400">
+            Destination folder
+          </label>
+          <select
+            value={moveModal.targetFolderId}
+            onChange={(event) =>
+              setMoveModal({ ...moveModal, targetFolderId: event.target.value })
+            }
+            className="mb-5 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors focus:border-indigo-500"
+          >
+            <option value="">— Root —</option>
+            {flattenFolderOptions(
+              folders,
+              moveModal.kind === "folder"
+                ? new Set([
+                    moveModal.folder.id,
+                    ...getDescendantFolderIds(folders, moveModal.folder.id),
+                  ])
+                : new Set<string>(),
+            ).map((option) => (
+              <option key={option.id} value={option.id}>
+                {"—".repeat(option.depth)} {option.name}
+              </option>
+            ))}
+          </select>
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setMoveModal({ open: false })}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitMoveModal}
+              disabled={isBusy}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Move
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+type FolderSectionProps = {
+  folder: DashboardFolder | null;
+  depth: number;
+  childrenMap: Map<string | null, DashboardFolder[]>;
+  notesMap: Map<string | null, DashboardNote[]>;
+  collapsed: Set<string>;
+  onToggleCollapse: (folderId: string) => void;
+  onOpenNote: (note: DashboardNote) => void;
+  onDeleteNote: (note: DashboardNote) => void;
+  onMoveNote: (note: DashboardNote) => void;
+  onCreateSubfolder: (parentFolderId: string | null) => void;
+  onRenameFolder: (folder: DashboardFolder) => void;
+  onDeleteFolder: (folder: DashboardFolder) => void;
+  onMoveFolder: (folder: DashboardFolder) => void;
+};
+
+function FolderSection(props: FolderSectionProps) {
+  const {
+    folder,
+    depth,
+    childrenMap,
+    notesMap,
+    collapsed,
+    onToggleCollapse,
+    onOpenNote,
+    onDeleteNote,
+    onMoveNote,
+    onCreateSubfolder,
+    onRenameFolder,
+    onDeleteFolder,
+    onMoveFolder,
+  } = props;
+
+  const folderId = folder?.id ?? null;
+  const childFolders = childrenMap.get(folderId) ?? [];
+  const directNotes = notesMap.get(folderId) ?? [];
+  const isCollapsed = folder ? collapsed.has(folder.id) : false;
+
+  return (
+    <div className={depth > 0 ? "mb-2 border-l border-zinc-800 pl-4" : ""}>
+      {folder && (
+        <div className="group relative mb-3 flex items-center gap-2 rounded-lg bg-zinc-900/60 px-3 py-2.5">
+          <button
+            type="button"
+            onClick={() => onToggleCollapse(folder.id)}
+            title={isCollapsed ? "Expand" : "Collapse"}
+            className="shrink-0 rounded p-0.5 text-zinc-500 hover:text-zinc-200"
+          >
+            <ChevronDownIcon className={isCollapsed ? "-rotate-90" : ""} />
+          </button>
+          <FolderIcon className="shrink-0 text-zinc-500" />
+          <span className="min-w-0 flex-1 truncate font-medium text-zinc-200">
+            {folder.name}
+          </span>
+          <span className="shrink-0 text-xs text-zinc-600">
+            {childFolders.length} folder{childFolders.length !== 1 ? "s" : ""} ·{" "}
+            {directNotes.length} note{directNotes.length !== 1 ? "s" : ""}
+          </span>
+          <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <button
+              type="button"
+              title="New subfolder"
+              onClick={() => onCreateSubfolder(folder.id)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-indigo-300"
+            >
+              <FolderPlusIcon />
+            </button>
+            <button
+              type="button"
+              title="Move folder"
+              onClick={() => onMoveFolder(folder)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+            >
+              <MoveIcon />
+            </button>
+            <button
+              type="button"
+              title="Rename folder"
+              onClick={() => onRenameFolder(folder)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+            >
+              <EditIcon />
+            </button>
+            <button
+              type="button"
+              title="Delete folder"
+              onClick={() => onDeleteFolder(folder)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-red-400"
+            >
+              <TrashIcon />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isCollapsed && (
+        <>
+          {directNotes.length > 0 && (
+            <div
+              className={`grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 ${
+                childFolders.length > 0 ? "mb-4" : "mb-6"
+              }`}
+            >
+              {directNotes.map((note) => (
+                <NoteCard
+                  key={note.id}
+                  note={note}
+                  onOpen={() => onOpenNote(note)}
+                  onDelete={() => onDeleteNote(note)}
+                  onMove={() => onMoveNote(note)}
+                />
+              ))}
+            </div>
+          )}
+
+          {childFolders.map((child) => (
+            <FolderSection
+              key={child.id}
+              {...props}
+              folder={child}
+              depth={depth + 1}
+            />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function NoteCard({
+  note,
+  onOpen,
+  onDelete,
+  onMove,
+}: {
+  note: DashboardNote;
+  onOpen: () => void;
+  onDelete: () => void;
+  onMove: () => void;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      className="group relative flex cursor-pointer flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition-colors hover:border-zinc-700"
+    >
+      <div className="absolute right-3 top-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          title="Move to folder"
+          onClick={(event) => {
+            event.stopPropagation();
+            onMove();
+          }}
+          className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+        >
+          <MoveIcon />
+        </button>
+        <button
+          type="button"
+          title="Delete note"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-red-400"
+        >
+          <TrashIcon />
+        </button>
+      </div>
+
+      <h2 className="mb-2 pr-16 font-semibold leading-snug text-zinc-100">
+        {note.title}
+      </h2>
+      {note.preview && (
+        <p className="mb-2 line-clamp-3 text-sm text-zinc-500">
+          {note.preview}
+        </p>
+      )}
+      <p className="text-xs text-zinc-600">
+        Edited {formatNoteDate(note.updatedAt)}
+      </p>
+    </div>
+  );
+}
+
+function Modal({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+      <path
+        d="M7.5 1.5v12M1.5 7.5h12"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path
+        d="M9 1.5l2.5 2.5L4 11.5H1.5V9L9 1.5z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path
+        d="M1.5 3.5h10M4.5 3.5V2.5h4v1M5 5.5v4M8 5.5v4M2.5 3.5l.7 7.5h6.6l.7-7.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      className={`transition-transform ${className ?? ""}`}
+    >
+      <path
+        d="M2.5 4.5 6 8l3.5-3.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function FolderIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 15 15"
+      fill="none"
+      className={className}
+    >
+      <path
+        d="M1.5 3.5a1 1 0 0 1 1-1h3l1.2 1.5H12a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1v-7.5Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function FolderPlusIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path
+        d="M1.5 3a1 1 0 0 1 1-1h2.6l1 1.2H10.5a1 1 0 0 1 1 1v5.3a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1V3Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.5 6v3M5 7.5h3"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function MoveIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path
+        d="M1.5 2.5h4l1 1.2H11a.5.5 0 0 1 .5.5v6.3a.5.5 0 0 1-.5.5H1.5a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4.5 8.5 8.5 5.5M8.5 5.5H6M8.5 5.5V8"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

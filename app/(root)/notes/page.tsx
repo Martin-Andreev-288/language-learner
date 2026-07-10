@@ -1,5 +1,8 @@
 import { auth } from "@/auth";
 import AuthPrompt from "@/components/shared/auth-prompt";
+import { getNoteFolderTree } from "@/app/actions/note-folder-actions";
+import { NotePage } from "@/app/generated/prisma";
+import NoteDashboard from "@/components/shared/note-dashboard";
 
 export default async function NotesPage() {
   const session = await auth();
@@ -13,20 +16,7 @@ export default async function NotesPage() {
     );
   }
 
-  return (
-    <div className="mx-auto max-w-4xl px-8 py-16">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-[#2c3e50]">📓 Notes</h1>
-        <p className="mt-2 text-gray-600">
-          Welcome, {session.user?.name}! This feature is coming soon.
-        </p>
-      </div>
+  const tree = await getNoteFolderTree(NotePage.general);
 
-      <div className="rounded-xl bg-white p-8 shadow-lg">
-        <p className="text-center text-gray-500">
-          Your notes will appear here.
-        </p>
-      </div>
-    </div>
-  );
+  return <NoteDashboard page="general" data={tree} />;
 }

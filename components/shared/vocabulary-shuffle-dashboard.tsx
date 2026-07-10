@@ -15,6 +15,12 @@ import {
   moveShuffleListToFolder,
   renameShuffleFolder,
 } from "@/app/actions/shuffle-folder-actions";
+import {
+  buildChildrenMap,
+  buildItemsMap,
+  flattenFolderOptions,
+  getDescendantFolderIds,
+} from "@/lib/folder-tree";
 
 type ShuffleType = "word" | "phrase";
 
@@ -104,73 +110,6 @@ function formatReviewDate(date: string | Date) {
   return `${day}.${month}.${year}`;
 }
 
-function buildChildrenMap(folders: DashboardFolder[]) {
-  const map = new Map<string | null, DashboardFolder[]>();
-  for (const folder of folders) {
-    const key = folder.parentFolderId;
-    const existing = map.get(key);
-    if (existing) {
-      existing.push(folder);
-    } else {
-      map.set(key, [folder]);
-    }
-  }
-  return map;
-}
-
-function buildListsMap(lists: DashboardList[]) {
-  const map = new Map<string | null, DashboardList[]>();
-  for (const list of lists) {
-    const key = list.folderId;
-    const existing = map.get(key);
-    if (existing) {
-      existing.push(list);
-    } else {
-      map.set(key, [list]);
-    }
-  }
-  return map;
-}
-
-// Walks the folder tree from `rootId` down and returns every descendant id,
-// used to keep a folder (and its own subtree) out of its own "move" options.
-function getDescendantFolderIds(folders: DashboardFolder[], rootId: string) {
-  const childrenMap = buildChildrenMap(folders);
-  const result = new Set<string>();
-  const stack = [rootId];
-
-  while (stack.length > 0) {
-    const current = stack.pop() as string;
-    for (const child of childrenMap.get(current) ?? []) {
-      if (!result.has(child.id)) {
-        result.add(child.id);
-        stack.push(child.id);
-      }
-    }
-  }
-
-  return result;
-}
-
-function flattenFolderOptions(
-  folders: DashboardFolder[],
-  excludeIds: Set<string>,
-) {
-  const childrenMap = buildChildrenMap(folders);
-  const result: { id: string; name: string; depth: number }[] = [];
-
-  function walk(parentId: string | null, depth: number) {
-    for (const child of childrenMap.get(parentId) ?? []) {
-      if (excludeIds.has(child.id)) continue;
-      result.push({ id: child.id, name: child.name, depth });
-      walk(child.id, depth + 1);
-    }
-  }
-
-  walk(null, 0);
-  return result;
-}
-
 export default function VocabularyShuffleDashboard({
   type,
   reviewBasePath,
@@ -199,7 +138,7 @@ export default function VocabularyShuffleDashboard({
   const { folders, lists, totals } = data;
   const label = type === "word" ? "word" : "phrase";
   const childrenMap = buildChildrenMap(folders);
-  const listsMap = buildListsMap(lists);
+  const listsMap = buildItemsMap(lists);
 
   async function runMutation(task: () => Promise<unknown>) {
     if (isBusy) return;
