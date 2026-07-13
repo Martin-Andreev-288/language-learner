@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   createNote,
   deleteNote,
@@ -100,6 +102,75 @@ type Props = {
   data: DashboardData;
 };
 
+// Styles the note content's Markdown preview to match the app's dark theme,
+// since react-markdown renders plain elements with no styling of its own.
+const markdownComponents: Components = {
+  h1: (props) => (
+    <h1 className="mb-2 mt-4 text-xl font-bold text-zinc-100 first:mt-0" {...props} />
+  ),
+  h2: (props) => (
+    <h2 className="mb-2 mt-4 text-lg font-bold text-zinc-100 first:mt-0" {...props} />
+  ),
+  h3: (props) => (
+    <h3
+      className="mb-1 mt-3 text-base font-semibold text-zinc-100 first:mt-0"
+      {...props}
+    />
+  ),
+  p: (props) => (
+    <p className="mb-3 text-sm leading-relaxed text-zinc-300 last:mb-0" {...props} />
+  ),
+  strong: (props) => <strong className="font-semibold text-zinc-100" {...props} />,
+  em: (props) => <em className="italic" {...props} />,
+  a: (props) => (
+    <a
+      className="text-indigo-400 underline hover:text-indigo-300"
+      target="_blank"
+      rel="noreferrer"
+      {...props}
+    />
+  ),
+  ul: (props) => (
+    <ul className="mb-3 ml-5 list-disc space-y-1 text-sm text-zinc-300" {...props} />
+  ),
+  ol: (props) => (
+    <ol className="mb-3 ml-5 list-decimal space-y-1 text-sm text-zinc-300" {...props} />
+  ),
+  li: (props) => <li {...props} />,
+  pre: (props) => (
+    <pre
+      className="mb-3 overflow-x-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-200"
+      {...props}
+    />
+  ),
+  code: (props) => (
+    <code
+      className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-xs text-emerald-300"
+      {...props}
+    />
+  ),
+  blockquote: (props) => (
+    <blockquote
+      className="mb-3 border-l-2 border-zinc-700 pl-3 text-sm italic text-zinc-400"
+      {...props}
+    />
+  ),
+  hr: () => <hr className="my-4 border-zinc-800" />,
+  table: (props) => (
+    <table className="mb-3 w-full border-collapse text-sm" {...props} />
+  ),
+  th: (props) => (
+    <th
+      className="border border-zinc-700 bg-zinc-800 px-2 py-1 text-left font-medium text-zinc-200"
+      {...props}
+    />
+  ),
+  td: (props) => (
+    <td className="border border-zinc-800 px-2 py-1 text-zinc-300" {...props} />
+  ),
+  del: (props) => <del className="text-zinc-500" {...props} />,
+};
+
 function formatNoteDate(date: string | Date) {
   const parsed = new Date(date);
   const day = String(parsed.getDate()).padStart(2, "0");
@@ -126,6 +197,7 @@ export default function NoteDashboard({ page, data }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState(false);
 
   const { folders, notes } = data;
   const childrenMap = buildChildrenMap(folders);
@@ -312,15 +384,16 @@ export default function NoteDashboard({ page, data }: Props) {
               New folder
             </button>
             <button
-              onClick={() =>
+              onClick={() => {
+                setPreviewMode(false);
                 setNoteEditorModal({
                   open: true,
                   mode: "create",
                   folderId: null,
                   title: "",
                   content: "",
-                })
-              }
+                });
+              }}
               className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
               disabled={isBusy}
             >
@@ -375,6 +448,7 @@ export default function NoteDashboard({ page, data }: Props) {
               onToggleCollapse={toggleCollapse}
               onOpenNote={(note) => {
                 void getNote(note.id).then((full) => {
+                  setPreviewMode(false);
                   setNoteEditorModal({
                     open: true,
                     mode: "edit",
@@ -433,7 +507,10 @@ export default function NoteDashboard({ page, data }: Props) {
       </div>
 
       {noteEditorModal.open && (
-          <Modal onClose={() => setNoteEditorModal({ open: false })}>
+          <Modal
+            onClose={() => setNoteEditorModal({ open: false })}
+            widthClassName="max-w-2xl"
+          >
             <h2 className="mb-5 text-lg font-semibold text-zinc-100">
               {noteEditorModal.mode === "create" ? "New note" : "Edit note"}
             </h2>
@@ -453,21 +530,65 @@ export default function NoteDashboard({ page, data }: Props) {
               placeholder="e.g. Subjunctive mood notes"
               className="mb-4 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
             />
-            <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-400">
-              Content
-            </label>
-            <textarea
-              value={noteEditorModal.content}
-              onChange={(event) =>
-                setNoteEditorModal({
-                  ...noteEditorModal,
-                  content: event.target.value,
-                })
-              }
-              placeholder="Write your note here…"
-              rows={10}
-              className="mb-5 w-full resize-y rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
-            />
+            <div className="mb-1 flex items-center justify-between">
+              <label className="block text-xs font-medium uppercase tracking-wider text-zinc-400">
+                Content{" "}
+                <span className="normal-case font-normal text-zinc-600">
+                  (Markdown supported)
+                </span>
+              </label>
+              <div className="flex gap-0.5 rounded-lg bg-zinc-800 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode(false)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    !previewMode
+                      ? "bg-indigo-600 text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
+                  }`}
+                >
+                  Write
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode(true)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    previewMode
+                      ? "bg-indigo-600 text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
+                  }`}
+                >
+                  Preview
+                </button>
+              </div>
+            </div>
+            {previewMode ? (
+              <div className="mb-5 h-64 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2">
+                {noteEditorModal.content.trim() ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={markdownComponents}
+                  >
+                    {noteEditorModal.content}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-sm text-zinc-600">Nothing to preview yet.</p>
+                )}
+              </div>
+            ) : (
+              <textarea
+                value={noteEditorModal.content}
+                onChange={(event) =>
+                  setNoteEditorModal({
+                    ...noteEditorModal,
+                    content: event.target.value,
+                  })
+                }
+                placeholder="Write your note here… Markdown supported."
+                rows={10}
+                className="mb-5 w-full resize-y rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+              />
+            )}
             <div className="flex justify-end gap-3">
               <button
                 type="button"
@@ -901,9 +1022,11 @@ function NoteCard({
 function Modal({
   children,
   onClose,
+  widthClassName = "max-w-md",
 }: {
   children: React.ReactNode;
   onClose: () => void;
+  widthClassName?: string;
 }) {
   return (
     <div
@@ -911,7 +1034,7 @@ function Modal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl"
+        className={`w-full ${widthClassName} rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl`}
         onClick={(event) => event.stopPropagation()}
       >
         {children}
