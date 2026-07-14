@@ -198,6 +198,7 @@ export default function NoteDashboard({ page, data }: Props) {
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const { folders, notes } = data;
   const childrenMap = buildChildrenMap(folders);
@@ -386,6 +387,7 @@ export default function NoteDashboard({ page, data }: Props) {
             <button
               onClick={() => {
                 setPreviewMode(false);
+                setIsExpanded(false);
                 setNoteEditorModal({
                   open: true,
                   mode: "create",
@@ -449,6 +451,7 @@ export default function NoteDashboard({ page, data }: Props) {
               onOpenNote={(note) => {
                 void getNote(note.id).then((full) => {
                   setPreviewMode(false);
+                setIsExpanded(false);
                   setNoteEditorModal({
                     open: true,
                     mode: "edit",
@@ -509,7 +512,7 @@ export default function NoteDashboard({ page, data }: Props) {
       {noteEditorModal.open && (
           <Modal
             onClose={() => setNoteEditorModal({ open: false })}
-            widthClassName="max-w-2xl"
+            widthClassName={isExpanded ? "max-w-5xl" : "max-w-2xl"}
           >
             <h2 className="mb-5 text-lg font-semibold text-zinc-100">
               {noteEditorModal.mode === "create" ? "New note" : "Edit note"}
@@ -537,33 +540,47 @@ export default function NoteDashboard({ page, data }: Props) {
                   (Markdown supported)
                 </span>
               </label>
-              <div className="flex gap-0.5 rounded-lg bg-zinc-800 p-0.5">
+              <div className="flex items-center gap-2">
+                <div className="flex gap-0.5 rounded-lg bg-zinc-800 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode(false)}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                      !previewMode
+                        ? "bg-indigo-600 text-white"
+                        : "text-zinc-500 hover:text-zinc-200"
+                    }`}
+                  >
+                    Write
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode(true)}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                      previewMode
+                        ? "bg-indigo-600 text-white"
+                        : "text-zinc-500 hover:text-zinc-200"
+                    }`}
+                  >
+                    Preview
+                  </button>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setPreviewMode(false)}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                    !previewMode
-                      ? "bg-indigo-600 text-white"
-                      : "text-zinc-500 hover:text-zinc-200"
-                  }`}
+                  onClick={() => setIsExpanded((value) => !value)}
+                  title={isExpanded ? "Collapse" : "Expand"}
+                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
                 >
-                  Write
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPreviewMode(true)}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                    previewMode
-                      ? "bg-indigo-600 text-white"
-                      : "text-zinc-500 hover:text-zinc-200"
-                  }`}
-                >
-                  Preview
+                  {isExpanded ? <CollapseIcon /> : <ExpandIcon />}
                 </button>
               </div>
             </div>
             {previewMode ? (
-              <div className="mb-5 h-64 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2">
+              <div
+                className={`mb-5 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 ${
+                  isExpanded ? "h-[65vh]" : "h-64"
+                }`}
+              >
                 {noteEditorModal.content.trim() ? (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
@@ -585,8 +602,9 @@ export default function NoteDashboard({ page, data }: Props) {
                   })
                 }
                 placeholder="Write your note here… Markdown supported."
-                rows={10}
-                className="mb-5 w-full resize-y rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                className={`mb-5 w-full resize-y rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500 ${
+                  isExpanded ? "h-[65vh]" : "h-64"
+                }`}
               />
             )}
             <div className="flex justify-end gap-3">
@@ -1155,6 +1173,34 @@ function MoveIcon() {
         d="M4.5 8.5 8.5 5.5M8.5 5.5H6M8.5 5.5V8"
         stroke="currentColor"
         strokeWidth="1.1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ExpandIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path
+        d="M1.5 5V1.5H5M8 1.5h3.5V5M11.5 8v3.5H8M5 11.5H1.5V8"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CollapseIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path
+        d="M4.5 1.5V4.5H1.5M8.5 1.5V4.5H11.5M4.5 11.5V8.5H1.5M8.5 11.5V8.5H11.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
