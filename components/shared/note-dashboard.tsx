@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -199,11 +199,31 @@ export default function NoteDashboard({ page, data }: Props) {
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
 
   const { folders, notes } = data;
   const childrenMap = buildChildrenMap(folders);
   const notesMap = buildItemsMap(notes);
   const isEmpty = notes.length === 0 && folders.length === 0;
+
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setIsFullscreen(document.fullscreenElement === previewRef.current);
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void previewRef.current?.requestFullscreen();
+    }
+  }
 
   async function runMutation(task: () => Promise<unknown>) {
     if (isBusy) return;
@@ -388,6 +408,7 @@ export default function NoteDashboard({ page, data }: Props) {
               onClick={() => {
                 setPreviewMode(false);
                 setIsExpanded(false);
+                setIsFullscreen(false);
                 setNoteEditorModal({
                   open: true,
                   mode: "create",
@@ -452,6 +473,7 @@ export default function NoteDashboard({ page, data }: Props) {
                 void getNote(note.id).then((full) => {
                   setPreviewMode(false);
                 setIsExpanded(false);
+                setIsFullscreen(false);
                   setNoteEditorModal({
                     open: true,
                     mode: "edit",
@@ -573,14 +595,39 @@ export default function NoteDashboard({ page, data }: Props) {
                 >
                   {isExpanded ? <CollapseIcon /> : <ExpandIcon />}
                 </button>
+                {previewMode && (
+                  <button
+                    type="button"
+                    onClick={toggleFullscreen}
+                    title="Fullscreen"
+                    className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+                  >
+                    <FullscreenIcon />
+                  </button>
+                )}
               </div>
             </div>
             {previewMode ? (
               <div
-                className={`mb-5 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 ${
-                  isExpanded ? "h-[65vh]" : "h-64"
+                ref={previewRef}
+                className={`relative mb-5 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 ${
+                  isFullscreen
+                    ? "h-screen p-10"
+                    : isExpanded
+                      ? "h-[65vh]"
+                      : "h-64"
                 }`}
               >
+                {isFullscreen && (
+                  <button
+                    type="button"
+                    onClick={toggleFullscreen}
+                    title="Exit fullscreen"
+                    className="fixed right-6 top-6 rounded-md bg-zinc-900/90 p-2 text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-white"
+                  >
+                    <ExitFullscreenIcon />
+                  </button>
+                )}
                 {noteEditorModal.content.trim() ? (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
@@ -1180,11 +1227,13 @@ function MoveIcon() {
   );
 }
 
+// Diagonal resize arrow — used for "expand the modal", distinct from the
+// corner-bracket fullscreen icons below.
 function ExpandIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
       <path
-        d="M1.5 5V1.5H5M8 1.5h3.5V5M11.5 8v3.5H8M5 11.5H1.5V8"
+        d="M2 8v3h3M11 5V2H8M2 11l4-4M11 2 7 6"
         stroke="currentColor"
         strokeWidth="1.3"
         strokeLinecap="round"
@@ -1198,7 +1247,37 @@ function CollapseIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
       <path
-        d="M4.5 1.5V4.5H1.5M8.5 1.5V4.5H11.5M4.5 11.5V8.5H1.5M8.5 11.5V8.5H11.5"
+        d="M5 8H2v3M8 5h3V2M2 2l4 4M11 11 7 7"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// Four corner brackets touching the frame edges — the classic video-player
+// fullscreen glyph, deliberately different from ExpandIcon's diagonal arrow.
+function FullscreenIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path
+        d="M1 4.5V1h3.5M8.5 1H12v3.5M12 8.5V12H8.5M4.5 12H1V8.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ExitFullscreenIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path
+        d="M4.5 1v3.5H1M8.5 1v3.5H12M12 8.5H8.5V12M1 8.5h3.5V12"
         stroke="currentColor"
         strokeWidth="1.3"
         strokeLinecap="round"
