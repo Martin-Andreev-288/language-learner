@@ -23,6 +23,7 @@ const navLinks: NavItem[] = [
     subLinks: [
       { href: "/reading/shuffle", label: "Reading Shuffle" },
       { href: "/reading/island-dialogues", label: "Island Dialogues" },
+      { href: "/reading/notes", label: "Notes" },
     ],
   },
   {
@@ -32,6 +33,7 @@ const navLinks: NavItem[] = [
       { href: "/writing", label: "My Texts" },
       { href: "/writing/templates", label: "Templates" },
       { href: "/writing/exercises", label: "Exercises" },
+      { href: "/writing/notes", label: "Notes" },
     ],
   },
   {
@@ -40,10 +42,25 @@ const navLinks: NavItem[] = [
     subLinks: [
       { href: "/vocabulary/shuffle", label: "Vocab Shuffle" },
       { href: "/vocabulary/flashcards", label: "Flashcards" },
+      { href: "/vocabulary/notes", label: "Notes" },
     ],
   },
-  { href: "/listening", label: "Listening" },
-  { href: "/speaking", label: "Speaking" },
+  {
+    href: "/listening",
+    label: "Listening",
+    subLinks: [
+      { href: "/listening", label: "Listening" },
+      { href: "/listening/notes", label: "Notes" },
+    ],
+  },
+  {
+    href: "/speaking",
+    label: "Speaking",
+    subLinks: [
+      { href: "/speaking", label: "Speaking" },
+      { href: "/speaking/notes", label: "Notes" },
+    ],
+  },
   {
     href: "/vocabulary-analyzer",
     label: "Analyzer",
@@ -55,11 +72,6 @@ const navLinks: NavItem[] = [
   {
     href: "/notes",
     label: "Notes",
-    subLinks: [
-      { href: "/notes", label: "All Notes" },
-      { href: "/notes/quick", label: "Quick Notes" },
-      { href: "/notes/study", label: "Study Notes" },
-    ],
   },
 ];
 
