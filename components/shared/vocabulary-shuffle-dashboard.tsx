@@ -43,6 +43,7 @@ type DashboardList = {
   };
   reviewCount: number;
   lastReviewedAt: string | Date | null;
+  createdAt: string | Date;
 };
 
 type DashboardData = {
@@ -110,6 +111,33 @@ function formatReviewDate(date: string | Date) {
   return `${day}.${month}.${year}`;
 }
 
+type SortBy = "title" | "lastReviewed" | "percentMemorized" | "createdAt";
+type SortDirection = "asc" | "desc";
+
+// Base comparator always returns ascending order; the caller flips the sign
+// for descending. For lastReviewed, "ascending" means never-reviewed lists
+// (no lastReviewedAt) come first, then oldest to newest — i.e. ascending
+// surfaces neglected lists first, matching percentMemorized's same intent.
+function compareLists(a: DashboardList, b: DashboardList, sortBy: SortBy) {
+  if (sortBy === "createdAt") {
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  }
+
+  if (sortBy === "lastReviewed") {
+    const aTime = a.lastReviewedAt ? new Date(a.lastReviewedAt).getTime() : -Infinity;
+    const bTime = b.lastReviewedAt ? new Date(b.lastReviewedAt).getTime() : -Infinity;
+    return aTime - bTime;
+  }
+
+  if (sortBy === "percentMemorized") {
+    const aPct = a.counts.total > 0 ? a.counts.memorized / a.counts.total : 0;
+    const bPct = b.counts.total > 0 ? b.counts.memorized / b.counts.total : 0;
+    return aPct - bPct;
+  }
+
+  return a.title.localeCompare(b.title);
+}
+
 export default function VocabularyShuffleDashboard({
   type,
   reviewBasePath,
@@ -134,11 +162,17 @@ export default function VocabularyShuffleDashboard({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<SortBy>("title");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const { folders, lists, totals } = data;
   const label = type === "word" ? "word" : "phrase";
   const childrenMap = buildChildrenMap(folders);
-  const listsMap = buildItemsMap(lists);
+  const sortedLists = [...lists].sort((a, b) => {
+    const result = compareLists(a, b, sortBy);
+    return sortDirection === "asc" ? result : -result;
+  });
+  const listsMap = buildItemsMap(sortedLists);
 
   async function runMutation(task: () => Promise<unknown>) {
     if (isBusy) return;
@@ -412,6 +446,34 @@ export default function VocabularyShuffleDashboard({
                 {totals.unmemorized} unmemorized {label}
                 {totals.unmemorized !== 1 ? "s" : ""}
               </p>
+            </button>
+          </div>
+        )}
+
+        {lists.length > 1 && (
+          <div className="mb-4 flex items-center justify-end">
+            <label className="mr-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+              Sort by
+            </label>
+            <select
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as SortBy)}
+              className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+            >
+              <option value="title">Title (A–Z)</option>
+              <option value="lastReviewed">Last reviewed</option>
+              <option value="percentMemorized">% memorized</option>
+              <option value="createdAt">Created date</option>
+            </select>
+            <button
+              type="button"
+              onClick={() =>
+                setSortDirection((value) => (value === "asc" ? "desc" : "asc"))
+              }
+              title={sortDirection === "asc" ? "Ascending" : "Descending"}
+              className="ml-2 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+            >
+              <ChevronDownIcon className={sortDirection === "asc" ? "rotate-180" : ""} />
             </button>
           </div>
         )}
@@ -1201,12 +1263,10 @@ function ListCard({
           </span>
         )}
       </p>
-      {list.reviewCount > 0 && list.lastReviewedAt && (
-        <p className="mt-1 text-xs text-zinc-600">
-          reviews: {list.reviewCount} · last:{" "}
-          {formatReviewDate(list.lastReviewedAt)}
-        </p>
-      )}
+      <p className="mt-1 text-xs text-zinc-600">
+        reviews: {list.reviewCount} · last:{" "}
+        {list.lastReviewedAt ? formatReviewDate(list.lastReviewedAt) : "-"}
+      </p>
     </div>
   );
 }

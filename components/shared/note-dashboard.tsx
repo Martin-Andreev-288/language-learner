@@ -45,6 +45,7 @@ type DashboardNote = {
   title: string;
   folderId: string | null;
   preview: string;
+  createdAt: string | Date;
   updatedAt: string | Date;
 };
 
@@ -179,6 +180,23 @@ function formatNoteDate(date: string | Date) {
   return `${day}.${month}.${year}`;
 }
 
+type SortBy = "title" | "updatedAt" | "createdAt";
+type SortDirection = "asc" | "desc";
+
+// Base comparator always returns ascending order; the caller flips the sign
+// for descending — same shape as the Shuffle dashboard's compareLists.
+function compareNotes(a: DashboardNote, b: DashboardNote, sortBy: SortBy) {
+  if (sortBy === "updatedAt") {
+    return new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+  }
+
+  if (sortBy === "createdAt") {
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  }
+
+  return a.title.localeCompare(b.title);
+}
+
 export default function NoteDashboard({ page, data }: Props) {
   const router = useRouter();
   const [isBusy, setIsBusy] = useState(false);
@@ -201,10 +219,16 @@ export default function NoteDashboard({ page, data }: Props) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
+  const [sortBy, setSortBy] = useState<SortBy>("title");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const { folders, notes } = data;
   const childrenMap = buildChildrenMap(folders);
-  const notesMap = buildItemsMap(notes);
+  const sortedNotes = [...notes].sort((a, b) => {
+    const result = compareNotes(a, b, sortBy);
+    return sortDirection === "asc" ? result : -result;
+  });
+  const notesMap = buildItemsMap(sortedNotes);
   const isEmpty = notes.length === 0 && folders.length === 0;
 
   useEffect(() => {
@@ -425,6 +449,33 @@ export default function NoteDashboard({ page, data }: Props) {
             </button>
           </div>
         </div>
+
+        {notes.length > 1 && (
+          <div className="mb-4 flex items-center justify-end">
+            <label className="mr-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+              Sort by
+            </label>
+            <select
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as SortBy)}
+              className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+            >
+              <option value="title">Title (A–Z)</option>
+              <option value="updatedAt">Last updated</option>
+              <option value="createdAt">Created date</option>
+            </select>
+            <button
+              type="button"
+              onClick={() =>
+                setSortDirection((value) => (value === "asc" ? "desc" : "asc"))
+              }
+              title={sortDirection === "asc" ? "Ascending" : "Descending"}
+              className="ml-2 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+            >
+              <ChevronDownIcon className={sortDirection === "asc" ? "rotate-180" : ""} />
+            </button>
+          </div>
+        )}
 
         {isEmpty ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">

@@ -226,6 +226,7 @@ export async function getShuffleFolderTree(type: ShuffleListType) {
                 folderId: true,
                 reviewCount: true,
                 lastReviewedAt: true,
+                createdAt: true,
                 cards: {
                     select: { memorized: true, favorite: true },
                 },
@@ -244,6 +245,7 @@ export async function getShuffleFolderTree(type: ShuffleListType) {
             folderId: list.folderId,
             reviewCount: list.reviewCount,
             lastReviewedAt: list.lastReviewedAt,
+            createdAt: list.createdAt,
             counts: {
                 total,
                 memorized,

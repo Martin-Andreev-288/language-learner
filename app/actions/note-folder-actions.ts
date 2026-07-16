@@ -226,6 +226,7 @@ export async function getNoteFolderTree(page: NotePage) {
                 title: true,
                 content: true,
                 folderId: true,
+                createdAt: true,
                 updatedAt: true,
             },
         }),
@@ -235,6 +236,7 @@ export async function getNoteFolderTree(page: NotePage) {
         id: note.id,
         title: note.title,
         folderId: note.folderId,
+        createdAt: note.createdAt,
         updatedAt: note.updatedAt,
         preview:
             note.content.length > PREVIEW_LENGTH
