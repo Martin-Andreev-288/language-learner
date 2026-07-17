@@ -20,6 +20,7 @@ import {
   buildItemsMap,
   flattenFolderOptions,
   getDescendantFolderIds,
+  getVisibleFolderIds,
 } from "@/lib/folder-tree";
 
 type ShuffleType = "word" | "phrase";
@@ -164,9 +165,19 @@ export default function VocabularyShuffleDashboard({
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>("title");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const { folders, lists, totals } = data;
   const label = type === "word" ? "word" : "phrase";
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const isSearching = normalizedSearch.length > 0;
+  const visibleFolderIds = getVisibleFolderIds(folders, lists, searchTerm);
+  // visibleFolderIds only tracks folders — a root-level list can match
+  // without any folder matching, so "no results" needs its own check.
+  const hasSearchMatch =
+    visibleFolderIds.size > 0 ||
+    lists.some((list) => list.title.toLowerCase().includes(normalizedSearch)) ||
+    folders.some((folder) => folder.name.toLowerCase().includes(normalizedSearch));
   const childrenMap = buildChildrenMap(folders);
   const sortedLists = [...lists].sort((a, b) => {
     const result = compareLists(a, b, sortBy);
@@ -451,30 +462,58 @@ export default function VocabularyShuffleDashboard({
         )}
 
         {lists.length > 1 && (
-          <div className="mb-4 flex items-center justify-end">
-            <label className="mr-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
-              Sort by
-            </label>
-            <select
-              value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as SortBy)}
-              className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
-            >
-              <option value="title">Title (A–Z)</option>
-              <option value="lastReviewed">Last reviewed</option>
-              <option value="percentMemorized">% memorized</option>
-              <option value="createdAt">Created date</option>
-            </select>
-            <button
-              type="button"
-              onClick={() =>
-                setSortDirection((value) => (value === "asc" ? "desc" : "asc"))
-              }
-              title={sortDirection === "asc" ? "Ascending" : "Descending"}
-              className="ml-2 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
-            >
-              <ChevronDownIcon className={sortDirection === "asc" ? "rotate-180" : ""} />
-            </button>
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="relative w-64 max-w-full">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder={`Search ${label}s and folders…`}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 pr-8 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm("")}
+                  title="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-200"
+                >
+                  <CloseIcon />
+                </button>
+              )}
+            </div>
+
+            <div className="flex shrink-0 items-center">
+              <label className="mr-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Sort by
+              </label>
+              <select
+                value={sortBy}
+                onChange={(event) => setSortBy(event.target.value as SortBy)}
+                className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+              >
+                <option value="title">Title (A–Z)</option>
+                <option value="lastReviewed">Last reviewed</option>
+                <option value="percentMemorized">% memorized</option>
+                <option value="createdAt">Created date</option>
+              </select>
+              <button
+                type="button"
+                onClick={() =>
+                  setSortDirection((value) => (value === "asc" ? "desc" : "asc"))
+                }
+                title={sortDirection === "asc" ? "Ascending" : "Descending"}
+                className="ml-2 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+              >
+                <ChevronDownIcon className={sortDirection === "asc" ? "rotate-180" : ""} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isSearching && !hasSearchMatch && (
+          <div className="mb-4 flex items-center justify-center rounded-lg border border-zinc-800 py-6 text-sm text-zinc-600">
+            No {label}s or folders match &ldquo;{searchTerm.trim()}&rdquo;.
           </div>
         )}
 
@@ -574,6 +613,9 @@ export default function VocabularyShuffleDashboard({
                 setDragOverTarget((prev) => (prev === target ? null : prev))
               }
               onDropTarget={handleDrop}
+              searchTerm={normalizedSearch}
+              visibleFolderIds={visibleFolderIds}
+              forceShowAll={false}
             />
           </>
         )}
@@ -1000,6 +1042,13 @@ type FolderSectionProps = {
   onDragOverTarget: (target: string) => void;
   onDragLeaveTarget: (target: string) => void;
   onDropTarget: (target: string) => void;
+  searchTerm: string;
+  visibleFolderIds: Set<string>;
+  // True once we're rendering inside a folder that itself matched the
+  // search by name — from that point down, the whole subtree shows
+  // unfiltered, like the search isn't active, so a matched folder is
+  // actually browsable instead of just a dead-end label.
+  forceShowAll: boolean;
 };
 
 function FolderSection(props: FolderSectionProps) {
@@ -1027,12 +1076,27 @@ function FolderSection(props: FolderSectionProps) {
     onDragOverTarget,
     onDragLeaveTarget,
     onDropTarget,
+    searchTerm,
+    visibleFolderIds,
+    forceShowAll,
   } = props;
 
+  const isSearching = searchTerm.length > 0;
   const folderId = folder?.id ?? null;
-  const childFolders = childrenMap.get(folderId) ?? [];
-  const directLists = listsMap.get(folderId) ?? [];
-  const isCollapsed = folder ? collapsed.has(folder.id) : false;
+  const folderNameMatches = !!folder && folder.name.toLowerCase().includes(searchTerm);
+  const showAllHere = forceShowAll || folderNameMatches;
+  const childFolders = (childrenMap.get(folderId) ?? []).filter(
+    (child) => !isSearching || showAllHere || visibleFolderIds.has(child.id),
+  );
+  const directLists = (listsMap.get(folderId) ?? []).filter(
+    (list) =>
+      !isSearching || showAllHere || list.title.toLowerCase().includes(searchTerm),
+  );
+  const isCollapsed = isSearching
+    ? false
+    : folder
+      ? collapsed.has(folder.id)
+      : false;
   const isBeingDragged =
     !!folder && dragItem?.kind === "folder" && dragItem.id === folder.id;
   const isDropTarget = !!folder && dragOverTarget === folder.id;
@@ -1148,6 +1212,7 @@ function FolderSection(props: FolderSectionProps) {
               {...props}
               folder={child}
               depth={depth + 1}
+              forceShowAll={showAllHere}
             />
           ))}
         </>
@@ -1290,6 +1355,19 @@ function Modal({
         {children}
       </div>
     </div>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path
+        d="M2 2l8 8M10 2l-8 8"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 

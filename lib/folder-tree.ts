@@ -58,6 +58,51 @@ export function getDescendantFolderIds<F extends TreeFolder & { id: string }>(
   return result;
 }
 
+// Returns the set of folder ids that should stay visible while a search
+// term is active: a folder counts as a "hit" if its own name matches, if
+// any item directly inside it matches by title, or if any descendant
+// folder (recursively) is itself a hit — so a match ten levels deep still
+// keeps its whole ancestor chain visible. Leaf items are filtered
+// separately, by direct title match only; a folder matching by name does
+// not pull in unrelated children that don't themselves match.
+export function getVisibleFolderIds<
+  F extends TreeFolder & { id: string; name: string },
+  T extends { folderId: string | null; title: string },
+>(folders: F[], items: T[], term: string) {
+  const normalized = term.trim().toLowerCase();
+  const visible = new Set<string>();
+
+  if (!normalized) return visible;
+
+  const childrenMap = buildChildrenMap(folders);
+  const itemsMap = buildItemsMap(items);
+
+  function check(folder: F): boolean {
+    let hasMatch = folder.name.toLowerCase().includes(normalized);
+
+    for (const item of itemsMap.get(folder.id) ?? []) {
+      if (item.title.toLowerCase().includes(normalized)) {
+        hasMatch = true;
+      }
+    }
+
+    for (const child of childrenMap.get(folder.id) ?? []) {
+      if (check(child)) {
+        hasMatch = true;
+      }
+    }
+
+    if (hasMatch) visible.add(folder.id);
+    return hasMatch;
+  }
+
+  for (const folder of folders) {
+    if (folder.parentFolderId === null) check(folder);
+  }
+
+  return visible;
+}
+
 export function flattenFolderOptions<
   F extends TreeFolder & { id: string; name: string },
 >(folders: F[], excludeIds: Set<string>) {
