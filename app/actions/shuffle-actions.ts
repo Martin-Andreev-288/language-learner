@@ -283,13 +283,28 @@ export async function getShuffleReviewCards(options: {
     type: ShuffleListType;
     listId: string | "all";
     filter?: ShuffleFilter;
+    // When present, restricts to exactly these list ids instead of every
+    // list of this type ("all") or a single list — re-verified against
+    // userId/type here rather than trusted as-is, same as any other
+    // ownership check in this file.
+    selectedListIds?: string[];
 }) {
     const userId = await requireUserId();
     const filter = options.filter ?? "unmemorized";
 
     let listIds: string[];
 
-    if (options.listId === "all") {
+    if (options.selectedListIds) {
+        const lists = await prisma.shuffleList.findMany({
+            where: {
+                userId,
+                type: options.type,
+                id: { in: options.selectedListIds },
+            },
+            select: { id: true },
+        });
+        listIds = lists.map((list) => list.id);
+    } else if (options.listId === "all") {
         const lists = await prisma.shuffleList.findMany({
             where: { userId, type: options.type },
             select: { id: true },

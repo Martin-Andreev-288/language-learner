@@ -9,7 +9,7 @@ import VocabularyShuffleSession from "@/components/shared/vocabulary-shuffle-ses
 
 type Props = {
   params: Promise<{ listId: string }>;
-  searchParams?: Promise<{ filter?: string }>;
+  searchParams?: Promise<{ filter?: string; lists?: string }>;
 };
 
 function normalizeFilter(filter?: string) {
@@ -41,20 +41,27 @@ export default async function ReadingShuffleReviewPage({
   }
 
   const { listId } = await params;
-  const { filter } = searchParams ? await searchParams : { filter: undefined };
+  const { filter, lists } = searchParams
+    ? await searchParams
+    : { filter: undefined, lists: undefined };
   const initialFilter = normalizeFilter(filter);
+  const selectedListIds = lists
+    ? lists.split(",").filter(Boolean)
+    : undefined;
 
   const [reviewData, dashboard] = await Promise.all([
     getShuffleReviewCards({
       type: ShuffleListType.phrase,
       listId,
       filter: "all",
+      selectedListIds,
     }),
     getShuffleDashboard(ShuffleListType.phrase),
   ]);
 
-  const listTitle =
-    listId === "all"
+  const listTitle = selectedListIds
+    ? `${reviewData.listIds.length} selected list${reviewData.listIds.length !== 1 ? "s" : ""}`
+    : listId === "all"
       ? "All Phrase Lists"
       : (dashboard.lists.find((list) => list.id === listId)?.title ??
         "Reading Shuffle");
