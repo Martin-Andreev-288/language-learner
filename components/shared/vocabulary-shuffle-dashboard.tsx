@@ -166,6 +166,9 @@ export default function VocabularyShuffleDashboard({
   const [sortBy, setSortBy] = useState<SortBy>("title");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedListIds, setSelectedListIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   const { folders, lists, totals } = data;
   const label = type === "word" ? "word" : "phrase";
@@ -184,6 +187,23 @@ export default function VocabularyShuffleDashboard({
     return sortDirection === "asc" ? result : -result;
   });
   const listsMap = buildItemsMap(sortedLists);
+  // Derived from currently-existing lists rather than selectedListIds.size
+  // directly, so a list deleted while selected doesn't leave a stale count.
+  const validSelectedIds = lists
+    .map((list) => list.id)
+    .filter((id) => selectedListIds.has(id));
+
+  function toggleListSelection(listId: string) {
+    setSelectedListIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(listId)) {
+        next.delete(listId);
+      } else {
+        next.add(listId);
+      }
+      return next;
+    });
+  }
 
   async function runMutation(task: () => Promise<unknown>) {
     if (isBusy) return;
@@ -616,10 +636,40 @@ export default function VocabularyShuffleDashboard({
               searchTerm={normalizedSearch}
               visibleFolderIds={visibleFolderIds}
               forceShowAll={false}
+              selectedListIds={selectedListIds}
+              onToggleListSelection={toggleListSelection}
             />
           </>
         )}
       </div>
+
+      {validSelectedIds.length > 0 && (
+        <div className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
+          <div className="flex items-center gap-4 rounded-xl border border-zinc-700 bg-zinc-900 px-5 py-3 shadow-2xl">
+            <span className="text-sm text-zinc-200">
+              {validSelectedIds.length} selected
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedListIds(new Set())}
+              className="text-sm text-zinc-400 transition-colors hover:text-zinc-100"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  `${reviewBasePath}/all?lists=${validSelectedIds.join(",")}`,
+                )
+              }
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+            >
+              Review selected
+            </button>
+          </div>
+        </div>
+      )}
 
       {addModal.open && (
         <Modal onClose={() => setAddModal({ open: false })}>
@@ -1049,6 +1099,8 @@ type FolderSectionProps = {
   // unfiltered, like the search isn't active, so a matched folder is
   // actually browsable instead of just a dead-end label.
   forceShowAll: boolean;
+  selectedListIds: Set<string>;
+  onToggleListSelection: (listId: string) => void;
 };
 
 function FolderSection(props: FolderSectionProps) {
@@ -1079,6 +1131,8 @@ function FolderSection(props: FolderSectionProps) {
     searchTerm,
     visibleFolderIds,
     forceShowAll,
+    selectedListIds,
+    onToggleListSelection,
   } = props;
 
   const isSearching = searchTerm.length > 0;
@@ -1194,6 +1248,7 @@ function FolderSection(props: FolderSectionProps) {
                   isDragging={
                     dragItem?.kind === "list" && dragItem.id === list.id
                   }
+                  isSelected={selectedListIds.has(list.id)}
                   onOpen={() => onOpenList(list.id)}
                   onAppend={() => onAppendList(list)}
                   onEdit={() => onEditList(list)}
@@ -1201,6 +1256,7 @@ function FolderSection(props: FolderSectionProps) {
                   onMove={() => onMoveList(list)}
                   onDragStart={() => onDragStartItem({ kind: "list", id: list.id })}
                   onDragEnd={onDragEndItem}
+                  onToggleSelect={() => onToggleListSelection(list.id)}
                 />
               ))}
             </div>
@@ -1225,6 +1281,7 @@ function ListCard({
   list,
   label,
   isDragging,
+  isSelected,
   onOpen,
   onAppend,
   onEdit,
@@ -1232,10 +1289,12 @@ function ListCard({
   onMove,
   onDragStart,
   onDragEnd,
+  onToggleSelect,
 }: {
   list: DashboardList;
   label: string;
   isDragging: boolean;
+  isSelected: boolean;
   onOpen: () => void;
   onAppend: () => void;
   onEdit: () => void;
@@ -1243,6 +1302,7 @@ function ListCard({
   onMove: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
+  onToggleSelect: () => void;
 }) {
   return (
     <div
@@ -1258,10 +1318,26 @@ function ListCard({
           onOpen();
         }
       }}
-      className={`group relative flex cursor-pointer flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition-colors hover:border-zinc-700 ${
-        isDragging ? "opacity-50" : ""
-      }`}
+      className={`group relative flex cursor-pointer flex-col justify-between rounded-xl border p-5 transition-colors ${
+        isSelected
+          ? "border-indigo-500 ring-1 ring-indigo-500"
+          : "border-zinc-800 hover:border-zinc-700"
+      } bg-zinc-900 ${isDragging ? "opacity-50" : ""}`}
     >
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={() => {}}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleSelect();
+        }}
+        title="Select for combined review"
+        className={`absolute left-3 top-3.5 h-3.5 w-3.5 accent-indigo-600 transition-opacity ${
+          isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`}
+      />
+
       <div className="absolute right-3 top-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
         <button
           type="button"
@@ -1309,7 +1385,7 @@ function ListCard({
         </button>
       </div>
 
-      <h2 className="mb-3 pr-28 font-semibold leading-snug text-zinc-100">
+      <h2 className="mb-3 pl-3 pr-28 font-semibold leading-snug text-zinc-100">
         {list.title}
       </h2>
       <p className="text-sm text-zinc-500">
