@@ -192,6 +192,23 @@ export default function VocabularyShuffleDashboard({
   const validSelectedIds = lists
     .map((list) => list.id)
     .filter((id) => selectedListIds.has(id));
+  // Precomputed once per render rather than recursively inside FolderSection,
+  // so every folder's "select all inside" checkbox is an O(1) lookup — the
+  // subtree includes the folder's own direct lists plus every list in any
+  // descendant folder, at any depth.
+  const folderSubtreeListIds = new Map<string, string[]>();
+  for (const candidateFolder of folders) {
+    const subtreeFolderIds = new Set([
+      candidateFolder.id,
+      ...getDescendantFolderIds(folders, candidateFolder.id),
+    ]);
+    folderSubtreeListIds.set(
+      candidateFolder.id,
+      lists
+        .filter((list) => !!list.folderId && subtreeFolderIds.has(list.folderId))
+        .map((list) => list.id),
+    );
+  }
 
   function toggleListSelection(listId: string) {
     setSelectedListIds((prev) => {
@@ -200,6 +217,28 @@ export default function VocabularyShuffleDashboard({
         next.delete(listId);
       } else {
         next.add(listId);
+      }
+      return next;
+    });
+  }
+
+  // Click always moves toward "select everything in this subtree" unless
+  // it's already fully selected, in which case it clears the whole subtree
+  // — the same tri-state behavior as a typical "select all" checkbox.
+  function toggleFolderSelection(folderId: string) {
+    const subtreeIds = folderSubtreeListIds.get(folderId) ?? [];
+    if (subtreeIds.length === 0) return;
+
+    const allSelected = subtreeIds.every((id) => selectedListIds.has(id));
+
+    setSelectedListIds((prev) => {
+      const next = new Set(prev);
+      for (const id of subtreeIds) {
+        if (allSelected) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
       }
       return next;
     });
@@ -638,6 +677,8 @@ export default function VocabularyShuffleDashboard({
               forceShowAll={false}
               selectedListIds={selectedListIds}
               onToggleListSelection={toggleListSelection}
+              folderSubtreeListIds={folderSubtreeListIds}
+              onToggleFolderSelection={toggleFolderSelection}
             />
           </>
         )}
@@ -1101,6 +1142,8 @@ type FolderSectionProps = {
   forceShowAll: boolean;
   selectedListIds: Set<string>;
   onToggleListSelection: (listId: string) => void;
+  folderSubtreeListIds: Map<string, string[]>;
+  onToggleFolderSelection: (folderId: string) => void;
 };
 
 function FolderSection(props: FolderSectionProps) {
@@ -1133,6 +1176,8 @@ function FolderSection(props: FolderSectionProps) {
     forceShowAll,
     selectedListIds,
     onToggleListSelection,
+    folderSubtreeListIds,
+    onToggleFolderSelection,
   } = props;
 
   const isSearching = searchTerm.length > 0;
@@ -1151,6 +1196,14 @@ function FolderSection(props: FolderSectionProps) {
     : folder
       ? collapsed.has(folder.id)
       : false;
+  const subtreeListIds = folder ? (folderSubtreeListIds.get(folder.id) ?? []) : [];
+  const subtreeSelectedCount = subtreeListIds.filter((id) =>
+    selectedListIds.has(id),
+  ).length;
+  const isFolderFullySelected =
+    subtreeListIds.length > 0 && subtreeSelectedCount === subtreeListIds.length;
+  const isFolderPartiallySelected =
+    subtreeSelectedCount > 0 && !isFolderFullySelected;
   const isBeingDragged =
     !!folder && dragItem?.kind === "folder" && dragItem.id === folder.id;
   const isDropTarget = !!folder && dragOverTarget === folder.id;
@@ -1179,6 +1232,25 @@ function FolderSection(props: FolderSectionProps) {
               : "bg-zinc-900/60"
           }`}
         >
+          <input
+            type="checkbox"
+            checked={isFolderFullySelected}
+            ref={(el) => {
+              if (el) el.indeterminate = isFolderPartiallySelected;
+            }}
+            onChange={() => {}}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleFolderSelection(folder.id);
+            }}
+            disabled={subtreeListIds.length === 0}
+            title="Select every list in this folder"
+            className={`h-3.5 w-3.5 shrink-0 accent-indigo-600 transition-opacity ${
+              isFolderFullySelected || isFolderPartiallySelected
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100"
+            } ${subtreeListIds.length === 0 ? "cursor-not-allowed" : ""}`}
+          />
           <button
             type="button"
             onClick={() => onToggleCollapse(folder.id)}
