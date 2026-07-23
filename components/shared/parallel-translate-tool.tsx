@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { splitIntoSentences } from "@/lib/sentence-split";
 
-type OutputFormat = "markdown" | "html" | "vertical";
+type OutputFormat = "markdown" | "vertical";
 
 interface LanguageColumn {
   id: number;
@@ -32,15 +32,6 @@ const PREVIEW_COLORS = [
   "text-amber-400",
 ];
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function parseColumns(columns: LanguageColumn[]): ParsedData | null {
   const texts = columns.map((c) => c.text);
   if (texts.length === 0 || texts.every((t) => !t.trim())) return null;
@@ -68,53 +59,22 @@ function formatToMarkdown(data: ParsedData, names: string[]): string {
   return output;
 }
 
-function formatToHTML(data: ParsedData, names: string[]): string {
-  const columnWidth = `${100 / Math.max(names.length, 1)}%`;
-  let output =
-    '<table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">\n';
-  output += "  <thead>\n    <tr>\n";
-  names.forEach((name) => {
-    output += `      <th style="text-align: left; padding: 8px; width: ${columnWidth};">${escapeHtml(name)}</th>\n`;
-  });
-  output += "    </tr>\n  </thead>\n  <tbody>\n";
-  data.rows.forEach((row) => {
-    output += "    <tr>\n";
-    row.forEach((text) => {
-      output += `      <td style="padding: 8px; vertical-align: top;">${escapeHtml(text)}</td>\n`;
-    });
-    output += "    </tr>\n";
-  });
-  output += "  </tbody>\n</table>";
-  return output;
-}
-
+// `names` here may contain blank entries — a blank name means the user
+// never labeled that language, so its lines are left unprefixed instead of
+// falling back to a placeholder like "Language 2", keeping copy-paste output
+// clean when nobody cares about the labels.
 function formatToVertical(data: ParsedData, names: string[]): string {
   let output = "";
   data.rows.forEach((row) => {
     if (row.some((text) => text)) {
       row.forEach((text, i) => {
-        if (text) output += `- ${names[i]}: ${text}\n`;
+        if (!text) return;
+        output += names[i] ? `- ${names[i]}: ${text}\n` : `${text}\n`;
       });
       output += "\n";
     }
   });
   return output;
-}
-
-function formatOutput(
-  format: OutputFormat,
-  data: ParsedData,
-  names: string[],
-): string {
-  switch (format) {
-    case "html":
-      return formatToHTML(data, names);
-    case "vertical":
-      return formatToVertical(data, names);
-    case "markdown":
-    default:
-      return formatToMarkdown(data, names);
-  }
 }
 
 let nextColumnId = 0;
@@ -144,11 +104,17 @@ export default function ParallelTranslateTool() {
       return;
     }
 
-    const names = nextColumns.map(
-      (column, index) => column.name.trim() || `Language ${index + 1}`,
-    );
-    setOutputText(formatOutput(format, parsed, names));
-    setPreview({ rows: parsed.rows, names });
+    const rawNames = nextColumns.map((column) => column.name.trim());
+
+    if (format === "vertical") {
+      setOutputText(formatToVertical(parsed, rawNames));
+    } else {
+      const displayNames = rawNames.map(
+        (name, index) => name || `Language ${index + 1}`,
+      );
+      setOutputText(formatToMarkdown(parsed, displayNames));
+    }
+    setPreview({ rows: parsed.rows, names: rawNames });
     setError(null);
   }
 
@@ -233,7 +199,6 @@ export default function ParallelTranslateTool() {
             {(
               [
                 { value: "markdown", label: "Markdown table" },
-                { value: "html", label: "HTML table" },
                 { value: "vertical", label: "Vertical bullets" },
               ] as { value: OutputFormat; label: string }[]
             ).map((option) => (
@@ -316,11 +281,9 @@ export default function ParallelTranslateTool() {
               onClick={handleFormatClick}
               className="mt-4 w-full rounded-lg bg-indigo-600 px-6 py-3 font-semibold text-white shadow-md transition-colors hover:bg-indigo-500"
             >
-              {outputFormat === "html"
-                ? "Format to HTML"
-                : outputFormat === "vertical"
-                  ? "Format to Vertical"
-                  : "Format to Markdown"}
+              {outputFormat === "vertical"
+                ? "Format to Vertical"
+                : "Format to Markdown"}
             </button>
           </div>
 
@@ -358,18 +321,22 @@ export default function ParallelTranslateTool() {
               <div className="space-y-4">
                 {preview.rows.map((row, rowIdx) => (
                   <div key={rowIdx}>
-                    {row.map((text, colIdx) =>
-                      text ? (
+                    {row.map((text, colIdx) => {
+                      if (!text) return null;
+                      const name = preview.names[colIdx];
+                      return (
                         <p key={colIdx} className="text-zinc-200">
-                          <span
-                            className={`font-semibold ${PREVIEW_COLORS[colIdx % PREVIEW_COLORS.length]}`}
-                          >
-                            {preview.names[colIdx]}:
-                          </span>{" "}
+                          {name && (
+                            <span
+                              className={`font-semibold ${PREVIEW_COLORS[colIdx % PREVIEW_COLORS.length]}`}
+                            >
+                              {name}:{" "}
+                            </span>
+                          )}
                           {text}
                         </p>
-                      ) : null,
-                    )}
+                      );
+                    })}
                   </div>
                 ))}
               </div>
@@ -378,9 +345,10 @@ export default function ParallelTranslateTool() {
                 <table className="min-w-full border-collapse border border-zinc-800">
                   <thead>
                     <tr className="bg-zinc-800">
-                      {preview.names.map((name, idx) => {
+                      {preview.names.map((rawName, idx) => {
                         const column = columns[idx];
                         const isCollapsed = column?.collapsed ?? false;
+                        const name = rawName || `Language ${idx + 1}`;
 
                         if (isCollapsed) {
                           return (
@@ -499,7 +467,9 @@ export default function ParallelTranslateTool() {
               Reorder, collapse, or remove a column directly from the preview
               table headers.
             </li>
-            <li>Click &quot;Copy&quot; to copy the formatted text.</li>
+            <li>
+              Click &quot;Copy&quot; to copy the formatted text.
+            </li>
           </ol>
         </div>
       </div>
