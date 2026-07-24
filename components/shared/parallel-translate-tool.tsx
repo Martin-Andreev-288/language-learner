@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { splitIntoSentences } from "@/lib/sentence-split";
+import { createNote } from "@/app/actions/note-actions";
+import { NotePage } from "@/app/generated/prisma";
 
 type OutputFormat = "markdown" | "vertical";
 
@@ -94,6 +96,9 @@ export default function ParallelTranslateTool() {
   const [error, setError] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function runFormat(nextColumns: LanguageColumn[], format: OutputFormat) {
     const parsed = parseColumns(nextColumns);
@@ -120,7 +125,9 @@ export default function ParallelTranslateTool() {
 
   function updateColumn(id: number, patch: Partial<LanguageColumn>) {
     setColumns((prev) =>
-      prev.map((column) => (column.id === id ? { ...column, ...patch } : column)),
+      prev.map((column) =>
+        column.id === id ? { ...column, ...patch } : column,
+      ),
     );
   }
 
@@ -166,7 +173,31 @@ export default function ParallelTranslateTool() {
       if (copyResetRef.current) clearTimeout(copyResetRef.current);
       copyResetRef.current = setTimeout(() => setCopySuccess(false), 2000);
     } catch {
-      setError("Couldn't copy to the clipboard — copy the text manually instead.");
+      setError(
+        "Couldn't copy to the clipboard — copy the text manually instead.",
+      );
+    }
+  }
+
+  async function handleSaveToNote() {
+    if (!outputText) return;
+
+    setSavingNote(true);
+    try {
+      const title =
+        columns
+          .map((column) => column.name.trim())
+          .filter(Boolean)
+          .join(" / ") || "Parallel Translate";
+      await createNote(NotePage.reading, title, outputText);
+      setNoteSaved(true);
+      setError(null);
+      if (noteResetRef.current) clearTimeout(noteResetRef.current);
+      noteResetRef.current = setTimeout(() => setNoteSaved(false), 2000);
+    } catch {
+      setError("Couldn't save to Notes — try again.");
+    } finally {
+      setSavingNote(false);
     }
   }
 
@@ -273,9 +304,7 @@ export default function ParallelTranslateTool() {
               + Add language
             </button>
 
-            {error && (
-              <p className="mt-3 text-sm text-red-400">{error}</p>
-            )}
+            {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 
             <button
               onClick={handleFormatClick}
@@ -290,17 +319,34 @@ export default function ParallelTranslateTool() {
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
             <div className="mb-4 flex items-center justify-between gap-4">
               <h2 className="text-lg font-semibold text-zinc-100">Output</h2>
-              <button
-                onClick={handleCopy}
-                disabled={!outputText}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                  copySuccess
-                    ? "bg-emerald-600 text-white"
-                    : "bg-indigo-600 text-white hover:bg-indigo-500"
-                } disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500`}
-              >
-                {copySuccess ? "Copied!" : "Copy"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSaveToNote}
+                  disabled={!outputText || savingNote}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    noteSaved
+                      ? "bg-emerald-600 text-white"
+                      : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                  } disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500`}
+                >
+                  {noteSaved
+                    ? "Saved!"
+                    : savingNote
+                      ? "Saving…"
+                      : "Save to a new note"}
+                </button>
+                <button
+                  onClick={handleCopy}
+                  disabled={!outputText}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    copySuccess
+                      ? "bg-emerald-600 text-white"
+                      : "bg-indigo-600 text-white hover:bg-indigo-500"
+                  } disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500`}
+                >
+                  {copySuccess ? "Copied!" : "Copy"}
+                </button>
+              </div>
             </div>
             <textarea
               value={outputText}
@@ -400,7 +446,9 @@ export default function ParallelTranslateTool() {
                                     </button>
                                     <button
                                       onClick={() => handleMove(idx, 1)}
-                                      disabled={idx === preview.names.length - 1}
+                                      disabled={
+                                        idx === preview.names.length - 1
+                                      }
                                       title="Move column right"
                                       className="rounded px-1.5 py-1 text-xs font-bold text-indigo-400 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-700"
                                     >
@@ -458,9 +506,9 @@ export default function ParallelTranslateTool() {
           <ol className="list-inside list-decimal space-y-1.5 text-sm text-zinc-400">
             <li>Paste the same passage in each language you want aligned.</li>
             <li>
-              Sentences are split automatically (by . ! ? and paragraph
-              breaks) — abbreviations aren&apos;t handled, so keep only
-              sentence-ending punctuation in the pasted text.
+              Sentences are split automatically (by . ! ? and paragraph breaks)
+              — abbreviations aren&apos;t handled, so keep only sentence-ending
+              punctuation in the pasted text.
             </li>
             <li>Pick an output format and click the format button.</li>
             <li>
@@ -468,7 +516,9 @@ export default function ParallelTranslateTool() {
               table headers.
             </li>
             <li>
-              Click &quot;Copy&quot; to copy the formatted text.
+              Click &quot;Copy&quot; to copy the formatted text anywhere, or
+              &quot;Save to a new note&quot; to send it straight to your Reading
+              notes.
             </li>
           </ol>
         </div>
