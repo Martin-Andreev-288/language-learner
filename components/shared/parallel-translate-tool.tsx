@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { splitIntoSentences } from "@/lib/sentence-split";
 import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
+import { translateSentences } from "@/app/actions/parallel-translate-actions";
 
 type OutputFormat = "markdown" | "vertical";
 
@@ -99,6 +100,7 @@ export default function ParallelTranslateTool() {
   const [savingNote, setSavingNote] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
   const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [translating, setTranslating] = useState(false);
 
   function runFormat(nextColumns: LanguageColumn[], format: OutputFormat) {
     const parsed = parseColumns(nextColumns);
@@ -133,6 +135,52 @@ export default function ParallelTranslateTool() {
 
   function handleAddLanguage() {
     setColumns((prev) => [...prev, makeColumn()]);
+  }
+
+  async function handleTranslateWithAi() {
+    // First non-empty column is the source; every currently-empty column is
+    // a translation target. Columns already containing text are never
+    // overwritten, whether they were typed by hand or filled by a previous
+    // AI translation.
+    const source = columns.find((column) => column.text.trim());
+    const targets = columns.filter(
+      (column) => column.id !== source?.id && !column.text.trim(),
+    );
+
+    if (!source) {
+      setError("Paste a source text in one language before translating.");
+      return;
+    }
+    if (targets.length === 0) {
+      setError(
+        "Add an empty language column for the translation to fill in.",
+      );
+      return;
+    }
+
+    setTranslating(true);
+    try {
+      const sentences = splitIntoSentences(source.text);
+      const results = await Promise.all(
+        targets.map(async (target) => ({
+          id: target.id,
+          text: (
+            await translateSentences(sentences, source.text, target.name)
+          ).join("\n"),
+        })),
+      );
+      setColumns((prev) =>
+        prev.map((column) => {
+          const result = results.find((r) => r.id === column.id);
+          return result ? { ...column, text: result.text } : column;
+        }),
+      );
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Translation failed.");
+    } finally {
+      setTranslating(false);
+    }
   }
 
   function handleRemoveLanguage(id: number) {
@@ -302,6 +350,15 @@ export default function ParallelTranslateTool() {
               className="mt-4 w-full rounded-lg border border-dashed border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:border-indigo-500 hover:text-indigo-400"
             >
               + Add language
+            </button>
+
+            <button
+              onClick={handleTranslateWithAi}
+              disabled={translating}
+              title="Fills every empty language column by translating from the first language that has text"
+              className="mt-2 w-full rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-indigo-500 hover:text-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {translating ? "Translating…" : "Translate empty columns with AI"}
             </button>
 
             {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
@@ -504,7 +561,12 @@ export default function ParallelTranslateTool() {
             How to use
           </h3>
           <ol className="list-inside list-decimal space-y-1.5 text-sm text-zinc-400">
-            <li>Paste the same passage in each language you want aligned.</li>
+            <li>
+              Paste the source passage in one language, then either paste
+              your own translation into another language column, or add an
+              empty column, name it, and click &quot;Translate empty columns
+              with AI&quot; to fill it in automatically.
+            </li>
             <li>
               Sentences are split automatically (by . ! ? and paragraph breaks)
               — abbreviations aren&apos;t handled, so keep only sentence-ending
