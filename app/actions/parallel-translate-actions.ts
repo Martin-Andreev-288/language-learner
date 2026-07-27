@@ -1,9 +1,10 @@
 "use server";
 
 import { auth } from "@/auth";
-import { generateText, Output, APICallError, LoadAPIKeyError, RetryError } from "ai";
+import { generateText, Output } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
+import { describeAiError } from "@/lib/ai-error";
 
 const MAX_SENTENCES = 30;
 const MAX_CHARACTERS = 2500;
@@ -55,35 +56,10 @@ ${sentences.map((sentence, index) => `${index + 1}. ${sentence}`).join("\n")}`,
         });
         translations = result.output;
     } catch (err) {
-        // Log the real cause server-side — the messages below are safe to
-        // show a user, but shouldn't be the only record of what happened.
+        // Log the real cause server-side — describeAiError's message is safe
+        // to show a user, but shouldn't be the only record of what happened.
         console.error("translateSentences failed:", err);
-
-        const cause = RetryError.isInstance(err) ? err.lastError : err;
-
-        if (LoadAPIKeyError.isInstance(cause)) {
-            throw new Error(
-                "No Google Generative AI API key found — add GOOGLE_GENERATIVE_AI_API_KEY to .env and restart the dev server (Next.js only reads .env at startup, so a key added while it's already running won't be picked up until it's restarted).",
-            );
-        }
-
-        if (APICallError.isInstance(cause)) {
-            if (cause.statusCode === 429 || /quota/i.test(cause.message)) {
-                throw new Error(
-                    "Google's API says this key is over its quota for this model — check the billing/quota page for this key in Google AI Studio.",
-                );
-            }
-            if (cause.statusCode === 503 || /overloaded|high demand/i.test(cause.message)) {
-                throw new Error(
-                    "Gemini is temporarily overloaded on Google's side — wait a bit and try again.",
-                );
-            }
-            throw new Error(`Translation service error: ${cause.message}`);
-        }
-
-        throw new Error(
-            "Couldn't reach the translation service — check the server console for the underlying error.",
-        );
+        throw describeAiError(err, "Translation service");
     }
 
     if (translations.length !== sentences.length) {
