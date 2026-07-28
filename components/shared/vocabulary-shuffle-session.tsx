@@ -16,6 +16,7 @@ type LookupResult = {
   word: string;
   definition: string;
   examples: string[];
+  languageCode: string;
 };
 
 // Captures runs of letters/digits (with an optional internal apostrophe or
@@ -111,6 +112,7 @@ export default function VocabularyShuffleSession({
   const [lookup, setLookup] = useState<LookupResult | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
+  const [speechError, setSpeechError] = useState<string | null>(null);
   const lookupRequestRef = useRef(0);
 
   useEffect(() => {
@@ -137,6 +139,7 @@ export default function VocabularyShuffleSession({
     const requestId = ++lookupRequestRef.current;
     setLookup(null);
     setLookupError(null);
+    setSpeechError(null);
     setLookupLoading(true);
 
     try {
@@ -159,7 +162,32 @@ export default function VocabularyShuffleSession({
     lookupRequestRef.current += 1; // invalidates any lookup still in flight
     setLookup(null);
     setLookupError(null);
+    setSpeechError(null);
     setLookupLoading(false);
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+  }
+
+  function handleSpeak() {
+    if (!lookup) return;
+
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setSpeechError("Pronunciation isn't supported in this browser.");
+      return;
+    }
+
+    setSpeechError(null);
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(lookup.word);
+    utterance.lang = lookup.languageCode;
+    utterance.onerror = () => {
+      setSpeechError(
+        "Pronunciation isn't available for this language in your browser.",
+      );
+    };
+    window.speechSynthesis.speak(utterance);
   }
 
   const currentMemorized = current?.memorized ?? false;
@@ -539,9 +567,20 @@ export default function VocabularyShuffleSession({
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-semibold text-zinc-100">
-                {lookup?.word ?? "Looking up…"}
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold text-zinc-100">
+                  {lookup?.word ?? "Looking up…"}
+                </h3>
+                {lookup && (
+                  <button
+                    onClick={handleSpeak}
+                    title="Play pronunciation"
+                    className="text-zinc-400 transition-colors hover:text-indigo-400"
+                  >
+                    <SpeakerIcon />
+                  </button>
+                )}
+              </div>
               <button
                 onClick={closeLookup}
                 title="Close"
@@ -557,6 +596,10 @@ export default function VocabularyShuffleSession({
 
             {lookupError && (
               <p className="text-sm text-red-400">{lookupError}</p>
+            )}
+
+            {speechError && (
+              <p className="mb-2 text-xs text-amber-400">{speechError}</p>
             )}
 
             {lookup && !lookupLoading && (
@@ -694,6 +737,27 @@ function EditIcon() {
         d="M9 1.5l2.5 2.5L4 11.5H1.5V9L9 1.5z"
         stroke="currentColor"
         strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+      <path
+        d="M1.5 5.5h2.5l3.5-3v10l-3.5-3H1.5v-4z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10.5 5.2c.9.8 1.4 1.7 1.4 2.3s-.5 1.5-1.4 2.3"
+        stroke="currentColor"
+        strokeWidth="1.3"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
