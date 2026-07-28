@@ -12,6 +12,11 @@ const MAX_CONTEXT_LENGTH = 500;
 const lookupSchema = z.object({
     definition: z.string(),
     examples: z.array(z.string()),
+    languageCode: z
+        .string()
+        .describe(
+            'BCP-47 language tag for the language the phrase is written in, e.g. "bg-BG", "de-DE", "fr-FR" — used to pick the right voice for text-to-speech playback, not shown to the user.',
+        ),
 });
 
 export async function lookupWord(word: string, context: string) {
@@ -45,7 +50,8 @@ ${context}
 
 Explain "${trimmedWord}" as it's actually used in that phrase — if it has multiple meanings, use the sense that fits here, not just the most common dictionary sense. Return:
 - definition: a short, clear definition, in plain language.
-- examples: 2-3 short example sentences using "${trimmedWord}" (or its base form) in other contexts, so the learner can recognize it elsewhere.`,
+- examples: 2-3 short example sentences using "${trimmedWord}" (or its base form) in other contexts, so the learner can recognize it elsewhere.
+- languageCode: the BCP-47 language tag for the language the phrase itself is written in (not the language of the definition).`,
         });
         result = response.output;
     } catch (err) {
