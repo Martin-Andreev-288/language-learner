@@ -9,7 +9,40 @@ import {
   toggleShuffleCardMemorized,
   updateShuffleCardText,
 } from "@/app/actions/shuffle-actions";
+import { lookupWord } from "@/app/actions/word-lookup-actions";
 import { shuffle } from "@/lib/shuffle";
+
+type LookupResult = {
+  word: string;
+  definition: string;
+  examples: string[];
+};
+
+// Captures runs of letters/digits (with an optional internal apostrophe or
+// hyphen, for contractions and hyphenated words) as group 1. Splitting text
+// with this pattern interleaves [separator, word, separator, word, ...], so
+// odd indices in the split result are always clickable words.
+const WORD_PATTERN = /([\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*)/gu;
+
+function renderClickableText(
+  text: string,
+  onWordClick: (word: string) => void,
+) {
+  return text.split(WORD_PATTERN).map((part, index) =>
+    index % 2 === 1 ? (
+      <button
+        key={index}
+        type="button"
+        onClick={() => onWordClick(part)}
+        className="cursor-pointer rounded bg-transparent p-0 text-inherit transition-colors hover:bg-indigo-600/30 hover:text-indigo-200"
+      >
+        {part}
+      </button>
+    ) : (
+      part
+    ),
+  );
+}
 
 type ShuffleType = "word" | "phrase";
 type ShuffleFilter = "all" | "unmemorized" | "memorized" | "favorites";
@@ -75,6 +108,10 @@ export default function VocabularyShuffleSession({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reviewMarked, setReviewMarked] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
+  const [lookup, setLookup] = useState<LookupResult | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const lookupRequestRef = useRef(0);
 
   useEffect(() => {
     if (editing && editRef.current) {
@@ -91,6 +128,38 @@ export default function VocabularyShuffleSession({
     setEditText(current.text);
     setEditing(true);
     setConfirmDelete(false);
+  }
+
+  async function handleWordClick(rawWord: string) {
+    const word = rawWord.trim();
+    if (!word || !current) return;
+
+    const requestId = ++lookupRequestRef.current;
+    setLookup(null);
+    setLookupError(null);
+    setLookupLoading(true);
+
+    try {
+      const result = await lookupWord(word, current.text);
+      if (lookupRequestRef.current === requestId) {
+        setLookup({ word, ...result });
+      }
+    } catch (err) {
+      if (lookupRequestRef.current === requestId) {
+        setLookupError(err instanceof Error ? err.message : "Lookup failed.");
+      }
+    } finally {
+      if (lookupRequestRef.current === requestId) {
+        setLookupLoading(false);
+      }
+    }
+  }
+
+  function closeLookup() {
+    lookupRequestRef.current += 1; // invalidates any lookup still in flight
+    setLookup(null);
+    setLookupError(null);
+    setLookupLoading(false);
   }
 
   const currentMemorized = current?.memorized ?? false;
@@ -209,7 +278,10 @@ export default function VocabularyShuffleSession({
       if (editing) return;
 
       const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
+      ) {
         return;
       }
 
@@ -356,7 +428,9 @@ export default function VocabularyShuffleSession({
                   />
                 ) : (
                   <p className="whitespace-pre-wrap text-xl font-medium leading-relaxed text-zinc-100">
-                    {current?.text}
+                    {type === "phrase" && current
+                      ? renderClickableText(current.text, handleWordClick)
+                      : current?.text}
                   </p>
                 )}
               </div>
@@ -454,6 +528,57 @@ export default function VocabularyShuffleSession({
           )}
         </div>
       </div>
+
+      {(lookupLoading || lookup || lookupError) && (
+        <div
+          className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 px-4"
+          onClick={closeLookup}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-lg font-semibold text-zinc-100">
+                {lookup?.word ?? "Looking up…"}
+              </h3>
+              <button
+                onClick={closeLookup}
+                title="Close"
+                className="text-zinc-500 transition-colors hover:text-zinc-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            {lookupLoading && (
+              <p className="text-sm text-zinc-500">Looking this up…</p>
+            )}
+
+            {lookupError && (
+              <p className="text-sm text-red-400">{lookupError}</p>
+            )}
+
+            {lookup && !lookupLoading && (
+              <div className="space-y-3">
+                <p className="text-sm text-zinc-200">{lookup.definition}</p>
+                {lookup.examples.length > 0 && (
+                  <div>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Examples
+                    </p>
+                    <ul className="space-y-1 text-sm text-zinc-400">
+                      {lookup.examples.map((example, index) => (
+                        <li key={index}>{example}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
