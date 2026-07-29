@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/shuffle-actions";
 import { lookupWord } from "@/app/actions/word-lookup-actions";
 import { shuffle } from "@/lib/shuffle";
+import { tokenizeWords } from "@/lib/clickable-words";
 
 type LookupResult = {
   word: string;
@@ -19,28 +20,22 @@ type LookupResult = {
   languageCode: string;
 };
 
-// Captures runs of letters/digits (with an optional internal apostrophe or
-// hyphen, for contractions and hyphenated words) as group 1. Splitting text
-// with this pattern interleaves [separator, word, separator, word, ...], so
-// odd indices in the split result are always clickable words.
-const WORD_PATTERN = /([\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*)/gu;
-
 function renderClickableText(
   text: string,
   onWordClick: (word: string) => void,
 ) {
-  return text.split(WORD_PATTERN).map((part, index) =>
-    index % 2 === 1 ? (
+  return tokenizeWords(text).map((token, index) =>
+    token.isWord ? (
       <button
         key={index}
         type="button"
-        onClick={() => onWordClick(part)}
+        onClick={() => onWordClick(token.text)}
         className="cursor-pointer rounded bg-transparent p-0 text-inherit transition-colors hover:bg-indigo-600/30 hover:text-indigo-200"
       >
-        {part}
+        {token.text}
       </button>
     ) : (
-      part
+      token.text
     ),
   );
 }
