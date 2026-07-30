@@ -20,3 +20,61 @@ export function tokenizeWords(text: string): TextToken[] {
         .split(WORD_PATTERN)
         .map((part, index) => ({ text: part, isWord: index % 2 === 1 }));
 }
+
+export type MarkedRun = {
+    text: string;
+    startIndex: number;
+    endIndex: number;
+};
+
+const WHITESPACE_ONLY = /^\s+$/;
+
+/**
+ * Groups tokens into runs of consecutive marked words, treating a run of
+ * marked words separated only by whitespace as a single phrase — so marking
+ * two adjacent words like "find" and "out" combines them into one
+ * translatable unit ("find out") instead of two separate, individually
+ * wrong ones. A run stops at any non-whitespace separator (punctuation) or
+ * an unmarked word in between.
+ */
+export function groupMarkedRuns(
+    tokens: TextToken[],
+    markedWords: ReadonlySet<string>,
+): MarkedRun[] {
+    const runs: MarkedRun[] = [];
+    let i = 0;
+
+    while (i < tokens.length) {
+        if (!tokens[i].isWord || !markedWords.has(tokens[i].text)) {
+            i += 1;
+            continue;
+        }
+
+        const startIndex = i;
+        let endIndex = i;
+        let k = i + 1;
+
+        while (
+            k + 1 < tokens.length &&
+            !tokens[k].isWord &&
+            WHITESPACE_ONLY.test(tokens[k].text) &&
+            tokens[k + 1].isWord &&
+            markedWords.has(tokens[k + 1].text)
+        ) {
+            endIndex = k + 1;
+            k += 2;
+        }
+
+        runs.push({
+            text: tokens
+                .slice(startIndex, endIndex + 1)
+                .map((token) => token.text)
+                .join(""),
+            startIndex,
+            endIndex,
+        });
+        i = endIndex + 1;
+    }
+
+    return runs;
+}

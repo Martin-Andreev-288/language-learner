@@ -1,12 +1,59 @@
 "use client";
 
 import { useState } from "react";
-import { tokenizeWords } from "@/lib/clickable-words";
+import {
+  groupMarkedRuns,
+  tokenizeWords,
+  type MarkedRun,
+  type TextToken,
+} from "@/lib/clickable-words";
+import { translateMarkedPhrases } from "@/app/actions/inline-translate-actions";
+
+type TranslatedResult = {
+  tokens: TextToken[];
+  runs: MarkedRun[];
+  translations: Map<string, string>;
+};
+
+function renderResult(result: TranslatedResult, showTranslations: boolean) {
+  const runByStart = new Map(result.runs.map((run) => [run.startIndex, run]));
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < result.tokens.length) {
+    const run = runByStart.get(i);
+    if (run) {
+      if (showTranslations) {
+        const translation = result.translations.get(run.text);
+        nodes.push(
+          <span key={i}>
+            <strong className="text-indigo-200">{run.text}</strong>
+            {translation && (
+              <em className="text-zinc-400"> ({translation})</em>
+            )}
+          </span>,
+        );
+      } else {
+        nodes.push(<span key={i}>{run.text}</span>);
+      }
+      i = run.endIndex + 1;
+    } else {
+      nodes.push(result.tokens[i].text);
+      i += 1;
+    }
+  }
+
+  return nodes;
+}
 
 export default function InlineTranslateTool() {
   const [text, setText] = useState("");
   const [targetLanguage, setTargetLanguage] = useState("");
   const [markedWords, setMarkedWords] = useState<Set<string>>(new Set());
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
+  const [showTranslations, setShowTranslations] = useState(true);
+  const [result, setResult] = useState<TranslatedResult | null>(null);
 
   function toggleWord(word: string) {
     setMarkedWords((prev) => {
@@ -23,6 +70,41 @@ export default function InlineTranslateTool() {
   function handleClear() {
     setText("");
     setMarkedWords(new Set());
+    setResult(null);
+    setTranslateError(null);
+  }
+
+  async function handleTranslate() {
+    const tokens = tokenizeWords(text);
+    const runs = groupMarkedRuns(tokens, markedWords);
+
+    if (runs.length === 0) {
+      setTranslateError("Mark at least one word before translating.");
+      return;
+    }
+
+    const uniquePhrases = Array.from(new Set(runs.map((run) => run.text)));
+
+    setTranslating(true);
+    setTranslateError(null);
+    try {
+      const translated = await translateMarkedPhrases(
+        uniquePhrases,
+        text,
+        targetLanguage,
+      );
+      const translations = new Map(
+        uniquePhrases.map((phrase, index) => [phrase, translated[index]]),
+      );
+      setResult({ tokens, runs, translations });
+      setShowTranslations(true);
+    } catch (err) {
+      setTranslateError(
+        err instanceof Error ? err.message : "Translation failed.",
+      );
+    } finally {
+      setTranslating(false);
+    }
   }
 
   const tokens = tokenizeWords(text);
@@ -71,7 +153,7 @@ export default function InlineTranslateTool() {
         </div>
 
         {text && (
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+          <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
             <div className="mb-4 flex items-center justify-between gap-4">
               <h2 className="text-lg font-semibold text-zinc-100">
                 Click the words you don&apos;t know
@@ -99,6 +181,35 @@ export default function InlineTranslateTool() {
                   token.text
                 ),
               )}
+            </p>
+
+            {translateError && (
+              <p className="mt-3 text-sm text-red-400">{translateError}</p>
+            )}
+
+            <button
+              onClick={handleTranslate}
+              disabled={translating || markedWords.size === 0}
+              className="mt-4 w-full rounded-lg bg-indigo-600 px-6 py-3 font-semibold text-white shadow-md transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {translating ? "Translating…" : "Translate marked words"}
+            </button>
+          </div>
+        )}
+
+        {result && (
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="text-lg font-semibold text-zinc-100">Result</h2>
+              <button
+                onClick={() => setShowTranslations((value) => !value)}
+                className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
+              >
+                {showTranslations ? "Hide translations" : "Show translations"}
+              </button>
+            </div>
+            <p className="whitespace-pre-wrap text-lg leading-relaxed text-zinc-100">
+              {renderResult(result, showTranslations)}
             </p>
           </div>
         )}
