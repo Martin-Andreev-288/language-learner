@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   groupMarkedRuns,
   tokenizeWords,
@@ -8,6 +8,8 @@ import {
   type TextToken,
 } from "@/lib/clickable-words";
 import { translateMarkedPhrases } from "@/app/actions/inline-translate-actions";
+import { createNote } from "@/app/actions/note-actions";
+import { NotePage } from "@/app/generated/prisma";
 
 type TranslatedResult = {
   tokens: TextToken[];
@@ -46,6 +48,34 @@ function renderResult(result: TranslatedResult, showTranslations: boolean) {
   return nodes;
 }
 
+// Plain-text version of the same walk renderResult does, for Copy and
+// Save to a new note — Markdown bold/italic so it renders as intended if
+// pasted into this app's own Notes.
+function getResultText(result: TranslatedResult, showTranslations: boolean) {
+  const runByStart = new Map(result.runs.map((run) => [run.startIndex, run]));
+  let output = "";
+  let i = 0;
+
+  while (i < result.tokens.length) {
+    const run = runByStart.get(i);
+    if (run) {
+      if (showTranslations) {
+        const translation = result.translations.get(run.text);
+        output += `**${run.text}**`;
+        if (translation) output += ` (*${translation}*)`;
+      } else {
+        output += run.text;
+      }
+      i = run.endIndex + 1;
+    } else {
+      output += result.tokens[i].text;
+      i += 1;
+    }
+  }
+
+  return output;
+}
+
 export default function InlineTranslateTool() {
   const [text, setText] = useState("");
   const [targetLanguage, setTargetLanguage] = useState("");
@@ -54,6 +84,12 @@ export default function InlineTranslateTool() {
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [showTranslations, setShowTranslations] = useState(true);
   const [result, setResult] = useState<TranslatedResult | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [noteError, setNoteError] = useState<string | null>(null);
 
   function toggleWord(word: string) {
     setMarkedWords((prev) => {
@@ -104,6 +140,40 @@ export default function InlineTranslateTool() {
       );
     } finally {
       setTranslating(false);
+    }
+  }
+
+  async function handleCopy() {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(getResultText(result, showTranslations));
+      setCopySuccess(true);
+      if (copyResetRef.current) clearTimeout(copyResetRef.current);
+      copyResetRef.current = setTimeout(() => setCopySuccess(false), 2000);
+    } catch {
+      setNoteError("Couldn't copy to the clipboard — copy the text manually instead.");
+    }
+  }
+
+  async function handleSaveToNote() {
+    if (!result) return;
+
+    setSavingNote(true);
+    try {
+      const title = targetLanguage.trim() || "Inline Translate";
+      await createNote(
+        NotePage.reading,
+        title,
+        getResultText(result, showTranslations),
+      );
+      setNoteSaved(true);
+      setNoteError(null);
+      if (noteResetRef.current) clearTimeout(noteResetRef.current);
+      noteResetRef.current = setTimeout(() => setNoteSaved(false), 2000);
+    } catch {
+      setNoteError("Couldn't save to Notes — try again.");
+    } finally {
+      setSavingNote(false);
     }
   }
 
@@ -201,16 +271,42 @@ export default function InlineTranslateTool() {
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
             <div className="mb-4 flex items-center justify-between gap-4">
               <h2 className="text-lg font-semibold text-zinc-100">Result</h2>
-              <button
-                onClick={() => setShowTranslations((value) => !value)}
-                className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
-              >
-                {showTranslations ? "Hide translations" : "Show translations"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowTranslations((value) => !value)}
+                  className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
+                >
+                  {showTranslations ? "Hide translations" : "Show translations"}
+                </button>
+                <button
+                  onClick={handleSaveToNote}
+                  disabled={savingNote}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    noteSaved
+                      ? "bg-emerald-600 text-white"
+                      : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                  } disabled:cursor-not-allowed`}
+                >
+                  {noteSaved ? "Saved!" : savingNote ? "Saving…" : "Save to a new note"}
+                </button>
+                <button
+                  onClick={handleCopy}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    copySuccess
+                      ? "bg-emerald-600 text-white"
+                      : "bg-indigo-600 text-white hover:bg-indigo-500"
+                  }`}
+                >
+                  {copySuccess ? "Copied!" : "Copy"}
+                </button>
+              </div>
             </div>
             <p className="whitespace-pre-wrap text-lg leading-relaxed text-zinc-100">
               {renderResult(result, showTranslations)}
             </p>
+            {noteError && (
+              <p className="mt-3 text-sm text-red-400">{noteError}</p>
+            )}
           </div>
         )}
       </div>
