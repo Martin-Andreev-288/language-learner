@@ -22,7 +22,6 @@ const navLinks: NavItem[] = [
     label: "Reading",
     subLinks: [
       { href: "/reading/shuffle", label: "Reading Shuffle" },
-      { href: "/reading/island-dialogues", label: "Island Dialogues" },
       { href: "/reading/parallel-translate", label: "Parallel Translate" },
       { href: "/reading/inline-translate", label: "Inline Translate" },
       { href: "/reading/notes", label: "Notes" },

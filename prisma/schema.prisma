@@ -58,23 +58,6 @@ enum TextType {
     dialogue
 }
 
-// SystemDialogue model - global seeded island dialogues (no userId)
-model SystemDialogue {
-    id        String   @id @default(cuid())
-    category  String
-    title     String
-    content   String   @db.Text
-    language  String
-    order     Int      @default(0)
-    createdAt DateTime @default(now())
-
-    // Unique key for idempotent upsert in seed script
-    @@unique([language, category, title])
-    @@index([language])
-    @@index([category])
-    @@index([order])
-}
-
 // VocabularyEntry model - tracks words encountered
 model VocabularyEntry {
     id               String   @id @default(cuid())
