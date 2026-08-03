@@ -30,45 +30,30 @@ const navLinks: NavItem[] = [
   {
     href: "/writing",
     label: "Writing",
-    subLinks: [
-      { href: "/writing", label: "My Texts" },
-      { href: "/writing/templates", label: "Templates" },
-      { href: "/writing/exercises", label: "Exercises" },
-      { href: "/writing/notes", label: "Notes" },
-    ],
+    subLinks: [{ href: "/writing/notes", label: "Notes" }],
   },
   {
     href: "/vocabulary/shuffle",
     label: "Vocabulary",
     subLinks: [
       { href: "/vocabulary/shuffle", label: "Vocab Shuffle" },
-      { href: "/vocabulary/flashcards", label: "Flashcards" },
       { href: "/vocabulary/notes", label: "Notes" },
     ],
   },
   {
     href: "/listening",
     label: "Listening",
-    subLinks: [
-      { href: "/listening", label: "Listening" },
-      { href: "/listening/notes", label: "Notes" },
-    ],
+    subLinks: [{ href: "/listening/notes", label: "Notes" }],
   },
   {
     href: "/speaking",
     label: "Speaking",
-    subLinks: [
-      { href: "/speaking", label: "Speaking" },
-      { href: "/speaking/notes", label: "Notes" },
-    ],
+    subLinks: [{ href: "/speaking/notes", label: "Notes" }],
   },
   {
     href: "/vocabulary-analyzer",
     label: "Analyzer",
-    subLinks: [
-      { href: "/vocabulary-analyzer", label: "Analyze Text" },
-      { href: "/vocabulary-analyzer/history", label: "Recent Analyses" },
-    ],
+    subLinks: [{ href: "/vocabulary-analyzer", label: "Analyze Text" }],
   },
   {
     href: "/notes",
