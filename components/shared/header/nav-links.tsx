@@ -30,7 +30,10 @@ const navLinks: NavItem[] = [
   {
     href: "/writing",
     label: "Writing",
-    subLinks: [{ href: "/writing/notes", label: "Notes" }],
+    subLinks: [
+      { href: "/writing/writing-check", label: "Writing Check" },
+      { href: "/writing/notes", label: "Notes" },
+    ],
   },
   {
     href: "/vocabulary/shuffle",
