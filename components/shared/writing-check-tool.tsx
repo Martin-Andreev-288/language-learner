@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { checkWriting } from "@/app/actions/writing-check-actions";
 
 type Correction = {
@@ -9,15 +9,92 @@ type Correction = {
   explanation: string;
 };
 
+type CorrectionSpan = {
+  start: number;
+  end: number; // exclusive
+  index: number; // index into the corrections array
+};
+
+// Finds each correction's `original` text inside the checked passage, so it
+// can be highlighted in place. Not every correction is guaranteed to match —
+// the model doesn't always quote the source verbatim — so this only returns
+// the ones that do, in reading order, with overlapping matches dropped
+// (first-found wins) rather than rendered as broken, nested highlights.
+function findCorrectionSpans(
+  checkedText: string,
+  corrections: Correction[],
+): CorrectionSpan[] {
+  const found: CorrectionSpan[] = [];
+
+  corrections.forEach((correction, index) => {
+    if (!correction.original) return;
+    const start = checkedText.indexOf(correction.original);
+    if (start === -1) return;
+    found.push({ start, end: start + correction.original.length, index });
+  });
+
+  found.sort((a, b) => a.start - b.start);
+
+  const spans: CorrectionSpan[] = [];
+  let lastEnd = -1;
+  for (const span of found) {
+    if (span.start >= lastEnd) {
+      spans.push(span);
+      lastEnd = span.end;
+    }
+  }
+
+  return spans;
+}
+
+function renderHighlightedText(
+  checkedText: string,
+  spans: CorrectionSpan[],
+  badgeByCorrectionIndex: Map<number, number>,
+  onSpanClick: (correctionIndex: number) => void,
+) {
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+
+  spans.forEach((span) => {
+    if (span.start > cursor) {
+      nodes.push(checkedText.slice(cursor, span.start));
+    }
+    nodes.push(
+      <mark
+        key={span.start}
+        onClick={() => onSpanClick(span.index)}
+        title={`Correction ${badgeByCorrectionIndex.get(span.index)}`}
+        className="cursor-pointer rounded bg-red-500/25 px-0.5 text-red-200 underline decoration-red-500 decoration-2 underline-offset-2 transition-colors hover:bg-red-500/40"
+      >
+        {checkedText.slice(span.start, span.end)}
+      </mark>,
+    );
+    cursor = span.end;
+  });
+
+  if (cursor < checkedText.length) {
+    nodes.push(checkedText.slice(cursor));
+  }
+
+  return nodes;
+}
+
 export default function WritingCheckTool() {
   const [text, setText] = useState("");
+  const [checkedText, setCheckedText] = useState("");
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [corrections, setCorrections] = useState<Correction[] | null>(null);
+  const [correctedText, setCorrectedText] = useState<string | null>(null);
+  const [flashedIndex, setFlashedIndex] = useState<number | null>(null);
+  const flashResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handleClear() {
     setText("");
+    setCheckedText("");
     setCorrections(null);
+    setCorrectedText(null);
     setCheckError(null);
   }
 
@@ -26,14 +103,33 @@ export default function WritingCheckTool() {
     setCheckError(null);
     try {
       const result = await checkWriting(text);
-      setCorrections(result);
+      setCorrections(result.corrections);
+      setCorrectedText(result.correctedText);
+      setCheckedText(text);
     } catch (err) {
       setCheckError(err instanceof Error ? err.message : "Check failed.");
       setCorrections(null);
+      setCorrectedText(null);
     } finally {
       setChecking(false);
     }
   }
+
+  function handleSpanClick(correctionIndex: number) {
+    document
+      .getElementById(`correction-card-${correctionIndex}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashedIndex(correctionIndex);
+    if (flashResetRef.current) clearTimeout(flashResetRef.current);
+    flashResetRef.current = setTimeout(() => setFlashedIndex(null), 1500);
+  }
+
+  const spans = corrections
+    ? findCorrectionSpans(checkedText, corrections)
+    : [];
+  const badgeByCorrectionIndex = new Map(
+    spans.map((span, i) => [span.index, i + 1]),
+  );
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -88,24 +184,67 @@ export default function WritingCheckTool() {
             {corrections.length === 0 ? (
               <p className="text-sm text-emerald-400">Looks good ✅</p>
             ) : (
-              <ul className="space-y-4">
-                {corrections.map((correction, index) => (
-                  <li
-                    key={index}
-                    className="rounded-lg border border-zinc-800 bg-zinc-950 p-4"
-                  >
-                    <p className="text-sm text-red-400 line-through decoration-red-500/60">
-                      {correction.original}
+              <>
+                <p className="whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm leading-relaxed text-zinc-200">
+                  {renderHighlightedText(
+                    checkedText,
+                    spans,
+                    badgeByCorrectionIndex,
+                    handleSpanClick,
+                  )}
+                </p>
+
+                {correctedText && (
+                  <div className="mt-4">
+                    <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Fully corrected
                     </p>
-                    <p className="mt-1 text-sm font-medium text-emerald-400">
-                      {correction.corrected}
+                    <p className="whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm leading-relaxed text-emerald-100">
+                      {correctedText}
                     </p>
-                    <p className="mt-2 text-sm text-zinc-400">
-                      {correction.explanation}
-                    </p>
-                  </li>
-                ))}
-              </ul>
+                  </div>
+                )}
+
+                <ul className="mt-4 space-y-4">
+                  {corrections.map((correction, index) => {
+                    const badge = badgeByCorrectionIndex.get(index);
+                    return (
+                      <li
+                        key={index}
+                        id={`correction-card-${index}`}
+                        className={`rounded-lg border p-4 transition-colors ${
+                          flashedIndex === index
+                            ? "border-indigo-500 bg-indigo-950/40"
+                            : "border-zinc-800 bg-zinc-950"
+                        }`}
+                      >
+                        <div className="flex items-start gap-2">
+                          {badge && (
+                            <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-500/30 text-xs font-bold text-red-200">
+                              {badge}
+                            </span>
+                          )}
+                          <p className="text-sm text-red-400 line-through decoration-red-500/60">
+                            {correction.original}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-sm font-medium text-emerald-400">
+                          {correction.corrected}
+                        </p>
+                        <p className="mt-2 text-sm text-zinc-400">
+                          {correction.explanation}
+                        </p>
+                        {!badge && (
+                          <p className="mt-2 text-xs text-zinc-600">
+                            Not shown highlighted above — the wording didn&apos;t
+                            match the original text exactly.
+                          </p>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
           </div>
         )}
