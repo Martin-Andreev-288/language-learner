@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { checkWriting } from "@/app/actions/writing-check-actions";
+import { createNote } from "@/app/actions/note-actions";
+import { NotePage } from "@/app/generated/prisma";
 
 type Correction = {
   original: string;
@@ -80,6 +82,21 @@ function renderHighlightedText(
   return nodes;
 }
 
+// The point of saving this isn't "here's your fixed text" — correctedText
+// already covers that — it's a record of what was actually wrong and why,
+// meant to be read back later. So the note leads with the mistakes
+// themselves, not the fully corrected passage.
+function buildNoteContent(correctedText: string, corrections: Correction[]) {
+  const correctionsMarkdown = corrections
+    .map(
+      (correction, index) =>
+        `### ${index + 1}. ~~${correction.original}~~ → **${correction.corrected}**\n\n${correction.explanation}`,
+    )
+    .join("\n\n");
+
+  return `${correctionsMarkdown}\n\n---\n\n### Fully corrected\n\n${correctedText}`;
+}
+
 export default function WritingCheckTool() {
   const [text, setText] = useState("");
   const [checkedText, setCheckedText] = useState("");
@@ -89,6 +106,10 @@ export default function WritingCheckTool() {
   const [correctedText, setCorrectedText] = useState<string | null>(null);
   const [flashedIndex, setFlashedIndex] = useState<number | null>(null);
   const flashResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [noteError, setNoteError] = useState<string | null>(null);
 
   function handleClear() {
     setText("");
@@ -96,6 +117,7 @@ export default function WritingCheckTool() {
     setCorrections(null);
     setCorrectedText(null);
     setCheckError(null);
+    setNoteError(null);
   }
 
   async function handleCheck() {
@@ -112,6 +134,27 @@ export default function WritingCheckTool() {
       setCorrectedText(null);
     } finally {
       setChecking(false);
+    }
+  }
+
+  async function handleSaveToNote() {
+    if (!corrections || corrections.length === 0 || correctedText === null) return;
+
+    setSavingNote(true);
+    setNoteError(null);
+    try {
+      await createNote(
+        NotePage.writing,
+        "Writing Check",
+        buildNoteContent(correctedText, corrections),
+      );
+      setNoteSaved(true);
+      if (noteResetRef.current) clearTimeout(noteResetRef.current);
+      noteResetRef.current = setTimeout(() => setNoteSaved(false), 2000);
+    } catch {
+      setNoteError("Couldn't save to Notes — try again.");
+    } finally {
+      setSavingNote(false);
     }
   }
 
@@ -177,9 +220,25 @@ export default function WritingCheckTool() {
 
         {corrections && (
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
-            <h2 className="mb-4 text-lg font-semibold text-zinc-100">
-              Result
-            </h2>
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="text-lg font-semibold text-zinc-100">Result</h2>
+              {corrections.length > 0 && (
+                <button
+                  onClick={handleSaveToNote}
+                  disabled={savingNote}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    noteSaved
+                      ? "bg-emerald-600 text-white"
+                      : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                  } disabled:cursor-not-allowed`}
+                >
+                  {noteSaved ? "Saved!" : savingNote ? "Saving…" : "Save to a new note"}
+                </button>
+              )}
+            </div>
+            {noteError && (
+              <p className="mb-3 text-sm text-red-400">{noteError}</p>
+            )}
 
             {corrections.length === 0 ? (
               <p className="text-sm text-emerald-400">Looks good ✅</p>
