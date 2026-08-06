@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { splitIntoSentences } from "@/lib/sentence-split";
+import { readAndClearCarriedColumns } from "@/lib/parallel-listen-carry";
 
 interface LanguageColumn {
   id: number;
@@ -39,10 +40,20 @@ function makeColumn(name = ""): LanguageColumn {
 }
 
 export default function ParallelListenTool() {
-  const [columns, setColumns] = useState<LanguageColumn[]>(() => [
-    makeColumn(),
-    makeColumn(),
-  ]);
+  // One-time hand-off from Parallel Translate, if the user arrived here via
+  // "Send to Parallel Listen." Read as part of the initial state itself,
+  // not in an effect afterward, so there's no extra render and nothing to
+  // persist — sessionStorage is checked and cleared exactly once, on mount.
+  const [columns, setColumns] = useState<LanguageColumn[]>(() => {
+    const carried = readAndClearCarriedColumns();
+    if (carried && carried.length > 0) {
+      return carried.map((column) => ({
+        ...makeColumn(column.name),
+        text: column.text,
+      }));
+    }
+    return [makeColumn(), makeColumn()];
+  });
 
   function updateColumn(id: number, patch: Partial<LanguageColumn>) {
     setColumns((prev) =>

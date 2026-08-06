@@ -1,10 +1,12 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { splitIntoSentences } from "@/lib/sentence-split";
 import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
 import { translateSentences } from "@/app/actions/parallel-translate-actions";
+import { writeCarriedColumns } from "@/lib/parallel-listen-carry";
 
 type OutputFormat = "markdown" | "vertical";
 
@@ -87,6 +89,7 @@ function makeColumn(name = ""): LanguageColumn {
 }
 
 export default function ParallelTranslateTool() {
+  const router = useRouter();
   const [columns, setColumns] = useState<LanguageColumn[]>(() => [
     makeColumn(),
     makeColumn(),
@@ -181,6 +184,20 @@ export default function ParallelTranslateTool() {
     } finally {
       setTranslating(false);
     }
+  }
+
+  function handleSendToListen() {
+    const hasContent = columns.some((column) => column.text.trim());
+    if (!hasContent) {
+      setError(
+        "Paste at least one language before sending it to Parallel Listen.",
+      );
+      return;
+    }
+    writeCarriedColumns(
+      columns.map((column) => ({ name: column.name, text: column.text })),
+    );
+    router.push("/listening/parallel-listen");
   }
 
   function handleRemoveLanguage(id: number) {
@@ -359,6 +376,14 @@ export default function ParallelTranslateTool() {
               className="mt-2 w-full rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-indigo-500 hover:text-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {translating ? "Translating…" : "Translate empty columns with AI"}
+            </button>
+
+            <button
+              onClick={handleSendToListen}
+              title="Carry this pasted content over to Parallel Listen — nothing is saved, it's there only for this visit"
+              className="mt-2 w-full rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-indigo-500 hover:text-indigo-400"
+            >
+              Send to Parallel Listen →
             </button>
 
             {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
