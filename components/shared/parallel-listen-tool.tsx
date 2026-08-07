@@ -20,6 +20,22 @@ interface PlaybackPosition {
   col: number;
 }
 
+type ViewMode = "table" | "vertical";
+
+// Same palette Parallel Translate uses to color-code language labels in its
+// own vertical preview — duplicated rather than imported, since it's a
+// small, purely presentational constant, not shared logic.
+const PREVIEW_COLORS = [
+  "text-blue-400",
+  "text-emerald-400",
+  "text-purple-400",
+  "text-orange-400",
+  "text-pink-400",
+  "text-cyan-400",
+  "text-lime-400",
+  "text-amber-400",
+];
+
 // Best-effort name → BCP-47 mapping so playback picks a matching voice when
 // the browser has one. Column names are freeform text, not a fixed list, so
 // this only ever improves the common case (someone types "German" or "De")
@@ -190,6 +206,7 @@ export default function ParallelListenTool() {
   const [current, setCurrent] = useState<PlaybackPosition | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [rate, setRate] = useState(1);
+  const [viewMode, setViewMode] = useState<ViewMode>("table");
   // Bumped on every stop/replay so any in-flight utterance callback from a
   // superseded run recognizes it's stale and does nothing when it fires.
   const playbackIdRef = useRef(0);
@@ -457,7 +474,33 @@ export default function ParallelListenTool() {
         {parsed && (
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
-              <h2 className="text-lg font-semibold text-zinc-100">Preview</h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-zinc-100">
+                  Preview
+                </h2>
+                <div className="flex overflow-hidden rounded-md border border-zinc-700">
+                  <button
+                    onClick={() => setViewMode("table")}
+                    className={`px-3 py-1 text-xs font-medium transition-colors ${
+                      viewMode === "table"
+                        ? "bg-indigo-600 text-white"
+                        : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    Table
+                  </button>
+                  <button
+                    onClick={() => setViewMode("vertical")}
+                    className={`px-3 py-1 text-xs font-medium transition-colors ${
+                      viewMode === "vertical"
+                        ? "bg-indigo-600 text-white"
+                        : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    Vertical
+                  </button>
+                </div>
+              </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-zinc-500">
                   {includedCount} of {columns.length} language
@@ -509,73 +552,110 @@ export default function ParallelListenTool() {
               </p>
             )}
 
-            <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse border border-zinc-800">
-                <thead>
-                  <tr className="bg-zinc-800">
-                    {columns.map((column, idx) => (
-                      <th
-                        key={column.id}
-                        className="border border-zinc-800 px-4 py-2 text-left font-semibold text-zinc-300"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span
-                            className={
-                              column.included ? "text-zinc-100" : "text-zinc-600"
-                            }
-                          >
-                            {column.name.trim() || `Language ${idx + 1}`}
-                            {!column.included && " (skipped)"}
-                          </span>
-                          {columns.length > 1 && (
-                            <div className="flex gap-1">
-                              <button
-                                onClick={() => handleMove(idx, -1)}
-                                disabled={idx === 0}
-                                title="Move column left"
-                                className="rounded px-1.5 py-1 text-xs font-bold text-indigo-400 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-700"
-                              >
-                                ←
-                              </button>
-                              <button
-                                onClick={() => handleMove(idx, 1)}
-                                disabled={idx === columns.length - 1}
-                                title="Move column right"
-                                className="rounded px-1.5 py-1 text-xs font-bold text-indigo-400 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-700"
-                              >
-                                →
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {parsed.rows.map((row, rowIdx) => (
-                    <tr key={rowIdx} className="hover:bg-zinc-800/60">
-                      {row.map((text, colIdx) => {
-                        const isSpeaking =
-                          current?.row === rowIdx && current?.col === colIdx;
-                        return (
-                          <td
-                            key={colIdx}
-                            className={`border border-zinc-800 px-4 py-2 ${
-                              isSpeaking
-                                ? "bg-indigo-900/50 text-indigo-100 ring-1 ring-inset ring-indigo-500"
-                                : "text-zinc-300"
-                            }`}
-                          >
-                            {text}
-                          </td>
-                        );
-                      })}
+            {viewMode === "table" ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse border border-zinc-800">
+                  <thead>
+                    <tr className="bg-zinc-800">
+                      {columns.map((column, idx) => (
+                        <th
+                          key={column.id}
+                          className="border border-zinc-800 px-4 py-2 text-left font-semibold text-zinc-300"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className={
+                                column.included
+                                  ? "text-zinc-100"
+                                  : "text-zinc-600"
+                              }
+                            >
+                              {column.name.trim() || `Language ${idx + 1}`}
+                              {!column.included && " (skipped)"}
+                            </span>
+                            {columns.length > 1 && (
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() => handleMove(idx, -1)}
+                                  disabled={idx === 0}
+                                  title="Move column left"
+                                  className="rounded px-1.5 py-1 text-xs font-bold text-indigo-400 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-700"
+                                >
+                                  ←
+                                </button>
+                                <button
+                                  onClick={() => handleMove(idx, 1)}
+                                  disabled={idx === columns.length - 1}
+                                  title="Move column right"
+                                  className="rounded px-1.5 py-1 text-xs font-bold text-indigo-400 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-700"
+                                >
+                                  →
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {parsed.rows.map((row, rowIdx) => (
+                      <tr key={rowIdx} className="hover:bg-zinc-800/60">
+                        {row.map((text, colIdx) => {
+                          const isSpeaking =
+                            current?.row === rowIdx && current?.col === colIdx;
+                          return (
+                            <td
+                              key={colIdx}
+                              className={`border border-zinc-800 px-4 py-2 ${
+                                isSpeaking
+                                  ? "bg-indigo-900/50 text-indigo-100 ring-1 ring-inset ring-indigo-500"
+                                  : "text-zinc-300"
+                              }`}
+                            >
+                              {text}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {parsed.rows.map((row, rowIdx) => (
+                  <div key={rowIdx} className="space-y-1">
+                    {row.map((text, colIdx) => {
+                      if (!text) return null;
+                      const column = columns[colIdx];
+                      const isSpeaking =
+                        current?.row === rowIdx && current?.col === colIdx;
+                      const name =
+                        column?.name.trim() || `Language ${colIdx + 1}`;
+                      return (
+                        <p
+                          key={colIdx}
+                          className={`rounded px-2 py-1 text-zinc-200 ${
+                            isSpeaking
+                              ? "bg-indigo-900/50 ring-1 ring-inset ring-indigo-500"
+                              : ""
+                          }`}
+                        >
+                          <span
+                            className={`font-semibold ${PREVIEW_COLORS[colIdx % PREVIEW_COLORS.length]}`}
+                          >
+                            {name}
+                            {!column?.included && " (skipped)"}:{" "}
+                          </span>
+                          {text}
+                        </p>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
