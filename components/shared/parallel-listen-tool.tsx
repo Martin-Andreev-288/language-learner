@@ -203,6 +203,7 @@ export default function ParallelListenTool() {
   });
 
   const [playing, setPlaying] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [current, setCurrent] = useState<PlaybackPosition | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [rate, setRate] = useState(1);
@@ -239,7 +240,30 @@ export default function ParallelListenTool() {
       window.speechSynthesis.cancel();
     }
     setPlaying(false);
+    setPaused(false);
     setCurrent(null);
+  }
+
+  // True pause/resume, not a cancel-and-restart — this asks the browser to
+  // hold the *current* utterance in place and continue it later, unlike
+  // handleRateChange's restart. Whether that actually works reliably is
+  // genuinely browser-dependent; see Answer 178 for the caveat.
+  function handlePause() {
+    if (!playing || paused) return;
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      return;
+    }
+    window.speechSynthesis.pause();
+    setPaused(true);
+  }
+
+  function handleResume() {
+    if (!playing || !paused) return;
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      return;
+    }
+    window.speechSynthesis.resume();
+    setPaused(false);
   }
 
   // Speaks queueRef.current[index] and chains to the next index on end,
@@ -249,6 +273,7 @@ export default function ParallelListenTool() {
     const queue = queueRef.current;
     if (index >= queue.length) {
       setPlaying(false);
+      setPaused(false);
       setCurrent(null);
       return;
     }
@@ -312,6 +337,7 @@ export default function ParallelListenTool() {
     window.speechSynthesis.cancel();
     const playId = ++playbackIdRef.current;
     setPlaying(true);
+    setPaused(false);
     speakFrom(0, playId);
   }
 
@@ -322,6 +348,10 @@ export default function ParallelListenTool() {
   // rate, then carry on from there — so the new speed takes effect right
   // away instead of waiting for the (possibly still-slow) current sentence
   // to finish first.
+  // Note this also applies while paused: a paused utterance already has its
+  // old rate baked in (same limitation pause/resume can't get around
+  // either), so a rate change while paused restarts the current sentence
+  // too — which means it also resumes playback, not just changes speed.
   function handleRateChange(nextRate: number) {
     setRate(nextRate);
     rateRef.current = nextRate;
@@ -331,6 +361,7 @@ export default function ParallelListenTool() {
     }
     window.speechSynthesis.cancel();
     const playId = ++playbackIdRef.current;
+    setPaused(false);
     speakFrom(currentIndexRef.current, playId);
   }
 
@@ -523,13 +554,29 @@ export default function ParallelListenTool() {
                     <option value={2}>2×</option>
                   </select>
                 </label>
-                <button
-                  onClick={handlePlay}
-                  disabled={playing || includedCount === 0}
-                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
-                >
-                  ▶ Play
-                </button>
+                {!playing ? (
+                  <button
+                    onClick={handlePlay}
+                    disabled={includedCount === 0}
+                    className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+                  >
+                    ▶ Play
+                  </button>
+                ) : paused ? (
+                  <button
+                    onClick={handleResume}
+                    className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+                  >
+                    ▶ Resume
+                  </button>
+                ) : (
+                  <button
+                    onClick={handlePause}
+                    className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+                  >
+                    ⏸ Pause
+                  </button>
+                )}
                 <button
                   onClick={handleStop}
                   disabled={!playing}
@@ -546,7 +593,8 @@ export default function ParallelListenTool() {
 
             {playing && current && (
               <p className="mb-4 text-sm text-indigo-400">
-                Reading sentence {current.row + 1} ·{" "}
+                {paused ? "Paused at" : "Reading"} sentence{" "}
+                {current.row + 1} ·{" "}
                 {columns[current.col]?.name.trim() ||
                   `Language ${current.col + 1}`}
               </p>
