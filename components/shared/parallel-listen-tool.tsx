@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { splitIntoSentences } from "@/lib/sentence-split";
 import { readAndClearCarriedColumns } from "@/lib/parallel-listen-carry";
+import { formatParallelListenNote } from "@/lib/parallel-listen-note-format";
+import { createNote } from "@/app/actions/note-actions";
+import { NotePage } from "@/app/generated/prisma";
 
 interface LanguageColumn {
   id: number;
@@ -251,6 +254,9 @@ export default function ParallelListenTool() {
   const [rate, setRate] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [readingOrder, setReadingOrder] = useState<ReadingOrder>("sentence");
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Bumped on every stop/replay so any in-flight utterance callback from a
   // superseded run recognizes it's stale and does nothing when it fires.
   const playbackIdRef = useRef(0);
@@ -466,6 +472,36 @@ export default function ParallelListenTool() {
     setColumns([makeColumn(), makeColumn()]);
   }
 
+  // Saves the raw pasted columns themselves — not a transcript of what was
+  // read, not the current speed/order/view — so "Listen again" later can
+  // reconstruct exactly this session, as if freshly pasted. See
+  // lib/parallel-listen-note-format.ts for the save/parse format.
+  async function handleSaveToNote() {
+    const hasContent = columns.some((column) => column.text.trim());
+    if (!hasContent) return;
+
+    setSavingNote(true);
+    try {
+      const title =
+        columns
+          .map((column) => column.name.trim())
+          .filter(Boolean)
+          .join(" / ") || "Parallel Listen";
+      await createNote(
+        NotePage.listening,
+        title,
+        formatParallelListenNote(columns),
+      );
+      setNoteSaved(true);
+      if (noteResetRef.current) clearTimeout(noteResetRef.current);
+      noteResetRef.current = setTimeout(() => setNoteSaved(false), 2000);
+    } catch {
+      setPlaybackError("Couldn't save to Notes — try again.");
+    } finally {
+      setSavingNote(false);
+    }
+  }
+
   const parsed = parseColumns(columns);
   const includedCount = columns.filter((column) => column.included).length;
   // Each column's own sentences, grouped by the paragraph (line) the user
@@ -501,12 +537,32 @@ export default function ParallelListenTool() {
         <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
           <div className="mb-4 flex items-center justify-between gap-4">
             <h2 className="text-lg font-semibold text-zinc-100">Input</h2>
-            <button
-              onClick={handleClear}
-              className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
-            >
-              Clear
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSaveToNote}
+                disabled={
+                  savingNote || !columns.some((column) => column.text.trim())
+                }
+                title="Saves exactly what's pasted here, so you can listen again later — not the current speed, order, or which languages are checked"
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  noteSaved
+                    ? "bg-emerald-600 text-white"
+                    : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                } disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500`}
+              >
+                {noteSaved
+                  ? "Saved!"
+                  : savingNote
+                    ? "Saving…"
+                    : "Save to a new note"}
+              </button>
+              <button
+                onClick={handleClear}
+                className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
+              >
+                Clear
+              </button>
+            </div>
           </div>
 
           <div className="max-h-112 space-y-4 overflow-y-auto pr-1">

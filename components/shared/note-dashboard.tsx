@@ -25,6 +25,11 @@ import {
   getDescendantFolderIds,
   getVisibleFolderIds,
 } from "@/lib/folder-tree";
+import { writeCarriedColumns } from "@/lib/parallel-listen-carry";
+import {
+  isParallelListenNote,
+  parseParallelListenNote,
+} from "@/lib/parallel-listen-note-format";
 
 type NotePage =
   | "reading"
@@ -258,6 +263,20 @@ export default function NoteDashboard({ page, data }: Props) {
     } else {
       void previewRef.current?.requestFullscreen();
     }
+  }
+
+  // Listening-only: a note saved by Parallel Listen's "Save to a new note"
+  // carries its own raw pasted columns, recognizable by a marker at the
+  // start of its content (see lib/parallel-listen-note-format.ts). This
+  // hands them to Parallel Listen the same one-time, unsaved way a Parallel
+  // Translate carry already works — nothing about "listening again" is
+  // itself persisted anywhere new.
+  async function handleListenAgain(note: DashboardNote) {
+    const full = await getNote(note.id);
+    const columns = parseParallelListenNote(full.content);
+    if (!columns) return;
+    writeCarriedColumns(columns);
+    router.push("/listening/parallel-listen");
   }
 
   async function runMutation(task: () => Promise<unknown>) {
@@ -559,6 +578,12 @@ export default function NoteDashboard({ page, data }: Props) {
               dragItem={dragItem}
               dragOverTarget={dragOverTarget}
               onToggleCollapse={toggleCollapse}
+              canListenAgain={
+                page === "listening"
+                  ? (note) => isParallelListenNote(note.preview)
+                  : undefined
+              }
+              onListenAgain={handleListenAgain}
               onOpenNote={(note) => {
                 void getNote(note.id).then((full) => {
                   setPreviewMode(false);
@@ -940,6 +965,11 @@ type FolderSectionProps = {
   dragItem: DragItem | null;
   dragOverTarget: string | null;
   onToggleCollapse: (folderId: string) => void;
+  // Listening-only escape hatch: when set, a note this returns true for gets
+  // a "Listen again" action on its card, calling onListenAgain when clicked.
+  // Undefined on every other notes page — most pages have neither prop.
+  canListenAgain?: (note: DashboardNote) => boolean;
+  onListenAgain?: (note: DashboardNote) => void;
   onOpenNote: (note: DashboardNote) => void;
   onDeleteNote: (note: DashboardNote) => void;
   onMoveNote: (note: DashboardNote) => void;
@@ -971,6 +1001,8 @@ function FolderSection(props: FolderSectionProps) {
     dragItem,
     dragOverTarget,
     onToggleCollapse,
+    canListenAgain,
+    onListenAgain,
     onOpenNote,
     onDeleteNote,
     onMoveNote,
@@ -1105,6 +1137,11 @@ function FolderSection(props: FolderSectionProps) {
                   onMove={() => onMoveNote(note)}
                   onDragStart={() => onDragStartItem({ kind: "note", id: note.id })}
                   onDragEnd={onDragEndItem}
+                  onListenAgain={
+                    canListenAgain?.(note) && onListenAgain
+                      ? () => onListenAgain(note)
+                      : undefined
+                  }
                 />
               ))}
             </div>
@@ -1133,6 +1170,7 @@ function NoteCard({
   onMove,
   onDragStart,
   onDragEnd,
+  onListenAgain,
 }: {
   note: DashboardNote;
   isDragging: boolean;
@@ -1141,6 +1179,9 @@ function NoteCard({
   onMove: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
+  // Only set for a Parallel Listen save on the Listening notes page — see
+  // canListenAgain/onListenAgain on FolderSectionProps.
+  onListenAgain?: () => void;
 }) {
   return (
     <div
@@ -1161,6 +1202,19 @@ function NoteCard({
       }`}
     >
       <div className="absolute right-3 top-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        {onListenAgain && (
+          <button
+            type="button"
+            title="Listen again"
+            onClick={(event) => {
+              event.stopPropagation();
+              onListenAgain();
+            }}
+            className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-indigo-300"
+          >
+            <PlayIcon />
+          </button>
+        )}
         <button
           type="button"
           title="Move to folder"
@@ -1185,7 +1239,11 @@ function NoteCard({
         </button>
       </div>
 
-      <h2 className="mb-2 pr-16 font-semibold leading-snug text-zinc-100">
+      <h2
+        className={`mb-2 font-semibold leading-snug text-zinc-100 ${
+          onListenAgain ? "pr-24" : "pr-16"
+        }`}
+      >
         {note.title}
       </h2>
       {note.preview && (
@@ -1332,6 +1390,14 @@ function FolderPlusIcon() {
         strokeWidth="1.2"
         strokeLinecap="round"
       />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path d="M3 1.5v10l8-5-8-5Z" fill="currentColor" />
     </svg>
   );
 }
