@@ -15,12 +15,24 @@ interface AlignedRows {
   rows: string[][];
 }
 
+// `index` means different things depending on reading order: in
+// "sentence" mode it's the shared row index into the aligned preview grid;
+// in "language" mode there's no shared grid, so it's the position within
+// that column's own independent sentence list. Both playback and rendering
+// treat it as "which sentence within this column" either way.
 interface PlaybackPosition {
-  row: number;
+  index: number;
   col: number;
 }
 
 type ViewMode = "table" | "vertical";
+// "sentence": today's default — sentence 1 in every checked language, then
+// sentence 2 in every checked language, and so on (row-major).
+// "language": read one whole checked language start to finish (every
+// sentence of it, in order) before moving to the next checked language
+// (column-major). Both walk the exact same sentence-level queue items —
+// only the order they're pushed in changes.
+type ReadingOrder = "sentence" | "language";
 
 // Same palette Parallel Translate uses to color-code language labels in its
 // own vertical preview — duplicated rather than imported, since it's a
@@ -180,6 +192,36 @@ function parseColumns(columns: LanguageColumn[]): AlignedRows | null {
   return { rows };
 }
 
+interface ParagraphSentence {
+  text: string;
+  // Sequential position across the whole column, not just within its own
+  // paragraph — matches the `index` a queued utterance carries, so the
+  // highlight can find this exact sentence regardless of which paragraph
+  // it's visually grouped under.
+  index: number;
+}
+
+// Groups a column's own sentences by the line breaks the user actually
+// pasted, instead of flattening everything into one sentence per row.
+// Splitting on newlines first, then running sentence-splitting on each
+// line separately, gives the identical set of sentences `splitIntoSentences`
+// would produce on the whole text in one pass (it already treats a newline
+// as a hard, non-crossable boundary internally) — just grouped by paragraph
+// for display rather than flattened.
+function buildParagraphs(text: string): ParagraphSentence[][] {
+  let index = 0;
+  return text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) =>
+      splitIntoSentences(line).map((sentenceText) => ({
+        text: sentenceText,
+        index: index++,
+      })),
+    );
+}
+
 let nextColumnId = 0;
 function makeColumn(name = ""): LanguageColumn {
   nextColumnId += 1;
@@ -208,6 +250,7 @@ export default function ParallelListenTool() {
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [rate, setRate] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [readingOrder, setReadingOrder] = useState<ReadingOrder>("sentence");
   // Bumped on every stop/replay so any in-flight utterance callback from a
   // superseded run recognizes it's stale and does nothing when it fires.
   const playbackIdRef = useRef(0);
@@ -314,18 +357,44 @@ export default function ParallelListenTool() {
       text: string;
       lang?: string;
     }[] = [];
-    parsed.rows.forEach((row, rowIdx) => {
+
+    if (readingOrder === "language") {
+      // Independent per-language reading — deliberately not built from the
+      // aligned `parsed.rows` grid. That grid pads every language to match
+      // the longest one, which only matters for interleaving sentence by
+      // sentence; here each language just reads its own sentences, in its
+      // own count, with no relationship to any other column's count. Built
+      // from the same paragraph grouping the preview renders, flattened, so
+      // queued order and displayed order can never drift apart.
       includedIndexes.forEach((colIdx) => {
-        const text = row[colIdx];
-        if (text.trim()) {
-          queue.push({
-            position: { row: rowIdx, col: colIdx },
-            text,
-            lang: guessLanguageCode(columns[colIdx].name),
-          });
-        }
+        const sentences = paragraphsByColumn[colIdx].flat();
+        sentences.forEach(({ text, index }) => {
+          if (text.trim()) {
+            queue.push({
+              position: { index, col: colIdx },
+              text,
+              lang: guessLanguageCode(columns[colIdx].name),
+            });
+          }
+        });
       });
-    });
+    } else {
+      // Row-major (today's default): sentence 1 in every checked language,
+      // then sentence 2 in every checked language, and so on — needs the
+      // aligned grid, since it's interleaving across languages by position.
+      parsed.rows.forEach((row, rowIdx) => {
+        includedIndexes.forEach((colIdx) => {
+          const text = row[colIdx];
+          if (text.trim()) {
+            queue.push({
+              position: { index: rowIdx, col: colIdx },
+              text,
+              lang: guessLanguageCode(columns[colIdx].name),
+            });
+          }
+        });
+      });
+    }
 
     if (queue.length === 0) {
       setPlaybackError("Nothing to play for the checked languages.");
@@ -399,6 +468,19 @@ export default function ParallelListenTool() {
 
   const parsed = parseColumns(columns);
   const includedCount = columns.filter((column) => column.included).length;
+  // Each column's own sentences, grouped by the paragraph (line) the user
+  // actually pasted them in — independent of every other column's count.
+  // What the "language" reading order and its grouped preview use instead
+  // of the aligned, padded-to-match grid `parsed` builds.
+  const paragraphsByColumn = columns.map((column) =>
+    buildParagraphs(column.text),
+  );
+  // Table view only makes sense for the aligned grid Sentence-by-sentence
+  // mode uses — there's nothing to tabulate once languages aren't aligned
+  // to a shared row count, so Language-by-language always renders Vertical,
+  // grouped by language, regardless of whatever `viewMode` was last set to.
+  const effectiveViewMode: ViewMode =
+    readingOrder === "language" ? "vertical" : viewMode;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -409,9 +491,10 @@ export default function ParallelListenTool() {
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
             Paste the same passage in two or more languages, choose which
-            ones to hear, and listen to them sentence by sentence in the
-            order the languages are arranged below — skipping the ones you
-            leave unchecked.
+            ones to hear, and listen to them in the order the languages are
+            arranged below — either sentence by sentence across all of them,
+            or one whole language at a time — skipping the ones you leave
+            unchecked.
           </p>
         </div>
 
@@ -509,34 +592,59 @@ export default function ParallelListenTool() {
                 <h2 className="text-lg font-semibold text-zinc-100">
                   Preview
                 </h2>
-                <div className="flex overflow-hidden rounded-md border border-zinc-700">
-                  <button
-                    onClick={() => setViewMode("table")}
-                    className={`px-3 py-1 text-xs font-medium transition-colors ${
-                      viewMode === "table"
-                        ? "bg-indigo-600 text-white"
-                        : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
-                    }`}
+                {readingOrder === "sentence" ? (
+                  <div className="flex overflow-hidden rounded-md border border-zinc-700">
+                    <button
+                      onClick={() => setViewMode("table")}
+                      className={`px-3 py-1 text-xs font-medium transition-colors ${
+                        viewMode === "table"
+                          ? "bg-indigo-600 text-white"
+                          : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      Table
+                    </button>
+                    <button
+                      onClick={() => setViewMode("vertical")}
+                      className={`px-3 py-1 text-xs font-medium transition-colors ${
+                        viewMode === "vertical"
+                          ? "bg-indigo-600 text-white"
+                          : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      Vertical
+                    </button>
+                  </div>
+                ) : (
+                  <span
+                    title="Table view doesn't apply here — languages aren't aligned to a shared sentence count in this mode."
+                    className="text-xs font-medium text-zinc-500"
                   >
-                    Table
-                  </button>
-                  <button
-                    onClick={() => setViewMode("vertical")}
-                    className={`px-3 py-1 text-xs font-medium transition-colors ${
-                      viewMode === "vertical"
-                        ? "bg-indigo-600 text-white"
-                        : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
-                    }`}
-                  >
-                    Vertical
-                  </button>
-                </div>
+                    Vertical, grouped by language
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-zinc-500">
                   {includedCount} of {columns.length} language
                   {columns.length !== 1 ? "s" : ""} will be read
                 </span>
+                <label
+                  title="Sentence by sentence: sentence 1 in every checked language, then sentence 2, and so on. Language by language: the whole first checked language, then the whole next one."
+                  className="flex items-center gap-1.5 text-sm text-zinc-400"
+                >
+                  Order
+                  <select
+                    value={readingOrder}
+                    onChange={(event) =>
+                      setReadingOrder(event.target.value as ReadingOrder)
+                    }
+                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                  >
+                    <option value="sentence">Sentence by sentence</option>
+                    <option value="language">Language by language</option>
+                  </select>
+                </label>
                 <label className="flex items-center gap-1.5 text-sm text-zinc-400">
                   Speed
                   <select
@@ -594,13 +702,13 @@ export default function ParallelListenTool() {
             {playing && current && (
               <p className="mb-4 text-sm text-indigo-400">
                 {paused ? "Paused at" : "Reading"} sentence{" "}
-                {current.row + 1} ·{" "}
+                {current.index + 1} ·{" "}
                 {columns[current.col]?.name.trim() ||
                   `Language ${current.col + 1}`}
               </p>
             )}
 
-            {viewMode === "table" ? (
+            {effectiveViewMode === "table" ? (
               <div className="overflow-x-auto">
                 <table className="min-w-full border-collapse border border-zinc-800">
                   <thead>
@@ -651,7 +759,8 @@ export default function ParallelListenTool() {
                       <tr key={rowIdx} className="hover:bg-zinc-800/60">
                         {row.map((text, colIdx) => {
                           const isSpeaking =
-                            current?.row === rowIdx && current?.col === colIdx;
+                            current?.index === rowIdx &&
+                            current?.col === colIdx;
                           return (
                             <td
                               key={colIdx}
@@ -670,6 +779,55 @@ export default function ParallelListenTool() {
                   </tbody>
                 </table>
               </div>
+            ) : readingOrder === "language" ? (
+              // Grouped by language, and within each language grouped by
+              // paragraph exactly as pasted — not one row per sentence.
+              // Sentence-level chunks still exist underneath (each gets its
+              // own inline highlight as it's spoken), they're just displayed
+              // running together the way the user actually wrote them,
+              // instead of forced onto separate lines.
+              <div className="space-y-6">
+                {columns.map((column, colIdx) => {
+                  const paragraphs = paragraphsByColumn[colIdx];
+                  if (paragraphs.length === 0) return null;
+                  const name = column.name.trim() || `Language ${colIdx + 1}`;
+                  return (
+                    <div key={column.id}>
+                      <h3
+                        className={`mb-1 text-sm font-semibold ${PREVIEW_COLORS[colIdx % PREVIEW_COLORS.length]}`}
+                      >
+                        {name}
+                        {!column.included && " (skipped)"}
+                      </h3>
+                      <div className="space-y-2">
+                        {paragraphs.map((sentences, paraIdx) => (
+                          <p key={paraIdx} className="text-zinc-200">
+                            {sentences.map((sentence, i) => {
+                              const isSpeaking =
+                                current?.index === sentence.index &&
+                                current?.col === colIdx;
+                              return (
+                                <span key={sentence.index}>
+                                  {i > 0 && " "}
+                                  <span
+                                    className={
+                                      isSpeaking
+                                        ? "rounded bg-indigo-900/50 px-1 py-0.5 ring-1 ring-inset ring-indigo-500"
+                                        : ""
+                                    }
+                                  >
+                                    {sentence.text}
+                                  </span>
+                                </span>
+                              );
+                            })}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
               <div className="space-y-4">
                 {parsed.rows.map((row, rowIdx) => (
@@ -678,7 +836,7 @@ export default function ParallelListenTool() {
                       if (!text) return null;
                       const column = columns[colIdx];
                       const isSpeaking =
-                        current?.row === rowIdx && current?.col === colIdx;
+                        current?.index === rowIdx && current?.col === colIdx;
                       const name =
                         column?.name.trim() || `Language ${colIdx + 1}`;
                       return (
