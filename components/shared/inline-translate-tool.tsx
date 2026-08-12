@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   groupMarkedRuns,
   tokenizeWords,
@@ -15,6 +15,20 @@ type TranslatedResult = {
   tokens: TextToken[];
   runs: MarkedRun[];
   translations: Map<string, string>;
+};
+
+// Right-click's popup shows a plain translation of one word, not a
+// definition — same shape of result as left-click's marking, just for one
+// word at a time and without needing to press "Translate marked words"
+// first. Deliberately not the dictionary-style lookup Vocabulary/Reading
+// Shuffle uses elsewhere, per the decision in Question 203.
+type WordPopup = {
+  word: string;
+  x: number;
+  y: number;
+  loading: boolean;
+  translation: string | null;
+  error: string | null;
 };
 
 function renderResult(result: TranslatedResult, showTranslations: boolean) {
@@ -90,6 +104,65 @@ export default function InlineTranslateTool() {
   const [noteSaved, setNoteSaved] = useState(false);
   const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [noteError, setNoteError] = useState<string | null>(null);
+  const [wordPopup, setWordPopup] = useState<WordPopup | null>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  // Left-click dismisses the popup when it lands outside it; right-clicks
+  // are left alone here since onContextMenu already replaces the popup's
+  // state wholesale for whichever word was just right-clicked.
+  useEffect(() => {
+    if (!wordPopup) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (event.button !== 0) return;
+      if (popupRef.current && !popupRef.current.contains(event.target as Node)) {
+        setWordPopup(null);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setWordPopup(null);
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [wordPopup]);
+
+  async function handleWordRightClick(
+    event: React.MouseEvent,
+    word: string,
+  ) {
+    event.preventDefault();
+    const x = event.clientX;
+    const y = event.clientY;
+    setWordPopup({ word, x, y, loading: true, translation: null, error: null });
+    try {
+      const [translation] = await translateMarkedPhrases(
+        [word],
+        text,
+        targetLanguage,
+      );
+      setWordPopup((prev) =>
+        prev && prev.word === word
+          ? { ...prev, loading: false, translation }
+          : prev,
+      );
+    } catch (err) {
+      setWordPopup((prev) =>
+        prev && prev.word === word
+          ? {
+              ...prev,
+              loading: false,
+              error: err instanceof Error ? err.message : "Translation failed.",
+            }
+          : prev,
+      );
+    }
+  }
 
   function toggleWord(word: string) {
     setMarkedWords((prev) => {
@@ -108,6 +181,7 @@ export default function InlineTranslateTool() {
     setMarkedWords(new Set());
     setResult(null);
     setTranslateError(null);
+    setWordPopup(null);
   }
 
   async function handleTranslate() {
@@ -229,7 +303,8 @@ export default function InlineTranslateTool() {
                 Click the words you don&apos;t know
               </h2>
               <span className="text-sm text-zinc-500">
-                {markedWords.size} marked
+                {markedWords.size} marked · right-click a word for a quick
+                translation
               </span>
             </div>
             <p className="whitespace-pre-wrap text-lg leading-relaxed text-zinc-100">
@@ -239,6 +314,10 @@ export default function InlineTranslateTool() {
                     key={index}
                     type="button"
                     onClick={() => toggleWord(token.text)}
+                    onContextMenu={(event) =>
+                      handleWordRightClick(event, token.text)
+                    }
+                    title="Left-click: mark for batch translation. Right-click: translate just this word."
                     className={`cursor-pointer rounded p-0 transition-colors ${
                       markedWords.has(token.text)
                         ? "bg-indigo-600/40 font-semibold text-indigo-200 underline decoration-indigo-400 decoration-2 underline-offset-2"
@@ -306,6 +385,34 @@ export default function InlineTranslateTool() {
             </p>
             {noteError && (
               <p className="mt-3 text-sm text-red-400">{noteError}</p>
+            )}
+          </div>
+        )}
+
+        {wordPopup && (
+          <div
+            ref={popupRef}
+            style={{ left: wordPopup.x + 8, top: wordPopup.y + 8 }}
+            className="fixed z-50 min-w-40 max-w-64 rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-sm shadow-2xl"
+          >
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <span className="font-semibold text-indigo-200">
+                {wordPopup.word}
+              </span>
+              <button
+                onClick={() => setWordPopup(null)}
+                aria-label="Close"
+                className="text-zinc-500 transition-colors hover:text-zinc-200"
+              >
+                ✕
+              </button>
+            </div>
+            {wordPopup.loading ? (
+              <p className="text-zinc-500">Translating…</p>
+            ) : wordPopup.error ? (
+              <p className="text-red-400">{wordPopup.error}</p>
+            ) : (
+              <p className="text-zinc-200">{wordPopup.translation}</p>
             )}
           </div>
         )}
