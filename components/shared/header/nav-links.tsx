@@ -39,6 +39,7 @@ const navLinks: NavItem[] = [
     href: "/vocabulary/shuffle",
     label: "Vocabulary",
     subLinks: [
+      { href: "/vocabulary/word-list", label: "Word List" },
       { href: "/vocabulary/shuffle", label: "Vocab Shuffle" },
       { href: "/vocabulary/notes", label: "Notes" },
     ],
