@@ -97,7 +97,9 @@ export default function InlineTranslateTool() {
   const [text, setText] = useState("");
   const [sourceLanguage, setSourceLanguage] = useState("");
   const [targetLanguage, setTargetLanguage] = useState("");
-  const [markedWords, setMarkedWords] = useState<Set<string>>(new Set());
+  // Marked by token position, not word text — marking one occurrence of
+  // "the" must not mark every "the" in the passage.
+  const [markedIndices, setMarkedIndices] = useState<Set<number>>(new Set());
   const [translating, setTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [showTranslations, setShowTranslations] = useState(true);
@@ -210,13 +212,13 @@ export default function InlineTranslateTool() {
     }
   }
 
-  function toggleWord(word: string) {
-    setMarkedWords((prev) => {
+  function toggleWordAt(index: number) {
+    setMarkedIndices((prev) => {
       const next = new Set(prev);
-      if (next.has(word)) {
-        next.delete(word);
+      if (next.has(index)) {
+        next.delete(index);
       } else {
-        next.add(word);
+        next.add(index);
       }
       return next;
     });
@@ -224,7 +226,7 @@ export default function InlineTranslateTool() {
 
   function handleClear() {
     setText("");
-    setMarkedWords(new Set());
+    setMarkedIndices(new Set());
     setResult(null);
     setTranslateError(null);
     setWordPopup(null);
@@ -233,7 +235,7 @@ export default function InlineTranslateTool() {
 
   async function handleTranslate() {
     const tokens = tokenizeWords(text);
-    const runs = groupMarkedRuns(tokens, markedWords);
+    const runs = groupMarkedRuns(tokens, markedIndices);
 
     if (runs.length === 0) {
       setTranslateError("Mark at least one word before translating.");
@@ -401,7 +403,7 @@ export default function InlineTranslateTool() {
                 Click the words you don&apos;t know
               </h2>
               <span className="text-sm text-zinc-500">
-                {markedWords.size} marked · right-click a word for a quick
+                {markedIndices.size} marked · right-click a word for a quick
                 translation
               </span>
             </div>
@@ -411,13 +413,13 @@ export default function InlineTranslateTool() {
                   <button
                     key={index}
                     type="button"
-                    onClick={() => toggleWord(token.text)}
+                    onClick={() => toggleWordAt(index)}
                     onContextMenu={(event) =>
                       handleWordRightClick(event, token.text)
                     }
                     title="Left-click: mark for batch translation. Right-click: translate just this word."
                     className={`cursor-pointer rounded p-0 transition-colors ${
-                      markedWords.has(token.text)
+                      markedIndices.has(index)
                         ? "bg-indigo-600/40 font-semibold text-indigo-200 underline decoration-indigo-400 decoration-2 underline-offset-2"
                         : "bg-transparent text-inherit hover:bg-indigo-600/20"
                     }`}
@@ -436,7 +438,7 @@ export default function InlineTranslateTool() {
 
             <button
               onClick={handleTranslate}
-              disabled={translating || markedWords.size === 0}
+              disabled={translating || markedIndices.size === 0}
               className="mt-4 w-full rounded-lg bg-indigo-600 px-6 py-3 font-semibold text-white shadow-md transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {translating ? "Translating…" : "Translate marked words"}

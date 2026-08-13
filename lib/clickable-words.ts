@@ -36,16 +36,22 @@ const WHITESPACE_ONLY = /^\s+$/;
  * translatable unit ("find out") instead of two separate, individually
  * wrong ones. A run stops at any non-whitespace separator (punctuation) or
  * an unmarked word in between.
+ *
+ * Marking is by token *position*, not by word text — marking one "the"
+ * marks only that occurrence, not every "the" in the passage. Two runs that
+ * happen to share the same text (two separately-marked occurrences of the
+ * same word) still only need translating once; that dedup happens where
+ * runs are turned into translation requests, not here.
  */
 export function groupMarkedRuns(
     tokens: TextToken[],
-    markedWords: ReadonlySet<string>,
+    markedIndices: ReadonlySet<number>,
 ): MarkedRun[] {
     const runs: MarkedRun[] = [];
     let i = 0;
 
     while (i < tokens.length) {
-        if (!tokens[i].isWord || !markedWords.has(tokens[i].text)) {
+        if (!tokens[i].isWord || !markedIndices.has(i)) {
             i += 1;
             continue;
         }
@@ -59,7 +65,7 @@ export function groupMarkedRuns(
             !tokens[k].isWord &&
             WHITESPACE_ONLY.test(tokens[k].text) &&
             tokens[k + 1].isWord &&
-            markedWords.has(tokens[k + 1].text)
+            markedIndices.has(k + 1)
         ) {
             endIndex = k + 1;
             k += 2;
