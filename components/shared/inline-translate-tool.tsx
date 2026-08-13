@@ -9,6 +9,7 @@ import {
 } from "@/lib/clickable-words";
 import { translateMarkedPhrases } from "@/app/actions/inline-translate-actions";
 import { createNote } from "@/app/actions/note-actions";
+import { addVocabularyEntries } from "@/app/actions/vocabulary-entry-actions";
 import { NotePage } from "@/app/generated/prisma";
 
 type TranslatedResult = {
@@ -29,6 +30,8 @@ type WordPopup = {
   loading: boolean;
   translation: string | null;
   error: string | null;
+  addingVocab: boolean;
+  addedVocab: boolean;
 };
 
 function renderResult(result: TranslatedResult, showTranslations: boolean) {
@@ -92,6 +95,7 @@ function getResultText(result: TranslatedResult, showTranslations: boolean) {
 
 export default function InlineTranslateTool() {
   const [text, setText] = useState("");
+  const [sourceLanguage, setSourceLanguage] = useState("");
   const [targetLanguage, setTargetLanguage] = useState("");
   const [markedWords, setMarkedWords] = useState<Set<string>>(new Set());
   const [translating, setTranslating] = useState(false);
@@ -104,6 +108,8 @@ export default function InlineTranslateTool() {
   const [noteSaved, setNoteSaved] = useState(false);
   const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [noteError, setNoteError] = useState<string | null>(null);
+  const [addingVocab, setAddingVocab] = useState(false);
+  const [vocabSummary, setVocabSummary] = useState<string | null>(null);
   const [wordPopup, setWordPopup] = useState<WordPopup | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
 
@@ -139,7 +145,16 @@ export default function InlineTranslateTool() {
     event.preventDefault();
     const x = event.clientX;
     const y = event.clientY;
-    setWordPopup({ word, x, y, loading: true, translation: null, error: null });
+    setWordPopup({
+      word,
+      x,
+      y,
+      loading: true,
+      translation: null,
+      error: null,
+      addingVocab: false,
+      addedVocab: false,
+    });
     try {
       const [translation] = await translateMarkedPhrases(
         [word],
@@ -164,6 +179,37 @@ export default function InlineTranslateTool() {
     }
   }
 
+  // Saves the original word the popup is showing — not its translation —
+  // since a vocabulary entry is a word you're learning in that word's own
+  // language, using sourceLanguage rather than targetLanguage for that
+  // reason. addVocabularyEntries handles a single word fine; no need for a
+  // separate single-word action.
+  async function handleAddPopupWordToVocab() {
+    if (!wordPopup) return;
+    const word = wordPopup.word;
+    setWordPopup((prev) =>
+      prev && prev.word === word ? { ...prev, addingVocab: true } : prev,
+    );
+    try {
+      await addVocabularyEntries(word, sourceLanguage);
+      setWordPopup((prev) =>
+        prev && prev.word === word
+          ? { ...prev, addingVocab: false, addedVocab: true }
+          : prev,
+      );
+    } catch (err) {
+      setWordPopup((prev) =>
+        prev && prev.word === word
+          ? {
+              ...prev,
+              addingVocab: false,
+              error: err instanceof Error ? err.message : "Couldn't add to vocabulary.",
+            }
+          : prev,
+      );
+    }
+  }
+
   function toggleWord(word: string) {
     setMarkedWords((prev) => {
       const next = new Set(prev);
@@ -182,6 +228,7 @@ export default function InlineTranslateTool() {
     setResult(null);
     setTranslateError(null);
     setWordPopup(null);
+    setVocabSummary(null);
   }
 
   async function handleTranslate() {
@@ -251,6 +298,39 @@ export default function InlineTranslateTool() {
     }
   }
 
+  // Adds every marked/translated run at once, rather than a button per
+  // occurrence scattered through the passage — reuses the same bulk
+  // endpoint the Vocabulary page's own paste-a-list box calls, one word or
+  // phrase per line, all under the source language.
+  async function handleAddAllToVocab() {
+    if (!result) return;
+
+    const uniqueRunTexts = Array.from(
+      new Set(result.runs.map((run) => run.text)),
+    );
+
+    setAddingVocab(true);
+    setVocabSummary(null);
+    setNoteError(null);
+    try {
+      const { added, skipped } = await addVocabularyEntries(
+        uniqueRunTexts.join("\n"),
+        sourceLanguage,
+      );
+      setVocabSummary(
+        skipped > 0
+          ? `Added ${added} to vocabulary (${skipped} already saved).`
+          : `Added ${added} to vocabulary.`,
+      );
+    } catch (err) {
+      setNoteError(
+        err instanceof Error ? err.message : "Couldn't add to vocabulary.",
+      );
+    } finally {
+      setAddingVocab(false);
+    }
+  }
+
   const tokens = tokenizeWords(text);
 
   return (
@@ -284,16 +364,34 @@ export default function InlineTranslateTool() {
             className="h-48 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 p-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
           />
 
-          <label className="mt-4 block text-sm font-semibold text-zinc-300">
-            Translate marked words into
-            <input
-              type="text"
-              value={targetLanguage}
-              onChange={(event) => setTargetLanguage(event.target.value)}
-              placeholder="e.g. German"
-              className="mt-2 w-full max-w-xs rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
-            />
-          </label>
+          <div className="mt-4 flex flex-wrap gap-4">
+            <label className="block text-sm font-semibold text-zinc-300">
+              Translate marked words into
+              <input
+                type="text"
+                value={targetLanguage}
+                onChange={(event) => setTargetLanguage(event.target.value)}
+                placeholder="e.g. German"
+                className="mt-2 w-full max-w-xs rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+              />
+            </label>
+            <label
+              title="The language the pasted text itself is written in — used when saving a word to vocabulary, since that saves the original word, not its translation"
+              className="block text-sm font-semibold text-zinc-300"
+            >
+              Source language{" "}
+              <span className="font-normal text-zinc-500">
+                (for saving to vocabulary)
+              </span>
+              <input
+                type="text"
+                value={sourceLanguage}
+                onChange={(event) => setSourceLanguage(event.target.value)}
+                placeholder="e.g. Italian"
+                className="mt-2 w-full max-w-xs rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+              />
+            </label>
+          </div>
         </div>
 
         {text && (
@@ -358,6 +456,14 @@ export default function InlineTranslateTool() {
                   {showTranslations ? "Hide translations" : "Show translations"}
                 </button>
                 <button
+                  onClick={handleAddAllToVocab}
+                  disabled={addingVocab}
+                  title="Adds every marked word or phrase above, under the source language"
+                  className="rounded-md bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed"
+                >
+                  {addingVocab ? "Adding…" : "Add all to vocabulary"}
+                </button>
+                <button
                   onClick={handleSaveToNote}
                   disabled={savingNote}
                   className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -386,6 +492,9 @@ export default function InlineTranslateTool() {
             {noteError && (
               <p className="mt-3 text-sm text-red-400">{noteError}</p>
             )}
+            {vocabSummary && (
+              <p className="mt-3 text-sm text-emerald-400">{vocabSummary}</p>
+            )}
           </div>
         )}
 
@@ -412,7 +521,24 @@ export default function InlineTranslateTool() {
             ) : wordPopup.error ? (
               <p className="text-red-400">{wordPopup.error}</p>
             ) : (
-              <p className="text-zinc-200">{wordPopup.translation}</p>
+              <>
+                <p className="text-zinc-200">{wordPopup.translation}</p>
+                <button
+                  onClick={handleAddPopupWordToVocab}
+                  disabled={wordPopup.addingVocab || wordPopup.addedVocab}
+                  className={`mt-2 w-full rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                    wordPopup.addedVocab
+                      ? "bg-emerald-600 text-white"
+                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                  } disabled:cursor-not-allowed`}
+                >
+                  {wordPopup.addedVocab
+                    ? "Added!"
+                    : wordPopup.addingVocab
+                      ? "Adding…"
+                      : "+ Add to vocabulary"}
+                </button>
+              </>
             )}
           </div>
         )}
