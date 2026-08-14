@@ -11,6 +11,10 @@ import { translateMarkedPhrases } from "@/app/actions/inline-translate-actions";
 import { createNote } from "@/app/actions/note-actions";
 import { addVocabularyEntries } from "@/app/actions/vocabulary-entry-actions";
 import { NotePage } from "@/app/generated/prisma";
+import {
+  readInlineTranslateDraft,
+  writeInlineTranslateDraft,
+} from "@/lib/inline-translate-draft";
 
 type TranslatedResult = {
   tokens: TextToken[];
@@ -47,9 +51,7 @@ function renderResult(result: TranslatedResult, showTranslations: boolean) {
         nodes.push(
           <span key={i}>
             <strong className="text-indigo-200">{run.text}</strong>
-            {translation && (
-              <em className="text-zinc-400"> ({translation})</em>
-            )}
+            {translation && <em className="text-zinc-400"> ({translation})</em>}
           </span>,
         );
       } else {
@@ -94,9 +96,16 @@ function getResultText(result: TranslatedResult, showTranslations: boolean) {
 }
 
 export default function InlineTranslateTool() {
-  const [text, setText] = useState("");
-  const [sourceLanguage, setSourceLanguage] = useState("");
-  const [targetLanguage, setTargetLanguage] = useState("");
+  // Restored from the last session's draft, if there is one — read as part
+  // of the initial state itself (each lazy initializer runs once, at
+  // mount), not in an effect afterward, so there's no extra render.
+  const [text, setText] = useState(() => readInlineTranslateDraft().text);
+  const [sourceLanguage, setSourceLanguage] = useState(
+    () => readInlineTranslateDraft().sourceLanguage,
+  );
+  const [targetLanguage, setTargetLanguage] = useState(
+    () => readInlineTranslateDraft().targetLanguage,
+  );
   // Marked by token position, not word text — marking one occurrence of
   // "the" must not mark every "the" in the passage.
   const [markedIndices, setMarkedIndices] = useState<Set<number>>(new Set());
@@ -115,6 +124,13 @@ export default function InlineTranslateTool() {
   const [wordPopup, setWordPopup] = useState<WordPopup | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
 
+  // Keeps the draft in sync with what's on screen — genuinely a "sync React
+  // state out to an external system" effect, not one computing state React
+  // itself could derive, so this is the legitimate use of an effect
+  useEffect(() => {
+    writeInlineTranslateDraft({ text, sourceLanguage, targetLanguage });
+  }, [text, sourceLanguage, targetLanguage]);
+
   // Left-click dismisses the popup when it lands outside it; right-clicks
   // are left alone here since onContextMenu already replaces the popup's
   // state wholesale for whichever word was just right-clicked.
@@ -123,7 +139,10 @@ export default function InlineTranslateTool() {
 
     function handlePointerDown(event: MouseEvent) {
       if (event.button !== 0) return;
-      if (popupRef.current && !popupRef.current.contains(event.target as Node)) {
+      if (
+        popupRef.current &&
+        !popupRef.current.contains(event.target as Node)
+      ) {
         setWordPopup(null);
       }
     }
@@ -140,10 +159,7 @@ export default function InlineTranslateTool() {
     };
   }, [wordPopup]);
 
-  async function handleWordRightClick(
-    event: React.MouseEvent,
-    word: string,
-  ) {
+  async function handleWordRightClick(event: React.MouseEvent, word: string) {
     event.preventDefault();
     const x = event.clientX;
     const y = event.clientY;
@@ -205,7 +221,10 @@ export default function InlineTranslateTool() {
           ? {
               ...prev,
               addingVocab: false,
-              error: err instanceof Error ? err.message : "Couldn't add to vocabulary.",
+              error:
+                err instanceof Error
+                  ? err.message
+                  : "Couldn't add to vocabulary.",
             }
           : prev,
       );
@@ -269,12 +288,16 @@ export default function InlineTranslateTool() {
   async function handleCopy() {
     if (!result) return;
     try {
-      await navigator.clipboard.writeText(getResultText(result, showTranslations));
+      await navigator.clipboard.writeText(
+        getResultText(result, showTranslations),
+      );
       setCopySuccess(true);
       if (copyResetRef.current) clearTimeout(copyResetRef.current);
       copyResetRef.current = setTimeout(() => setCopySuccess(false), 2000);
     } catch {
-      setNoteError("Couldn't copy to the clipboard — copy the text manually instead.");
+      setNoteError(
+        "Couldn't copy to the clipboard — copy the text manually instead.",
+      );
     }
   }
 
@@ -343,8 +366,8 @@ export default function InlineTranslateTool() {
             Inline Translate
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Paste a passage, click the words you don&apos;t know, and get
-            their translation inserted right next to them.
+            Paste a passage, click the words you don&apos;t know, and get their
+            translation inserted right next to them.
           </p>
         </div>
 
@@ -474,7 +497,11 @@ export default function InlineTranslateTool() {
                       : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
                   } disabled:cursor-not-allowed`}
                 >
-                  {noteSaved ? "Saved!" : savingNote ? "Saving…" : "Save to a new note"}
+                  {noteSaved
+                    ? "Saved!"
+                    : savingNote
+                      ? "Saving…"
+                      : "Save to a new note"}
                 </button>
                 <button
                   onClick={handleCopy}
