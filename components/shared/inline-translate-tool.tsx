@@ -197,11 +197,11 @@ export default function InlineTranslateTool() {
     }
   }
 
-  // Saves the original word the popup is showing — not its translation —
-  // since a vocabulary entry is a word you're learning in that word's own
-  // language, using sourceLanguage rather than targetLanguage for that
-  // reason. addVocabularyEntries handles a single word fine; no need for a
-  // separate single-word action.
+  // Saves the original word the popup is showing, under sourceLanguage —
+  // not targetLanguage — since a vocabulary entry is a word you're learning
+  // in that word's own language, alongside its already-loaded translation
+  // (Question 214). addVocabularyEntries handles a single word fine; no
+  // need for a separate single-word action.
   async function handleAddPopupWordToVocab() {
     if (!wordPopup) return;
     const word = wordPopup.word;
@@ -209,7 +209,11 @@ export default function InlineTranslateTool() {
       prev && prev.word === word ? { ...prev, addingVocab: true } : prev,
     );
     try {
-      await addVocabularyEntries(word, sourceLanguage);
+      await addVocabularyEntries(
+        word,
+        sourceLanguage,
+        wordPopup.translation ?? undefined,
+      );
       setWordPopup((prev) =>
         prev && prev.word === word
           ? { ...prev, addingVocab: false, addedVocab: true }
@@ -326,12 +330,16 @@ export default function InlineTranslateTool() {
   // Adds every marked/translated run at once, rather than a button per
   // occurrence scattered through the passage — reuses the same bulk
   // endpoint the Vocabulary page's own paste-a-list box calls, one word or
-  // phrase per line, all under the source language.
+  // phrase per line, all under the source language, each paired with its
+  // already-translated line at the same position (Question 214).
   async function handleAddAllToVocab() {
     if (!result) return;
 
     const uniqueRunTexts = Array.from(
       new Set(result.runs.map((run) => run.text)),
+    );
+    const translationLines = uniqueRunTexts.map(
+      (runText) => result.translations.get(runText) ?? "",
     );
 
     setAddingVocab(true);
@@ -341,6 +349,7 @@ export default function InlineTranslateTool() {
       const { added, skipped } = await addVocabularyEntries(
         uniqueRunTexts.join("\n"),
         sourceLanguage,
+        translationLines.join("\n"),
       );
       setVocabSummary(
         skipped > 0

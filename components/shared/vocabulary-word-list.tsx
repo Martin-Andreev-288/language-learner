@@ -10,6 +10,7 @@ import {
 interface VocabularyEntryData {
   id: string;
   word: string;
+  translation: string | null;
   language: string;
   firstSeen: string | Date;
 }
@@ -82,7 +83,9 @@ export default function VocabularyWordList({
       (entry) =>
         !normalizedSearch ||
         entry.word.toLowerCase().includes(normalizedSearch) ||
-        entry.language.toLowerCase().includes(normalizedSearch),
+        entry.language.toLowerCase().includes(normalizedSearch) ||
+        (entry.translation?.toLowerCase().includes(normalizedSearch) ??
+          false),
     )
     .sort((a, b) =>
       sortBy === "alphabetical"
@@ -191,6 +194,11 @@ export default function VocabularyWordList({
                     <span className="font-medium text-zinc-100">
                       {entry.word}
                     </span>
+                    {entry.translation && (
+                      <span className="ml-2 text-zinc-400">
+                        — {entry.translation}
+                      </span>
+                    )}
                     <span className="ml-2 text-sm text-zinc-500">
                       {entry.language}
                     </span>

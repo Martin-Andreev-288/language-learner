@@ -13,25 +13,28 @@ async function requireUserId(): Promise<string> {
     return session.user.id;
 }
 
-// One word per line — same convention Vocab Shuffle's bulk-add already
-// uses, so pasting a list here behaves the way it does everywhere else in
-// this app.
-function parseWords(input: string): string[] {
-    return input
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean);
-}
-
 // Adds one or more words (newline-separated) to the user's vocabulary, all
-// under the same language. Already-saved word/language pairs are silently
-// skipped rather than duplicated or erroring — this is a manual, deliberate
-// add (from this page, or later from Inline Translate's marked words /
+// under the same language — one word per line, same convention Vocab
+// Shuffle's bulk-add already uses. Already-saved word/language pairs are
+// silently skipped rather than duplicated or erroring — this is a manual,
+// deliberate add (from this page, or from Inline Translate's marked words /
 // right-click popup), not a "seen while reading/writing" event, so
 // timesSeenReading/timesSeenWriting are left alone here — they default to 0
 // via the schema itself. A single word is just the one-line case of this,
 // so there's no separate single-word function to keep in sync with this one.
-export async function addVocabularyEntries(words: string, language: string) {
+//
+// `translations`, if given, is the same one-per-line shape as `words`,
+// paired by line position — line 1 of translations goes with line 1 of
+// words, and so on. Entirely optional and deliberately not tied to a
+// tracked "translation language" of its own, per Question 214 — just
+// whatever translation the caller already had on hand (Inline Translate
+// always does, by the time it calls this). Omit it, or leave a line blank,
+// for a word with no translation to record.
+export async function addVocabularyEntries(
+    words: string,
+    language: string,
+    translations?: string,
+) {
     const userId = await requireUserId();
     const normalizedLanguage = language.trim();
 
@@ -39,26 +42,44 @@ export async function addVocabularyEntries(words: string, language: string) {
         throw new Error("Enter a language for these words.");
     }
 
-    const parsedWords = Array.from(new Set(parseWords(words)));
-    if (parsedWords.length === 0) {
+    const wordLines = words.split("\n").map((line) => line.trim());
+    const translationLines = (translations ?? "").split("\n");
+
+    // Keyed by word so a word repeated across lines still becomes one row,
+    // same as before — a Map here (instead of a plain Set of words) is what
+    // lets a translation ride along with the dedup rather than needing a
+    // separate pass that could drift out of alignment with it.
+    const byWord = new Map<string, string | undefined>();
+    wordLines.forEach((word, index) => {
+        if (!word) return;
+        const translation = translationLines[index]?.trim();
+        byWord.set(word, translation || undefined);
+    });
+
+    const parsedEntries = Array.from(byWord.entries());
+    if (parsedEntries.length === 0) {
         throw new Error("There's nothing to add — enter at least one word.");
     }
-    if (parsedWords.length > MAX_WORDS) {
+    if (parsedEntries.length > MAX_WORDS) {
         throw new Error(
-            `That's ${parsedWords.length} words — please add ${MAX_WORDS} or fewer at a time.`,
+            `That's ${parsedEntries.length} words — please add ${MAX_WORDS} or fewer at a time.`,
         );
     }
 
     const result = await prisma.vocabularyEntry.createMany({
-        data: parsedWords.map((word) => ({
+        data: parsedEntries.map(([word, translation]) => ({
             userId,
             word,
+            translation: translation ?? null,
             language: normalizedLanguage,
         })),
         skipDuplicates: true,
     });
 
-    return { added: result.count, skipped: parsedWords.length - result.count };
+    return {
+        added: result.count,
+        skipped: parsedEntries.length - result.count,
+    };
 }
 
 export async function getVocabularyEntries() {

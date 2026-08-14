@@ -63,6 +63,10 @@ model VocabularyEntry {
     id               String   @id @default(cuid())
     userId           String
     word             String
+    // Optional, deliberately not tied to a tracked language of its own —
+    // just whatever translation was on hand when the word was saved (from
+    // Inline Translate), shown alongside the word in the list.
+    translation      String?
     language         String
     timesSeenReading Int      @default(0)
     timesSeenWriting Int      @default(0)
