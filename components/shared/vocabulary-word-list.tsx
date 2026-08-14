@@ -37,6 +37,7 @@ export default function VocabularyWordList({
   const [addError, setAddError] = useState<string | null>(null);
   const [addSummary, setAddSummary] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [languageFilter, setLanguageFilter] = useState("all");
   const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -77,15 +78,27 @@ export default function VocabularyWordList({
     }
   }
 
+  // Sorted, de-duplicated straight from what's actually saved — no separate
+  // list to keep in sync, and it only ever offers languages you actually
+  // have words in.
+  const availableLanguages = Array.from(
+    new Set(entries.map((entry) => entry.language)),
+  ).sort((a, b) => a.localeCompare(b));
+
+  // Language is an exact match picked from a dropdown, not part of the free
+  // -text search — searching "En" as text used to also match any word
+  // containing those two letters ("entertain," "listen"), which stopped
+  // being usable once the list grew. Text search now only looks at the
+  // word and its translation.
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const visibleEntries = entries
     .filter(
       (entry) =>
-        !normalizedSearch ||
-        entry.word.toLowerCase().includes(normalizedSearch) ||
-        entry.language.toLowerCase().includes(normalizedSearch) ||
-        (entry.translation?.toLowerCase().includes(normalizedSearch) ??
-          false),
+        (languageFilter === "all" || entry.language === languageFilter) &&
+        (!normalizedSearch ||
+          entry.word.toLowerCase().includes(normalizedSearch) ||
+          (entry.translation?.toLowerCase().includes(normalizedSearch) ??
+            false)),
     )
     .sort((a, b) =>
       sortBy === "alphabetical"
@@ -156,14 +169,26 @@ export default function VocabularyWordList({
             <h2 className="text-lg font-semibold text-zinc-100">
               {entries.length} word{entries.length !== 1 ? "s" : ""}
             </h2>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search word or language…"
+                placeholder="Search word or translation…"
                 className="w-48 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
               />
+              <select
+                value={languageFilter}
+                onChange={(event) => setLanguageFilter(event.target.value)}
+                className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+              >
+                <option value="all">All languages</option>
+                {availableLanguages.map((lang) => (
+                  <option key={lang} value={lang}>
+                    {lang}
+                  </option>
+                ))}
+              </select>
               <select
                 value={sortBy}
                 onChange={(event) => setSortBy(event.target.value as SortBy)}
@@ -181,7 +206,10 @@ export default function VocabularyWordList({
             </p>
           ) : visibleEntries.length === 0 ? (
             <p className="py-10 text-center text-sm text-zinc-600">
-              No words match &ldquo;{searchTerm.trim()}&rdquo;.
+              {normalizedSearch
+                ? `No words match "${searchTerm.trim()}"`
+                : "No words match this filter"}
+              {languageFilter !== "all" ? ` in ${languageFilter}.` : "."}
             </p>
           ) : (
             <div className="divide-y divide-zinc-800">
