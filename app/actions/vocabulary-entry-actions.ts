@@ -2,6 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { formatError } from "@/lib/utils";
 
 const MAX_WORDS = 100;
 
@@ -88,6 +89,45 @@ export async function getVocabularyEntries() {
         where: { userId },
         orderBy: { firstSeen: "desc" },
     });
+}
+
+// Word, translation, and language are all directly editable — same
+// principle as Vocab Shuffle's own edit. Changing word or language into a
+// combination you already have saved would collide with the unique
+// constraint; formatError turns that into a plain "already exists" message
+// instead of a raw database error reaching the page.
+export async function updateVocabularyEntry(
+    id: string,
+    updates: { word: string; translation: string; language: string },
+) {
+    const userId = await requireUserId();
+
+    const entry = await prisma.vocabularyEntry.findFirst({
+        where: { id, userId },
+    });
+    if (!entry) {
+        throw new Error("Vocabulary entry not found");
+    }
+
+    const word = updates.word.trim();
+    const language = updates.language.trim();
+    const translation = updates.translation.trim();
+
+    if (!word) {
+        throw new Error("Word can't be empty.");
+    }
+    if (!language) {
+        throw new Error("Language can't be empty.");
+    }
+
+    try {
+        return await prisma.vocabularyEntry.update({
+            where: { id },
+            data: { word, language, translation: translation || null },
+        });
+    } catch (error) {
+        throw new Error(formatError(error));
+    }
 }
 
 export async function deleteVocabularyEntry(id: string) {

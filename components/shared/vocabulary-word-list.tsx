@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   addVocabularyEntries,
   deleteVocabularyEntry,
+  updateVocabularyEntry,
 } from "@/app/actions/vocabulary-entry-actions";
 
 interface VocabularyEntryData {
@@ -40,6 +41,15 @@ export default function VocabularyWordList({
   const [languageFilter, setLanguageFilter] = useState("all");
   const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Only one row editable at a time — same one-card-at-a-time principle
+  // Vocab Shuffle's own edit uses, just applied to a list of rows instead
+  // of a single card.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editWord, setEditWord] = useState("");
+  const [editTranslation, setEditTranslation] = useState("");
+  const [editLanguage, setEditLanguage] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   async function handleAdd() {
     if (!words.trim() || !language.trim()) {
@@ -75,6 +85,45 @@ export default function VocabularyWordList({
       setAddError("Couldn't delete that entry — try again.");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  function handleStartEdit(entry: VocabularyEntryData) {
+    setEditingId(entry.id);
+    setEditWord(entry.word);
+    setEditTranslation(entry.translation ?? "");
+    setEditLanguage(entry.language);
+    setEditError(null);
+  }
+
+  function handleCancelEdit() {
+    setEditingId(null);
+    setEditError(null);
+  }
+
+  async function handleSaveEdit() {
+    if (!editingId) return;
+    if (!editWord.trim() || !editLanguage.trim()) {
+      setEditError("Word and language can't be empty.");
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError(null);
+    try {
+      await updateVocabularyEntry(editingId, {
+        word: editWord,
+        translation: editTranslation,
+        language: editLanguage,
+      });
+      setEditingId(null);
+      router.refresh();
+    } catch (err) {
+      setEditError(
+        err instanceof Error ? err.message : "Couldn't save — try again.",
+      );
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -213,37 +262,93 @@ export default function VocabularyWordList({
             </p>
           ) : (
             <div className="divide-y divide-zinc-800">
-              {visibleEntries.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="flex items-center justify-between gap-4 py-3"
-                >
-                  <div className="min-w-0 flex-1">
-                    <span className="font-medium text-zinc-100">
-                      {entry.word}
-                    </span>
-                    {entry.translation && (
-                      <span className="ml-2 text-zinc-400">
-                        — {entry.translation}
-                      </span>
+              {visibleEntries.map((entry) =>
+                editingId === entry.id ? (
+                  <div key={entry.id} className="py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="text"
+                        value={editWord}
+                        onChange={(event) => setEditWord(event.target.value)}
+                        placeholder="Word"
+                        className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                      />
+                      <input
+                        type="text"
+                        value={editTranslation}
+                        onChange={(event) =>
+                          setEditTranslation(event.target.value)
+                        }
+                        placeholder="Translation (optional)"
+                        className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                      />
+                      <input
+                        type="text"
+                        value={editLanguage}
+                        onChange={(event) =>
+                          setEditLanguage(event.target.value)
+                        }
+                        placeholder="Language"
+                        className="w-32 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                      />
+                      <button
+                        onClick={handleSaveEdit}
+                        disabled={savingEdit}
+                        className="shrink-0 rounded-md bg-indigo-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {savingEdit ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        onClick={handleCancelEdit}
+                        disabled={savingEdit}
+                        className="shrink-0 rounded-md bg-zinc-800 px-3 py-1 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {editError && (
+                      <p className="mt-2 text-sm text-red-400">{editError}</p>
                     )}
-                    <span className="ml-2 text-sm text-zinc-500">
-                      {entry.language}
-                    </span>
                   </div>
-                  <span className="shrink-0 text-xs text-zinc-600">
-                    {formatDate(entry.firstSeen)}
-                  </span>
-                  <button
-                    onClick={() => handleDelete(entry.id)}
-                    disabled={deletingId === entry.id}
-                    title="Delete"
-                    className="shrink-0 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                ) : (
+                  <div
+                    key={entry.id}
+                    className="flex items-center justify-between gap-4 py-3"
                   >
-                    ✕
-                  </button>
-                </div>
-              ))}
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium text-zinc-100">
+                        {entry.word}
+                      </span>
+                      {entry.translation && (
+                        <span className="ml-2 text-zinc-400">
+                          — {entry.translation}
+                        </span>
+                      )}
+                      <span className="ml-2 text-sm text-zinc-500">
+                        {entry.language}
+                      </span>
+                    </div>
+                    <span className="shrink-0 text-xs text-zinc-600">
+                      {formatDate(entry.firstSeen)}
+                    </span>
+                    <button
+                      onClick={() => handleStartEdit(entry)}
+                      title="Edit"
+                      className="shrink-0 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-indigo-300"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      onClick={() => handleDelete(entry.id)}
+                      disabled={deletingId === entry.id}
+                      title="Delete"
+                      className="shrink-0 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ),
+              )}
             </div>
           )}
         </div>
