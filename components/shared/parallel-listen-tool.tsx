@@ -5,6 +5,7 @@ import { splitIntoSentences } from "@/lib/sentence-split";
 import { readAndClearCarriedColumns } from "@/lib/parallel-listen-carry";
 import { formatParallelListenNote } from "@/lib/parallel-listen-note-format";
 import { guessLanguageCode } from "@/lib/language-codes";
+import { buildParagraphs } from "@/lib/paragraph-sentences";
 import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
 
@@ -68,36 +69,6 @@ function parseColumns(columns: LanguageColumn[]): AlignedRows | null {
   }
 
   return { rows };
-}
-
-interface ParagraphSentence {
-  text: string;
-  // Sequential position across the whole column, not just within its own
-  // paragraph — matches the `index` a queued utterance carries, so the
-  // highlight can find this exact sentence regardless of which paragraph
-  // it's visually grouped under.
-  index: number;
-}
-
-// Groups a column's own sentences by the line breaks the user actually
-// pasted, instead of flattening everything into one sentence per row.
-// Splitting on newlines first, then running sentence-splitting on each
-// line separately, gives the identical set of sentences `splitIntoSentences`
-// would produce on the whole text in one pass (it already treats a newline
-// as a hard, non-crossable boundary internally) — just grouped by paragraph
-// for display rather than flattened.
-function buildParagraphs(text: string): ParagraphSentence[][] {
-  let index = 0;
-  return text
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) =>
-      splitIntoSentences(line).map((sentenceText) => ({
-        text: sentenceText,
-        index: index++,
-      })),
-    );
 }
 
 let nextColumnId = 0;

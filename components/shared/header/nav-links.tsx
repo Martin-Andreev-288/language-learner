@@ -49,6 +49,7 @@ const navLinks: NavItem[] = [
     label: "Listening",
     subLinks: [
       { href: "/listening/parallel-listen", label: "Parallel Listen" },
+      { href: "/listening/inline-listen", label: "Inline Listen" },
       { href: "/listening/notes", label: "Notes" },
     ],
   },

@@ -50,11 +50,17 @@ export function splitIntoSentences(text: string): string[] {
     // Step 4: main split — punctuation + space + uppercase, the split marker, or newlines.
     const upperCasePattern = "[A-ZА-ЯЁÀ-ÖØ-Þ0-9]";
     const quotePattern = "[„\"'«»‹›]";
+    // A sentence may begin with Markdown bold — Inline Listen receives
+    // passages where a marked word is written as `**word**`, and without
+    // this the `**` sits between the space and the capital letter, the
+    // lookahead fails, and that sentence gets swallowed into the previous
+    // one. Optional, so plain text splits exactly as it always did.
+    const boldPattern = "\\*{0,2}";
 
     const sentences = processedText
         .split(
             new RegExp(
-                `(?<=[.!?]${quotePattern}?)\\s+(?=${quotePattern}?${upperCasePattern})|${SPLIT_MARKER}|<<<USASPLIT>>>|\\n+`,
+                `(?<=[.!?]${quotePattern}?)\\s+(?=${boldPattern}${quotePattern}?${upperCasePattern})|${SPLIT_MARKER}|<<<USASPLIT>>>|\\n+`,
             ),
         )
         .map((s) => s.trim())

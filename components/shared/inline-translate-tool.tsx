@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   groupMarkedRuns,
   tokenizeWords,
@@ -15,6 +16,7 @@ import {
   readInlineTranslateDraft,
   writeInlineTranslateDraft,
 } from "@/lib/inline-translate-draft";
+import { writeInlineListenCarry } from "@/lib/inline-listen-carry";
 
 type TranslatedResult = {
   tokens: TextToken[];
@@ -96,6 +98,7 @@ function getResultText(result: TranslatedResult, showTranslations: boolean) {
 }
 
 export default function InlineTranslateTool() {
+  const router = useRouter();
   // Restored from the last session's draft, if there is one — read as part
   // of the initial state itself (each lazy initializer runs once, at
   // mount), not in an effect afterward, so there's no extra render.
@@ -365,6 +368,22 @@ export default function InlineTranslateTool() {
     }
   }
 
+  // Sends the translated passage when there is one, falling back to the
+  // raw pasted text when nothing has been translated yet — so the button
+  // still works before translating (Question 225) without throwing away
+  // the translations once they exist (Question 227). It sends exactly the
+  // same string Copy and "Save to a new note" produce, rather than a
+  // third serialization invented for this one hop; Inline Listen shows
+  // the translations and reads only the original words.
+  function handleSendToInlineListen() {
+    if (!text.trim()) return;
+    writeInlineListenCarry({
+      text: result ? getResultText(result, true) : text,
+      sourceLanguage,
+    });
+    router.push("/listening/inline-listen");
+  }
+
   const tokens = tokenizeWords(text);
 
   return (
@@ -410,12 +429,12 @@ export default function InlineTranslateTool() {
               />
             </label>
             <label
-              title="The language the pasted text itself is written in — used when saving a word to vocabulary, since that saves the original word, not its translation"
+              title="The language the pasted text itself is written in — used when saving a word to vocabulary, since that saves the original word, not its translation, and when sending the passage to Inline Listen"
               className="block text-sm font-semibold text-zinc-300"
             >
               Source language{" "}
               <span className="font-normal text-zinc-500">
-                (for saving to vocabulary)
+                (for vocabulary and Inline Listen)
               </span>
               <input
                 type="text"
@@ -535,6 +554,29 @@ export default function InlineTranslateTool() {
             )}
           </div>
         )}
+
+        {/* Its own section, further down the page, deliberately separate
+            from the Text panel above — sends the passage as pasted, with
+            no marked-word translations woven in, so it's a distinct next
+            step rather than something competing with the translate
+            workflow at the top (Question 226). */}
+        <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+          <h2 className="text-lg font-semibold text-zinc-100">
+            Listen to this passage
+          </h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            {result
+              ? "Sends the translated passage above — the translations come along and stay visible, but only the original words are read aloud."
+              : "Send it to Inline Listen and hear it read back sentence by sentence — no need to translate anything first."}
+          </p>
+          <button
+            onClick={handleSendToInlineListen}
+            disabled={!text.trim()}
+            className="mt-4 rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-indigo-500 hover:text-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Send to Inline Listen →
+          </button>
+        </div>
 
         {wordPopup && (
           <div
