@@ -5,6 +5,9 @@ import { readAndClearInlineListenCarry } from "@/lib/inline-listen-carry";
 import { buildParagraphs } from "@/lib/paragraph-sentences";
 import { parseAnnotated, stripAnnotations } from "@/lib/inline-annotations";
 import { guessLanguageCode } from "@/lib/language-codes";
+import { formatInlineListenNote } from "@/lib/inline-listen-note-format";
+import { createNote } from "@/app/actions/note-actions";
+import { NotePage } from "@/app/generated/prisma";
 
 export default function InlineListenTool() {
   // Restored from a carry, if the user arrived via "Send to Inline Listen"
@@ -26,6 +29,9 @@ export default function InlineListenTool() {
   const [paused, setPaused] = useState(false);
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Same refs, same reasons, as Parallel Listen and Shadowing Practice:
   // playbackIdRef invalidates stale callbacks from a superseded run,
@@ -60,6 +66,31 @@ export default function InlineListenTool() {
   function handleClear() {
     handleStop();
     setText("");
+  }
+
+  // Saves the raw passage and its language — not the current speed or
+  // playback position — so "Listen again" later can reconstruct exactly
+  // this session, the same scope Parallel Listen's own save already uses
+  // (see lib/inline-listen-note-format.ts).
+  async function handleSaveToNote() {
+    if (!text.trim()) return;
+
+    setSavingNote(true);
+    try {
+      const title = language.trim() || "Inline Listen";
+      await createNote(
+        NotePage.listening,
+        title,
+        formatInlineListenNote({ text, sourceLanguage: language }),
+      );
+      setNoteSaved(true);
+      if (noteResetRef.current) clearTimeout(noteResetRef.current);
+      noteResetRef.current = setTimeout(() => setNoteSaved(false), 2000);
+    } catch {
+      setPlaybackError("Couldn't save to Notes — try again.");
+    } finally {
+      setSavingNote(false);
+    }
   }
 
   function handleStop() {
@@ -183,12 +214,30 @@ export default function InlineListenTool() {
         <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
           <div className="mb-4 flex items-center justify-between gap-4">
             <h2 className="text-lg font-semibold text-zinc-100">Passage</h2>
-            <button
-              onClick={handleClear}
-              className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
-            >
-              Clear
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSaveToNote}
+                disabled={savingNote || !text.trim()}
+                title="Saves exactly this passage and its language, so you can listen again later — not the current speed or playback position"
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  noteSaved
+                    ? "bg-emerald-600 text-white"
+                    : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                } disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500`}
+              >
+                {noteSaved
+                  ? "Saved!"
+                  : savingNote
+                    ? "Saving…"
+                    : "Save to a new note"}
+              </button>
+              <button
+                onClick={handleClear}
+                className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
+              >
+                Clear
+              </button>
+            </div>
           </div>
 
           <textarea

@@ -30,6 +30,11 @@ import {
   isParallelListenNote,
   parseParallelListenNote,
 } from "@/lib/parallel-listen-note-format";
+import { writeInlineListenCarry } from "@/lib/inline-listen-carry";
+import {
+  isInlineListenNote,
+  parseInlineListenNote,
+} from "@/lib/inline-listen-note-format";
 
 type NotePage =
   | "reading"
@@ -265,18 +270,30 @@ export default function NoteDashboard({ page, data }: Props) {
     }
   }
 
-  // Listening-only: a note saved by Parallel Listen's "Save to a new note"
-  // carries its own raw pasted columns, recognizable by a marker at the
-  // start of its content (see lib/parallel-listen-note-format.ts). This
-  // hands them to Parallel Listen the same one-time, unsaved way a Parallel
+  // Listening-only: a note saved by Parallel Listen's or Inline Listen's own
+  // "Save to a new note" carries its raw pasted content, recognizable by a
+  // marker at the start — one marker per page, since each has its own
+  // shape (see lib/parallel-listen-note-format.ts and
+  // lib/inline-listen-note-format.ts). Whichever one matches gets handed
+  // back to its own page the same one-time, unsaved way a Parallel
   // Translate carry already works — nothing about "listening again" is
   // itself persisted anywhere new.
   async function handleListenAgain(note: DashboardNote) {
     const full = await getNote(note.id);
-    const columns = parseParallelListenNote(full.content);
-    if (!columns) return;
-    writeCarriedColumns(columns);
-    router.push("/listening/parallel-listen");
+
+    const parallelColumns = parseParallelListenNote(full.content);
+    if (parallelColumns) {
+      writeCarriedColumns(parallelColumns);
+      router.push("/listening/parallel-listen");
+      return;
+    }
+
+    const inlineListen = parseInlineListenNote(full.content);
+    if (inlineListen) {
+      writeInlineListenCarry(inlineListen);
+      router.push("/listening/inline-listen");
+      return;
+    }
   }
 
   async function runMutation(task: () => Promise<unknown>) {
@@ -580,7 +597,9 @@ export default function NoteDashboard({ page, data }: Props) {
               onToggleCollapse={toggleCollapse}
               canListenAgain={
                 page === "listening"
-                  ? (note) => isParallelListenNote(note.preview)
+                  ? (note) =>
+                      isParallelListenNote(note.preview) ||
+                      isInlineListenNote(note.preview)
                   : undefined
               }
               onListenAgain={handleListenAgain}
