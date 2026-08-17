@@ -99,23 +99,45 @@ function getResultText(result: TranslatedResult, showTranslations: boolean) {
 
 export default function InlineTranslateTool() {
   const router = useRouter();
-  // Restored from the last session's draft, if there is one — read as part
-  // of the initial state itself (each lazy initializer runs once, at
-  // mount), not in an effect afterward, so there's no extra render.
-  const [text, setText] = useState(() => readInlineTranslateDraft().text);
+  // Restored from the last session's draft, if there is one — read once,
+  // as part of the initial state itself (each lazy initializer runs once,
+  // at mount), not in an effect afterward, so there's no extra render.
+  // Read into its own piece of state, same discipline as Inline Listen's
+  // carry (Answer 171/225): sessionStorage.getItem has no clearing side
+  // effect here the way a one-time carry does, but reading it once and
+  // deriving every other initial value from that one snapshot still avoids
+  // parsing the same JSON — and re-running tokenizeWords/groupMarkedRuns —
+  // once per field for no reason.
+  const [initialDraft] = useState(() => readInlineTranslateDraft());
+  const [text, setText] = useState(() => initialDraft.text);
   const [sourceLanguage, setSourceLanguage] = useState(
-    () => readInlineTranslateDraft().sourceLanguage,
+    () => initialDraft.sourceLanguage,
   );
   const [targetLanguage, setTargetLanguage] = useState(
-    () => readInlineTranslateDraft().targetLanguage,
+    () => initialDraft.targetLanguage,
   );
   // Marked by token position, not word text — marking one occurrence of
-  // "the" must not mark every "the" in the passage.
-  const [markedIndices, setMarkedIndices] = useState<Set<number>>(new Set());
+  // "the" must not mark every "the" in the passage. Restored from the
+  // draft's stored positions, valid against the text restored above since
+  // both came from the same saved snapshot.
+  const [markedIndices, setMarkedIndices] = useState<Set<number>>(
+    () => new Set(initialDraft.markedIndices),
+  );
   const [translating, setTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [showTranslations, setShowTranslations] = useState(true);
-  const [result, setResult] = useState<TranslatedResult | null>(null);
+  // Rebuilt from the draft's saved [phrase, translation] pairs, not stored
+  // as tokens/runs directly — those are cheap to recompute from the
+  // restored text and marks with the same calls handleTranslate already
+  // uses, so there's no second, possibly-stale copy of them sitting in
+  // sessionStorage.
+  const [result, setResult] = useState<TranslatedResult | null>(() => {
+    if (initialDraft.translations.length === 0) return null;
+    const tokens = tokenizeWords(initialDraft.text);
+    const runs = groupMarkedRuns(tokens, new Set(initialDraft.markedIndices));
+    if (runs.length === 0) return null;
+    return { tokens, runs, translations: new Map(initialDraft.translations) };
+  });
   const [copySuccess, setCopySuccess] = useState(false);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [savingNote, setSavingNote] = useState(false);
@@ -129,10 +151,21 @@ export default function InlineTranslateTool() {
 
   // Keeps the draft in sync with what's on screen — genuinely a "sync React
   // state out to an external system" effect, not one computing state React
-  // itself could derive, so this is the legitimate use of an effect
+  // itself could derive, so this is the legitimate use of an effect. Marked
+  // words and the last translation now persist too (Question 230/Iteration
+  // C), so returning to this page no longer means re-translating from
+  // scratch. Clearing already goes through this same path — handleClear
+  // resets text/markedIndices/result, which lands here as an empty draft,
+  // same as before.
   useEffect(() => {
-    writeInlineTranslateDraft({ text, sourceLanguage, targetLanguage });
-  }, [text, sourceLanguage, targetLanguage]);
+    writeInlineTranslateDraft({
+      text,
+      sourceLanguage,
+      targetLanguage,
+      markedIndices: Array.from(markedIndices),
+      translations: result ? Array.from(result.translations.entries()) : [],
+    });
+  }, [text, sourceLanguage, targetLanguage, markedIndices, result]);
 
   // Left-click dismisses the popup when it lands outside it; right-clicks
   // are left alone here since onContextMenu already replaces the popup's
