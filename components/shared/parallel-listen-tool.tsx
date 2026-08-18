@@ -118,6 +118,11 @@ export default function ParallelListenTool() {
   // end up reading whatever `rate` was at the time speech for that sentence
   // started, not the latest value the user just picked mid-playback.
   const rateRef = useRef(1);
+  // Points at whichever cell/paragraph/span is currently highlighted as
+  // "being read" — whichever element that is, across all three layouts,
+  // attaches this ref via a callback (see the render below), so this
+  // always tracks the right node without needing one ref per sentence.
+  const activeSentenceRef = useRef<HTMLElement | null>(null);
 
   // Playback is driven entirely by the browser's speechSynthesis queue, not
   // React state — this only cancels it if the page is left mid-playback.
@@ -128,6 +133,19 @@ export default function ParallelListenTool() {
       }
     };
   }, []);
+
+  // Keeps the sentence being read centered in the viewport, the way
+  // Balabolka does (Question 232) — runs whenever playback moves to a new
+  // position. React commits the ref callback below before this effect
+  // runs, so activeSentenceRef already points at the newly-active element
+  // by the time this fires, not the previous one.
+  useEffect(() => {
+    if (!current) return;
+    activeSentenceRef.current?.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+  }, [current]);
 
   function handleStop() {
     playbackIdRef.current += 1;
@@ -666,6 +684,9 @@ export default function ParallelListenTool() {
                           return (
                             <td
                               key={colIdx}
+                              ref={(el) => {
+                                if (isSpeaking) activeSentenceRef.current = el;
+                              }}
                               className={`border border-zinc-800 px-4 py-2 ${
                                 isSpeaking
                                   ? "bg-indigo-900/50 text-indigo-100 ring-1 ring-inset ring-indigo-500"
@@ -712,6 +733,10 @@ export default function ParallelListenTool() {
                                 <span key={sentence.index}>
                                   {i > 0 && " "}
                                   <span
+                                    ref={(el) => {
+                                      if (isSpeaking)
+                                        activeSentenceRef.current = el;
+                                    }}
                                     className={
                                       isSpeaking
                                         ? "rounded bg-indigo-900/50 px-1 py-0.5 ring-1 ring-inset ring-indigo-500"
@@ -744,6 +769,9 @@ export default function ParallelListenTool() {
                       return (
                         <p
                           key={colIdx}
+                          ref={(el) => {
+                            if (isSpeaking) activeSentenceRef.current = el;
+                          }}
                           className={`rounded px-2 py-1 text-zinc-200 ${
                             isSpeaking
                               ? "bg-indigo-900/50 ring-1 ring-inset ring-indigo-500"

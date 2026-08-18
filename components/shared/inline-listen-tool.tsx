@@ -40,6 +40,11 @@ export default function InlineListenTool() {
   const playbackIdRef = useRef(0);
   const languageRef = useRef("");
   const rateRef = useRef(1);
+  // Points at whichever sentence's element is currently highlighted —
+  // whichever one that is attaches this ref via a callback (see the
+  // render below), so this always tracks the right node without needing
+  // one ref per sentence.
+  const activeSentenceRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     return () => {
@@ -48,6 +53,19 @@ export default function InlineListenTool() {
       }
     };
   }, []);
+
+  // Keeps the sentence being read centered in the viewport, the way
+  // Balabolka does (Question 232) — runs whenever playback moves to a new
+  // sentence. React commits the ref callback below before this effect
+  // runs, so activeSentenceRef already points at the newly-active element
+  // by the time this fires, not the previous one.
+  useEffect(() => {
+    if (currentIndex === null) return;
+    activeSentenceRef.current?.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+  }, [currentIndex]);
 
   // Recomputed on every render, straight from the editable text — this
   // page no longer freezes a sentence list at mount the way iteration 1
@@ -341,12 +359,17 @@ export default function InlineListenTool() {
                   key={paraIndex}
                   className="text-lg leading-relaxed text-zinc-100"
                 >
-                  {paragraphSentences.map((sentence, i) => (
+                  {paragraphSentences.map((sentence, i) => {
+                    const isSpeaking = currentIndex === sentence.index;
+                    return (
                     <span key={sentence.index}>
                       {i > 0 && " "}
                       <span
+                        ref={(el) => {
+                          if (isSpeaking) activeSentenceRef.current = el;
+                        }}
                         className={`rounded px-1 py-0.5 ${
-                          currentIndex === sentence.index
+                          isSpeaking
                             ? "bg-indigo-900/50 ring-1 ring-inset ring-indigo-500"
                             : ""
                         }`}
@@ -377,7 +400,8 @@ export default function InlineListenTool() {
                         )}
                       </span>
                     </span>
-                  ))}
+                    );
+                  })}
                 </p>
               ))}
             </div>
