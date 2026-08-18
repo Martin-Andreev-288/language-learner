@@ -290,7 +290,11 @@ export default function InlineListenTool() {
 
         {text.trim() && (
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+            {/* Sticky so Play/Pause/Stop stay reachable without scrolling
+                back up (Question 232) — same bg-zinc-900 as the card
+                itself so text scrolled underneath disappears behind it,
+                not just visually behind a transparent bar. */}
+            <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 bg-zinc-900 pb-4">
               <h2 className="text-lg font-semibold text-zinc-100">Preview</h2>
               <div className="flex flex-wrap items-center gap-3">
                 <label className="flex items-center gap-1.5 text-sm text-zinc-400">
