@@ -172,19 +172,44 @@ export default function InlineListenTool() {
     window.speechSynthesis.speak(utterance);
   }
 
+  // The shared tail of every "start speaking" path — pick up the current
+  // language, interrupt anything in flight, mint a new playback id so
+  // superseded callbacks go quiet, and speak from the given sentence.
+  function startPlayback(startIndex: number) {
+    setPlaybackError(null);
+    languageRef.current = language;
+    window.speechSynthesis.cancel();
+    // cancel() empties the queue but deliberately does *not* clear a paused
+    // state, so starting from a pause would otherwise queue an utterance
+    // that never speaks. resume() is a no-op when nothing is paused, so
+    // this is safe unconditionally.
+    window.speechSynthesis.resume();
+    const playId = ++playbackIdRef.current;
+    setPlaying(true);
+    setPaused(false);
+    speakFrom(startIndex, playId);
+  }
+
   function handlePlay() {
     if (sentences.length === 0) return;
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       setPlaybackError("Playback isn't supported in this browser.");
       return;
     }
-    setPlaybackError(null);
-    languageRef.current = language;
-    window.speechSynthesis.cancel();
-    const playId = ++playbackIdRef.current;
-    setPlaying(true);
-    setPaused(false);
-    speakFrom(0, playId);
+    startPlayback(0);
+  }
+
+  // Clicking any sentence in the preview jumps playback there — whether
+  // something is already playing or not, so this doubles as "start here"
+  // from a standing stop, not only as a mid-playback seek. Simpler than
+  // Parallel Listen's equivalent because there's only ever one flat queue
+  // here: the clicked sentence's own index *is* its position in it.
+  function handleSeekTo(index: number) {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setPlaybackError("Playback isn't supported in this browser.");
+      return;
+    }
+    startPlayback(index);
   }
 
   // Same "can't retune what's already in flight, so interrupt and restart
@@ -198,6 +223,7 @@ export default function InlineListenTool() {
       return;
     }
     window.speechSynthesis.cancel();
+    window.speechSynthesis.resume(); // see startPlayback — cancel() leaves a pause in place
     const playId = ++playbackIdRef.current;
     setPaused(false);
     speakFrom(currentIndex ?? 0, playId);
@@ -211,6 +237,7 @@ export default function InlineListenTool() {
       return;
     }
     window.speechSynthesis.cancel();
+    window.speechSynthesis.resume(); // see startPlayback — cancel() leaves a pause in place
     const playId = ++playbackIdRef.current;
     setPaused(false);
     speakFrom(currentIndex ?? 0, playId);
@@ -372,7 +399,9 @@ export default function InlineListenTool() {
                         ref={(el) => {
                           if (isSpeaking) activeSentenceRef.current = el;
                         }}
-                        className={`rounded px-1 py-0.5 ${
+                        onClick={() => handleSeekTo(sentence.index)}
+                        title="Click to start reading from here"
+                        className={`cursor-pointer rounded px-1 py-0.5 hover:bg-zinc-800 ${
                           isSpeaking
                             ? "bg-indigo-900/50 ring-1 ring-inset ring-indigo-500"
                             : ""

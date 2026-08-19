@@ -39,6 +39,8 @@ type ViewMode = "table" | "vertical";
 // only the order they're pushed in changes.
 type ReadingOrder = "sentence" | "language";
 
+const SEEK_HINT = "Click to start reading from here";
+
 // Same palette Parallel Translate uses to color-code language labels in its
 // own vertical preview — duplicated rather than imported, since it's a
 // small, purely presentational constant, not shared logic.
@@ -207,20 +209,21 @@ export default function ParallelListenTool() {
     window.speechSynthesis.speak(utterance);
   }
 
-  function handlePlay() {
-    if (!parsed) return;
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      setPlaybackError("Playback isn't supported in this browser.");
-      return;
-    }
+  // Builds the full playback queue for the current columns, checked
+  // languages, and reading order. Extracted out of handlePlay (Question
+  // 235) so clicking a sentence can build the exact same queue and start
+  // partway into it, rather than having a second, subtly-different notion
+  // of what the queue contains.
+  function buildQueue(): {
+    position: PlaybackPosition;
+    text: string;
+    lang?: string;
+  }[] {
+    if (!parsed) return [];
 
     const includedIndexes = columns
       .map((column, idx) => (column.included ? idx : -1))
       .filter((idx) => idx !== -1);
-    if (includedIndexes.length === 0) {
-      setPlaybackError("Check at least one language to play.");
-      return;
-    }
 
     const queue: {
       position: PlaybackPosition;
@@ -266,18 +269,71 @@ export default function ParallelListenTool() {
       });
     }
 
+    return queue;
+  }
+
+  // The shared tail of every "start speaking" path — install the queue,
+  // interrupt anything in flight, mint a new playback id so superseded
+  // callbacks go quiet, and speak from the given position.
+  function startPlayback(
+    queue: { position: PlaybackPosition; text: string; lang?: string }[],
+    startIndex: number,
+  ) {
+    setPlaybackError(null);
+    queueRef.current = queue;
+    window.speechSynthesis.cancel();
+    // cancel() empties the queue but deliberately does *not* clear a paused
+    // state, so starting from a pause would otherwise queue an utterance
+    // that never speaks. resume() is a no-op when nothing is paused, so
+    // this is safe unconditionally.
+    window.speechSynthesis.resume();
+    const playId = ++playbackIdRef.current;
+    setPlaying(true);
+    setPaused(false);
+    speakFrom(startIndex, playId);
+  }
+
+  function handlePlay() {
+    if (!parsed) return;
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setPlaybackError("Playback isn't supported in this browser.");
+      return;
+    }
+
+    if (!columns.some((column) => column.included)) {
+      setPlaybackError("Check at least one language to play.");
+      return;
+    }
+
+    const queue = buildQueue();
     if (queue.length === 0) {
       setPlaybackError("Nothing to play for the checked languages.");
       return;
     }
 
-    setPlaybackError(null);
-    queueRef.current = queue;
-    window.speechSynthesis.cancel();
-    const playId = ++playbackIdRef.current;
-    setPlaying(true);
-    setPaused(false);
-    speakFrom(0, playId);
+    startPlayback(queue, 0);
+  }
+
+  // Clicking any sentence in the preview jumps playback there — whether
+  // something is already playing or not, so this doubles as "start here"
+  // from a standing stop, not only as a mid-playback seek. A sentence in
+  // an unchecked language isn't in the queue at all, so it's rendered
+  // unclickable rather than silently doing nothing when clicked.
+  function handleSeekTo(position: PlaybackPosition) {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setPlaybackError("Playback isn't supported in this browser.");
+      return;
+    }
+
+    const queue = buildQueue();
+    const startIndex = queue.findIndex(
+      (item) =>
+        item.position.index === position.index &&
+        item.position.col === position.col,
+    );
+    if (startIndex === -1) return;
+
+    startPlayback(queue, startIndex);
   }
 
   // Web Speech doesn't let you retune an utterance already being spoken —
@@ -299,6 +355,7 @@ export default function ParallelListenTool() {
       return;
     }
     window.speechSynthesis.cancel();
+    window.speechSynthesis.resume(); // see startPlayback — cancel() leaves a pause in place
     const playId = ++playbackIdRef.current;
     setPaused(false);
     speakFrom(currentIndexRef.current, playId);
@@ -685,13 +742,27 @@ export default function ParallelListenTool() {
                           const isSpeaking =
                             current?.index === rowIdx &&
                             current?.col === colIdx;
+                          const canSeek =
+                            !!text.trim() && !!columns[colIdx]?.included;
                           return (
                             <td
                               key={colIdx}
                               ref={(el) => {
                                 if (isSpeaking) activeSentenceRef.current = el;
                               }}
+                              onClick={
+                                canSeek
+                                  ? () =>
+                                      handleSeekTo({
+                                        index: rowIdx,
+                                        col: colIdx,
+                                      })
+                                  : undefined
+                              }
+                              title={canSeek ? SEEK_HINT : undefined}
                               className={`border border-zinc-800 px-4 py-2 ${
+                                canSeek ? "cursor-pointer" : ""
+                              } ${
                                 isSpeaking
                                   ? "bg-indigo-900/50 text-indigo-100 ring-1 ring-inset ring-indigo-500"
                                   : "text-zinc-300"
@@ -741,11 +812,27 @@ export default function ParallelListenTool() {
                                       if (isSpeaking)
                                         activeSentenceRef.current = el;
                                     }}
-                                    className={
-                                      isSpeaking
-                                        ? "rounded bg-indigo-900/50 px-1 py-0.5 ring-1 ring-inset ring-indigo-500"
-                                        : ""
+                                    onClick={
+                                      column.included
+                                        ? () =>
+                                            handleSeekTo({
+                                              index: sentence.index,
+                                              col: colIdx,
+                                            })
+                                        : undefined
                                     }
+                                    title={
+                                      column.included ? SEEK_HINT : undefined
+                                    }
+                                    className={`rounded px-1 py-0.5 ${
+                                      column.included
+                                        ? "cursor-pointer hover:bg-zinc-800"
+                                        : ""
+                                    } ${
+                                      isSpeaking
+                                        ? "bg-indigo-900/50 ring-1 ring-inset ring-indigo-500"
+                                        : ""
+                                    }`}
                                   >
                                     {sentence.text}
                                   </span>
@@ -776,7 +863,18 @@ export default function ParallelListenTool() {
                           ref={(el) => {
                             if (isSpeaking) activeSentenceRef.current = el;
                           }}
+                          onClick={
+                            column?.included
+                              ? () =>
+                                  handleSeekTo({ index: rowIdx, col: colIdx })
+                              : undefined
+                          }
+                          title={column?.included ? SEEK_HINT : undefined}
                           className={`rounded px-2 py-1 text-zinc-200 ${
+                            column?.included
+                              ? "cursor-pointer hover:bg-zinc-800/60"
+                              : ""
+                          } ${
                             isSpeaking
                               ? "bg-indigo-900/50 ring-1 ring-inset ring-indigo-500"
                               : ""
