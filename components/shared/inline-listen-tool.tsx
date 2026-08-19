@@ -5,6 +5,7 @@ import { readAndClearInlineListenCarry } from "@/lib/inline-listen-carry";
 import { buildParagraphs } from "@/lib/paragraph-sentences";
 import { parseAnnotated, stripAnnotations } from "@/lib/inline-annotations";
 import { guessLanguageCode } from "@/lib/language-codes";
+import LanguageCombobox from "@/components/shared/language-combobox";
 import { formatInlineListenNote } from "@/lib/inline-listen-note-format";
 import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
@@ -300,19 +301,25 @@ export default function InlineListenTool() {
             </p>
           )}
 
-          <label className="mt-4 block text-sm font-semibold text-zinc-300">
-            Language{" "}
-            <span className="font-normal text-zinc-500">
-              (picks a matching voice)
-            </span>
-            <input
-              type="text"
+          <div className="mt-4">
+            <label
+              htmlFor="inline-listen-language"
+              className="block text-sm font-semibold text-zinc-300"
+            >
+              Language{" "}
+              <span className="font-normal text-zinc-500">
+                (picks a matching voice)
+              </span>
+            </label>
+            <LanguageCombobox
+              id="inline-listen-language"
               value={language}
-              onChange={(event) => handleLanguageChange(event.target.value)}
+              onChange={handleLanguageChange}
               placeholder="e.g. Italian"
-              className="mt-2 w-full max-w-xs rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+              wrapperClassName="mt-2 max-w-xs"
+              className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
             />
-          </label>
+          </div>
         </div>
 
         {text.trim() && (

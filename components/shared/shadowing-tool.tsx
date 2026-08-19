@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { splitIntoSentences } from "@/lib/sentence-split";
 import { guessLanguageCode } from "@/lib/language-codes";
+import LanguageCombobox from "@/components/shared/language-combobox";
 
 export default function ShadowingTool() {
   const [text, setText] = useState("");
@@ -155,18 +156,22 @@ export default function ShadowingTool() {
               className="h-64 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 p-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
             />
 
-            <label className="mt-3 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+            <label
+              htmlFor="shadowing-language"
+              className="mt-3 block text-xs font-medium uppercase tracking-wider text-zinc-500"
+            >
               Language{" "}
               <span className="normal-case font-normal text-zinc-600">
                 (optional — picks a matching voice for playback)
               </span>
             </label>
-            <input
-              type="text"
+            <LanguageCombobox
+              id="shadowing-language"
               value={language}
-              onChange={(event) => handleLanguageChange(event.target.value)}
+              onChange={handleLanguageChange}
               placeholder="e.g. German"
-              className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+              wrapperClassName="mt-1 w-full"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
             />
 
             {text.trim() && (
@@ -209,21 +214,20 @@ export default function ShadowingTool() {
             )}
 
             <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
-              <label
+              <div
                 title="Changing this mid-playback restarts the current repeat at the new voice, same as changing speed does"
                 className="flex items-center gap-1.5 text-sm text-zinc-400"
               >
-                Language
-                <input
-                  type="text"
+                <label htmlFor="shadowing-playback-language">Language</label>
+                <LanguageCombobox
+                  id="shadowing-playback-language"
                   value={language}
-                  onChange={(event) =>
-                    handleLanguageChange(event.target.value)
-                  }
+                  onChange={handleLanguageChange}
                   placeholder="e.g. German"
+                  compact
                   className="w-28 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
                 />
-              </label>
+              </div>
               <label className="flex items-center gap-1.5 text-sm text-zinc-400">
                 Speed
                 <select

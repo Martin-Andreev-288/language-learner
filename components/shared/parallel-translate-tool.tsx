@@ -7,6 +7,7 @@ import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
 import { translateSentences } from "@/app/actions/parallel-translate-actions";
 import { writeCarriedColumns } from "@/lib/parallel-listen-carry";
+import LanguageCombobox from "@/components/shared/language-combobox";
 
 type OutputFormat = "markdown" | "vertical";
 
@@ -332,14 +333,14 @@ export default function ParallelTranslateTool() {
               {columns.map((column, index) => (
                 <div key={column.id}>
                   <div className="mb-2 flex items-center gap-2">
-                    <input
-                      type="text"
+                    <LanguageCombobox
                       value={column.name}
-                      onChange={(event) =>
-                        updateColumn(column.id, { name: event.target.value })
+                      onChange={(next) =>
+                        updateColumn(column.id, { name: next })
                       }
                       placeholder={`Language ${index + 1}`}
-                      className="flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                      wrapperClassName="flex-1"
+                      className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
                     />
                     <button
                       onClick={() => handleRemoveLanguage(column.id)}

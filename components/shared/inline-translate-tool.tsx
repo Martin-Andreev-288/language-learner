@@ -17,6 +17,7 @@ import {
   writeInlineTranslateDraft,
 } from "@/lib/inline-translate-draft";
 import { writeInlineListenCarry } from "@/lib/inline-listen-carry";
+import LanguageCombobox from "@/components/shared/language-combobox";
 
 type TranslatedResult = {
   tokens: TextToken[];
@@ -451,32 +452,42 @@ export default function InlineTranslateTool() {
           />
 
           <div className="mt-4 flex flex-wrap gap-4">
-            <label className="block text-sm font-semibold text-zinc-300">
-              Translate marked words into
-              <input
-                type="text"
+            <div>
+              <label
+                htmlFor="inline-translate-target-language"
+                className="block text-sm font-semibold text-zinc-300"
+              >
+                Translate marked words into
+              </label>
+              <LanguageCombobox
+                id="inline-translate-target-language"
                 value={targetLanguage}
-                onChange={(event) => setTargetLanguage(event.target.value)}
+                onChange={setTargetLanguage}
                 placeholder="e.g. German"
-                className="mt-2 w-full max-w-xs rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                wrapperClassName="mt-2 w-full max-w-xs"
+                className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
               />
-            </label>
-            <label
-              title="The language the pasted text itself is written in — used when saving a word to vocabulary, since that saves the original word, not its translation, and when sending the passage to Inline Listen"
-              className="block text-sm font-semibold text-zinc-300"
-            >
-              Source language{" "}
-              <span className="font-normal text-zinc-500">
-                (for vocabulary and Inline Listen)
-              </span>
-              <input
-                type="text"
+            </div>
+            <div>
+              <label
+                htmlFor="inline-translate-source-language"
+                title="The language the pasted text itself is written in — used when saving a word to vocabulary, since that saves the original word, not its translation, and when sending the passage to Inline Listen"
+                className="block text-sm font-semibold text-zinc-300"
+              >
+                Source language{" "}
+                <span className="font-normal text-zinc-500">
+                  (for vocabulary and Inline Listen)
+                </span>
+              </label>
+              <LanguageCombobox
+                id="inline-translate-source-language"
                 value={sourceLanguage}
-                onChange={(event) => setSourceLanguage(event.target.value)}
+                onChange={setSourceLanguage}
                 placeholder="e.g. Italian"
-                className="mt-2 w-full max-w-xs rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                wrapperClassName="mt-2 w-full max-w-xs"
+                className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
               />
-            </label>
+            </div>
           </div>
         </div>
 

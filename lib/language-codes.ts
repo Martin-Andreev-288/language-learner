@@ -3,124 +3,94 @@
 // typed, not a fixed list, so this only ever improves the common case
 // (someone types "German" or "De") — an unrecognized name simply falls
 // back to the browser's default voice rather than blocking playback.
-// Shared between Parallel Listen and Shadowing Practice, the two tools that
-// both need to turn a language name into a voice hint.
-const LANGUAGE_CODES: Record<string, string> = {
-  bulgarian: "bg-BG",
-  bg: "bg-BG",
-  german: "de-DE",
-  deutsch: "de-DE",
-  de: "de-DE",
-  french: "fr-FR",
-  français: "fr-FR",
-  fr: "fr-FR",
-  english: "en-US",
-  en: "en-US",
-  italian: "it-IT",
-  italiano: "it-IT",
-  it: "it-IT",
-  spanish: "es-ES",
-  español: "es-ES",
-  es: "es-ES",
-  portuguese: "pt-PT",
-  pt: "pt-PT",
-  russian: "ru-RU",
-  ru: "ru-RU",
-  polish: "pl-PL",
-  pl: "pl-PL",
-  romanian: "ro-RO",
-  ro: "ro-RO",
-  dutch: "nl-NL",
-  nl: "nl-NL",
-  greek: "el-GR",
-  el: "el-GR",
-  turkish: "tr-TR",
-  tr: "tr-TR",
-  ukrainian: "uk-UA",
-  uk: "uk-UA",
-  czech: "cs-CZ",
-  cs: "cs-CZ",
-  swedish: "sv-SE",
-  sv: "sv-SE",
-  finnish: "fi-FI",
-  fi: "fi-FI",
-  norwegian: "nb-NO",
-  no: "nb-NO",
-  danish: "da-DK",
-  da: "da-DK",
-  hungarian: "hu-HU",
-  hu: "hu-HU",
-  japanese: "ja-JP",
-  ja: "ja-JP",
-  chinese: "zh-CN",
-  zh: "zh-CN",
-  korean: "ko-KR",
-  ko: "ko-KR",
-  arabic: "ar-SA",
-  ar: "ar-SA",
-  hindi: "hi-IN",
-  hi: "hi-IN",
-  slovak: "sk-SK",
-  sk: "sk-SK",
-  slovenian: "sl-SI",
-  sl: "sl-SI",
-  croatian: "hr-HR",
-  hr: "hr-HR",
-  serbian: "sr-RS",
-  sr: "sr-RS",
-  bosnian: "bs-BA",
-  bs: "bs-BA",
-  macedonian: "mk-MK",
-  mk: "mk-MK",
-  albanian: "sq-AL",
-  sq: "sq-AL",
-  lithuanian: "lt-LT",
-  lt: "lt-LT",
-  latvian: "lv-LV",
-  lv: "lv-LV",
-  estonian: "et-EE",
-  et: "et-EE",
-  icelandic: "is-IS",
-  vietnamese: "vi-VN",
-  vi: "vi-VN",
-  thai: "th-TH",
-  th: "th-TH",
-  indonesian: "id-ID",
-  id: "id-ID",
-  malay: "ms-MY",
-  ms: "ms-MY",
-  hebrew: "he-IL",
-  he: "he-IL",
-  persian: "fa-IR",
-  farsi: "fa-IR",
-  fa: "fa-IR",
-  bengali: "bn-BD",
-  bn: "bn-BD",
-  tamil: "ta-IN",
-  ta: "ta-IN",
-  urdu: "ur-PK",
-  ur: "ur-PK",
-  welsh: "cy-GB",
-  cy: "cy-GB",
-  irish: "ga-IE",
-  ga: "ga-IE",
-  catalan: "ca-ES",
-  ca: "ca-ES",
-  basque: "eu-ES",
-  eu: "eu-ES",
-  georgian: "ka-GE",
-  ka: "ka-GE",
-  armenian: "hy-AM",
-  hy: "hy-AM",
-  filipino: "fil-PH",
-  tagalog: "fil-PH",
-  swahili: "sw-KE",
-  sw: "sw-KE",
-  afrikaans: "af-ZA",
-  af: "af-ZA",
-  brazilian: "pt-BR",
-  "portuguese (brazil)": "pt-BR",
-};
+// Shared between Parallel Listen, Inline Listen, and Shadowing Practice,
+// the tools that need to turn a language name into a voice hint.
+//
+// Written as one list of entries rather than a flat alias→code map
+// (Question 237) so the same source can produce both the lookup map *and*
+// the canonical display names the language picker offers. Deriving the
+// picker's list from this means anything picked from it is guaranteed to
+// resolve to a voice code — the two can't drift apart the way a separate,
+// hand-maintained list of names would.
+interface LanguageEntry {
+  // Canonical, human-readable name — what the picker shows and what gets
+  // written into the field when one is chosen.
+  name: string;
+  code: string;
+  // Other spellings that should still resolve, including endonyms and
+  // two-letter codes. Never shown in the picker.
+  aliases?: string[];
+}
+
+const LANGUAGES: LanguageEntry[] = [
+  { name: "Afrikaans", code: "af-ZA", aliases: ["af"] },
+  { name: "Albanian", code: "sq-AL", aliases: ["sq"] },
+  { name: "Arabic", code: "ar-SA", aliases: ["ar"] },
+  { name: "Armenian", code: "hy-AM", aliases: ["hy"] },
+  { name: "Basque", code: "eu-ES", aliases: ["eu"] },
+  { name: "Bengali", code: "bn-BD", aliases: ["bn"] },
+  { name: "Bosnian", code: "bs-BA", aliases: ["bs"] },
+  { name: "Bulgarian", code: "bg-BG", aliases: ["bg"] },
+  { name: "Catalan", code: "ca-ES", aliases: ["ca"] },
+  { name: "Chinese", code: "zh-CN", aliases: ["zh"] },
+  { name: "Croatian", code: "hr-HR", aliases: ["hr"] },
+  { name: "Czech", code: "cs-CZ", aliases: ["cs"] },
+  { name: "Danish", code: "da-DK", aliases: ["da"] },
+  { name: "Dutch", code: "nl-NL", aliases: ["nl"] },
+  { name: "English", code: "en-US", aliases: ["en"] },
+  { name: "Estonian", code: "et-EE", aliases: ["et"] },
+  { name: "Filipino", code: "fil-PH", aliases: ["tagalog"] },
+  { name: "Finnish", code: "fi-FI", aliases: ["fi"] },
+  { name: "French", code: "fr-FR", aliases: ["français", "fr"] },
+  { name: "Georgian", code: "ka-GE", aliases: ["ka"] },
+  { name: "German", code: "de-DE", aliases: ["deutsch", "de"] },
+  { name: "Greek", code: "el-GR", aliases: ["el"] },
+  { name: "Hebrew", code: "he-IL", aliases: ["he"] },
+  { name: "Hindi", code: "hi-IN", aliases: ["hi"] },
+  { name: "Hungarian", code: "hu-HU", aliases: ["hu"] },
+  { name: "Icelandic", code: "is-IS" },
+  { name: "Indonesian", code: "id-ID", aliases: ["id"] },
+  { name: "Irish", code: "ga-IE", aliases: ["ga"] },
+  { name: "Italian", code: "it-IT", aliases: ["italiano", "it"] },
+  { name: "Japanese", code: "ja-JP", aliases: ["ja"] },
+  { name: "Korean", code: "ko-KR", aliases: ["ko"] },
+  { name: "Latvian", code: "lv-LV", aliases: ["lv"] },
+  { name: "Lithuanian", code: "lt-LT", aliases: ["lt"] },
+  { name: "Macedonian", code: "mk-MK", aliases: ["mk"] },
+  { name: "Malay", code: "ms-MY", aliases: ["ms"] },
+  { name: "Norwegian", code: "nb-NO", aliases: ["no"] },
+  { name: "Persian", code: "fa-IR", aliases: ["farsi", "fa"] },
+  { name: "Polish", code: "pl-PL", aliases: ["pl"] },
+  { name: "Portuguese", code: "pt-PT", aliases: ["pt"] },
+  { name: "Portuguese (Brazil)", code: "pt-BR", aliases: ["brazilian"] },
+  { name: "Romanian", code: "ro-RO", aliases: ["ro"] },
+  { name: "Russian", code: "ru-RU", aliases: ["ru"] },
+  { name: "Serbian", code: "sr-RS", aliases: ["sr"] },
+  { name: "Slovak", code: "sk-SK", aliases: ["sk"] },
+  { name: "Slovenian", code: "sl-SI", aliases: ["sl"] },
+  { name: "Spanish", code: "es-ES", aliases: ["español", "es"] },
+  { name: "Swahili", code: "sw-KE", aliases: ["sw"] },
+  { name: "Swedish", code: "sv-SE", aliases: ["sv"] },
+  { name: "Tamil", code: "ta-IN", aliases: ["ta"] },
+  { name: "Thai", code: "th-TH", aliases: ["th"] },
+  { name: "Turkish", code: "tr-TR", aliases: ["tr"] },
+  { name: "Ukrainian", code: "uk-UA", aliases: ["uk"] },
+  { name: "Urdu", code: "ur-PK", aliases: ["ur"] },
+  { name: "Vietnamese", code: "vi-VN", aliases: ["vi"] },
+  { name: "Welsh", code: "cy-GB", aliases: ["cy"] },
+];
+
+// Canonical names only, already in the order the picker should show them
+// (alphabetical, as the list above is written).
+export const LANGUAGE_NAMES: string[] = LANGUAGES.map((entry) => entry.name);
+
+const LANGUAGE_CODES: Record<string, string> = {};
+for (const entry of LANGUAGES) {
+  LANGUAGE_CODES[entry.name.toLowerCase()] = entry.code;
+  for (const alias of entry.aliases ?? []) {
+    LANGUAGE_CODES[alias.toLowerCase()] = entry.code;
+  }
+}
 
 export function guessLanguageCode(name: string): string | undefined {
   return LANGUAGE_CODES[name.trim().toLowerCase()];

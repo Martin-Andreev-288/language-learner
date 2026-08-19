@@ -7,6 +7,7 @@ import {
   deleteVocabularyEntry,
   updateVocabularyEntry,
 } from "@/app/actions/vocabulary-entry-actions";
+import LanguageCombobox from "@/components/shared/language-combobox";
 
 interface VocabularyEntryData {
   id: string;
@@ -186,15 +187,19 @@ export default function VocabularyWordList({
           />
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <div className="flex-1">
-              <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <label
+                htmlFor="vocabulary-add-language"
+                className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500"
+              >
                 Language
               </label>
-              <input
-                type="text"
+              <LanguageCombobox
+                id="vocabulary-add-language"
                 value={language}
-                onChange={(event) => setLanguage(event.target.value)}
+                onChange={setLanguage}
                 placeholder="e.g. German"
-                className="w-full max-w-xs rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                wrapperClassName="w-full max-w-xs"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
               />
             </div>
             <button
@@ -282,13 +287,11 @@ export default function VocabularyWordList({
                         placeholder="Translation (optional)"
                         className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
                       />
-                      <input
-                        type="text"
+                      <LanguageCombobox
                         value={editLanguage}
-                        onChange={(event) =>
-                          setEditLanguage(event.target.value)
-                        }
+                        onChange={setEditLanguage}
                         placeholder="Language"
+                        compact
                         className="w-32 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
                       />
                       <button
