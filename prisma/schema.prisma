@@ -68,6 +68,29 @@ model VocabularyEntry {
     // Inline Translate), shown alongside the word in the list.
     translation      String?
     language         String
+
+    // AI-generated enrichment (Question 243). All nullable and all
+    // independent — a word can have any subset of these, since the user
+    // picks which ones to generate per batch. Plain strings rather than
+    // arrays or a related model: they're only ever displayed and hand-
+    // edited as text, so a list column would buy nothing and cost a join.
+    // Multi-value fields (synonyms, examples, collocations) are stored
+    // newline-separated, the same one-per-line convention this page's own
+    // bulk word input already uses.
+    level            String?
+    // A noun's gender and plural, as one short inline chunk ("m, -e"), kept
+    // out of `word` on purpose (Question 246): `word` is this row's
+    // identity — it carries the unique constraint, it's what enrichment
+    // matches AI results back onto, and it's what gets spoken aloud — so
+    // decorating it would break dedup and pronunciation at once. Empty for
+    // anything that isn't a noun.
+    nounInfo         String?
+    partOfSpeech     String?
+    wordFamily       String?
+    synonyms         String?
+    aiExamples       String?
+    collocations     String?
+
     timesSeenReading Int      @default(0)
     timesSeenWriting Int      @default(0)
     firstSeen        DateTime @default(now())

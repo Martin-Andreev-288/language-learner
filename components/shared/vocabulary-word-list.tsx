@@ -8,6 +8,12 @@ import {
   updateVocabularyEntry,
 } from "@/app/actions/vocabulary-entry-actions";
 import LanguageCombobox from "@/components/shared/language-combobox";
+import VocabularyEnrichModal from "@/components/shared/vocabulary-enrich-modal";
+import { enrichVocabularyEntries } from "@/app/actions/vocabulary-enrich-actions";
+import {
+  MAX_ENRICH_WORDS,
+  type EnrichableField,
+} from "@/lib/vocabulary-enrichment";
 
 interface VocabularyEntryData {
   id: string;
@@ -15,7 +21,26 @@ interface VocabularyEntryData {
   translation: string | null;
   language: string;
   firstSeen: string | Date;
+  level: string | null;
+  nounInfo: string | null;
+  partOfSpeech: string | null;
+  wordFamily: string | null;
+  synonyms: string | null;
+  aiExamples: string | null;
+  collocations: string | null;
 }
+
+// Which of the AI-generated fields an entry actually has, in display order.
+// Iteration 1 shows these plainly under the word; the collapsed-badge and
+// expand-per-row treatment is Iteration 2's job.
+const ENRICHMENT_LABELS: [keyof VocabularyEntryData, string][] = [
+  ["level", "Level"],
+  ["partOfSpeech", "Part of speech"],
+  ["wordFamily", "Word family"],
+  ["synonyms", "Synonyms"],
+  ["aiExamples", "Examples"],
+  ["collocations", "Collocations"],
+];
 
 type SortBy = "recent" | "alphabetical";
 
@@ -51,6 +76,14 @@ export default function VocabularyWordList({
   const [editLanguage, setEditLanguage] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  // Selection for enrichment, by entry id — same Set-of-ids shape Inline
+  // Translate's word marking uses, for the same reason: selecting one
+  // occurrence must not select anything else that merely looks like it.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [enrichModalOpen, setEnrichModalOpen] = useState(false);
+  const [enriching, setEnriching] = useState(false);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+  const [enrichSummary, setEnrichSummary] = useState<string | null>(null);
 
   async function handleAdd() {
     if (!words.trim() || !language.trim()) {
@@ -86,6 +119,48 @@ export default function VocabularyWordList({
       setAddError("Couldn't delete that entry — try again.");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  async function handleEnrich(
+    fields: EnrichableField[],
+    translateInto: string,
+  ) {
+    setEnriching(true);
+    setEnrichError(null);
+    try {
+      const { updated, requested } = await enrichVocabularyEntries(
+        Array.from(selectedIds),
+        { fields, translateInto },
+      );
+      setEnrichModalOpen(false);
+      setSelectedIds(new Set());
+      setEnrichSummary(
+        updated < requested
+          ? `Added information to ${updated} of ${requested} words.`
+          : `Added information to ${updated} word${updated !== 1 ? "s" : ""}.`,
+      );
+      router.refresh();
+    } catch (err) {
+      setEnrichError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't generate that information — try again.",
+      );
+    } finally {
+      setEnriching(false);
     }
   }
 
@@ -254,6 +329,45 @@ export default function VocabularyWordList({
             </div>
           </div>
 
+          {selectedIds.size > 0 && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-indigo-900/60 bg-indigo-950/30 px-4 py-2.5">
+              <span className="text-sm text-zinc-300">
+                {selectedIds.size} of {MAX_ENRICH_WORDS} selected
+                {selectedIds.size >= MAX_ENRICH_WORDS && (
+                  <span className="text-zinc-500">
+                    {" "}
+                    — that&apos;s the maximum
+                  </span>
+                )}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedIds(new Set())}
+                  className="rounded-md px-3 py-1 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={() => {
+                    setEnrichError(null);
+                    setEnrichSummary(null);
+                    setEnrichModalOpen(true);
+                  }}
+                  className="rounded-md bg-indigo-600 px-3 py-1 text-sm font-semibold text-white transition-colors hover:bg-indigo-500"
+                >
+                  Add information…
+                </button>
+              </div>
+            </div>
+          )}
+
+          {enrichSummary && (
+            <p className="mb-4 text-sm text-emerald-400">{enrichSummary}</p>
+          )}
+          {enrichError && !enrichModalOpen && (
+            <p className="mb-4 text-sm text-red-400">{enrichError}</p>
+          )}
+
           {entries.length === 0 ? (
             <p className="py-10 text-center text-sm text-zinc-600">
               No words saved yet — add one above.
@@ -316,12 +430,46 @@ export default function VocabularyWordList({
                 ) : (
                   <div
                     key={entry.id}
-                    className="flex items-center justify-between gap-4 py-3"
+                    className="flex items-start justify-between gap-4 py-3"
                   >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(entry.id)}
+                      onChange={() => toggleSelected(entry.id)}
+                      // Selecting past the cap is blocked here rather than
+                      // rejected after the fact by the action, so the limit
+                      // is visible while choosing instead of being a
+                      // surprise at generate time.
+                      disabled={
+                        !selectedIds.has(entry.id) &&
+                        selectedIds.size >= MAX_ENRICH_WORDS
+                      }
+                      title={
+                        !selectedIds.has(entry.id) &&
+                        selectedIds.size >= MAX_ENRICH_WORDS
+                          ? `${MAX_ENRICH_WORDS} words at a time is the maximum`
+                          : "Select for adding information"
+                      }
+                      className="mt-1 shrink-0 accent-indigo-600 disabled:cursor-not-allowed disabled:opacity-30"
+                    />
                     <div className="min-w-0 flex-1">
                       <span className="font-medium text-zinc-100">
                         {entry.word}
                       </span>
+                      {/* Sits inline beside the word rather than behind
+                          "Details" with the other generated fields: gender
+                          and plural read as part of identifying the noun at
+                          a glance, which is the whole point of keeping it
+                          this short (Question 246). Stored separately from
+                          `word` all the same — see the schema comment. */}
+                      {entry.nounInfo && (
+                        <span
+                          title="Gender and plural"
+                          className="ml-1.5 font-medium text-zinc-100"
+                        >
+                          {entry.nounInfo}
+                        </span>
+                      )}
                       {entry.translation && (
                         <span className="ml-2 text-zinc-400">
                           — {entry.translation}
@@ -330,6 +478,22 @@ export default function VocabularyWordList({
                       <span className="ml-2 text-sm text-zinc-500">
                         {entry.language}
                       </span>
+                      {ENRICHMENT_LABELS.some(([field]) => entry[field]) && (
+                        <dl className="mt-1.5 space-y-0.5 text-xs">
+                          {ENRICHMENT_LABELS.filter(
+                            ([field]) => entry[field],
+                          ).map(([field, label]) => (
+                            <div key={field} className="flex gap-2">
+                              <dt className="shrink-0 text-zinc-600">
+                                {label}
+                              </dt>
+                              <dd className="min-w-0 whitespace-pre-line text-zinc-400">
+                                {String(entry[field])}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      )}
                     </div>
                     <span className="shrink-0 text-xs text-zinc-600">
                       {formatDate(entry.firstSeen)}
@@ -356,6 +520,16 @@ export default function VocabularyWordList({
           )}
         </div>
       </div>
+
+      {enrichModalOpen && (
+        <VocabularyEnrichModal
+          wordCount={selectedIds.size}
+          running={enriching}
+          error={enrichError}
+          onCancel={() => setEnrichModalOpen(false)}
+          onConfirm={handleEnrich}
+        />
+      )}
     </div>
   );
 }
