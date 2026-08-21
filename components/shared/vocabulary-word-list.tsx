@@ -30,10 +30,21 @@ interface VocabularyEntryData {
   collocations: string | null;
 }
 
-// Which of the AI-generated fields an entry actually has, in display order.
-// Iteration 1 shows these plainly under the word; the collapsed-badge and
-// expand-per-row treatment is Iteration 2's job.
-const ENRICHMENT_LABELS: [keyof VocabularyEntryData, string][] = [
+// The AI-generated fields, in the order they're shown when a word is
+// expanded. Typed as its own key union rather than `keyof
+// VocabularyEntryData` so indexing an entry with one of these is known to
+// give `string | null` — not the wider `string | Date` the whole-entry key
+// type would allow. `nounInfo` is deliberately excluded — it's shown inline
+// beside the word instead, not behind "Details" (Question 246).
+type EnrichmentKey =
+  | "level"
+  | "partOfSpeech"
+  | "wordFamily"
+  | "synonyms"
+  | "aiExamples"
+  | "collocations";
+
+const ENRICHMENT_LABELS: [EnrichmentKey, string][] = [
   ["level", "Level"],
   ["partOfSpeech", "Part of speech"],
   ["wordFamily", "Word family"],
@@ -41,6 +52,10 @@ const ENRICHMENT_LABELS: [keyof VocabularyEntryData, string][] = [
   ["aiExamples", "Examples"],
   ["collocations", "Collocations"],
 ];
+
+function populatedEnrichment(entry: VocabularyEntryData) {
+  return ENRICHMENT_LABELS.filter(([field]) => entry[field]?.trim());
+}
 
 type SortBy = "recent" | "alphabetical";
 
@@ -84,6 +99,12 @@ export default function VocabularyWordList({
   const [enriching, setEnriching] = useState(false);
   const [enrichError, setEnrichError] = useState<string | null>(null);
   const [enrichSummary, setEnrichSummary] = useState<string | null>(null);
+  // Which rows have their generated information expanded. Purely
+  // progressive disclosure — collapsing never hides the *fact* that a word
+  // has data (the level pill and the Details toggle both stay put), which
+  // is what Answer 240 ruled out. Nothing is persisted: this is a view
+  // state, not a setting.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   async function handleAdd() {
     if (!words.trim() || !language.trim()) {
@@ -120,6 +141,18 @@ export default function VocabularyWordList({
     } finally {
       setDeletingId(null);
     }
+  }
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   }
 
   function toggleSelected(id: string) {
@@ -478,41 +511,84 @@ export default function VocabularyWordList({
                       <span className="ml-2 text-sm text-zinc-500">
                         {entry.language}
                       </span>
-                      {ENRICHMENT_LABELS.some(([field]) => entry[field]) && (
-                        <dl className="mt-1.5 space-y-0.5 text-xs">
-                          {ENRICHMENT_LABELS.filter(
-                            ([field]) => entry[field],
-                          ).map(([field, label]) => (
-                            <div key={field} className="flex gap-2">
-                              <dt className="shrink-0 text-zinc-600">
-                                {label}
-                              </dt>
-                              <dd className="min-w-0 whitespace-pre-line text-zinc-400">
-                                {String(entry[field])}
-                              </dd>
-                            </div>
-                          ))}
+                      {entry.level && (
+                        <span
+                          title="CEFR level"
+                          className="ml-2 rounded-full border border-indigo-800 bg-indigo-950/60 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-300"
+                        >
+                          {entry.level}
+                        </span>
+                      )}
+                      {populatedEnrichment(entry).length > 0 && (
+                        <button
+                          onClick={() => toggleExpanded(entry.id)}
+                          aria-expanded={expandedIds.has(entry.id)}
+                          className="ml-2 text-xs text-zinc-500 transition-colors hover:text-indigo-300"
+                        >
+                          Details {expandedIds.has(entry.id) ? "▴" : "▾"}
+                        </button>
+                      )}
+                      {expandedIds.has(entry.id) && (
+                        <dl className="mt-2 space-y-2 rounded-lg bg-zinc-950/60 p-3 text-xs">
+                          {populatedEnrichment(entry).map(([field, label]) => {
+                            // Multi-value fields are stored one per line, so
+                            // anything with line breaks renders as a list
+                            // rather than a wall of text. Single-line values
+                            // (level, part of speech, and the comma-separated
+                            // ones) stay as they are.
+                            const lines = (entry[field] ?? "")
+                              .split("\n")
+                              .map((line) => line.trim())
+                              .filter(Boolean);
+                            return (
+                              <div key={field}>
+                                <dt className="font-medium uppercase tracking-wider text-zinc-600">
+                                  {label}
+                                </dt>
+                                <dd className="mt-0.5 text-zinc-300">
+                                  {lines.length > 1 ? (
+                                    <ul className="list-disc space-y-0.5 pl-4">
+                                      {lines.map((line, lineIndex) => (
+                                        <li key={lineIndex}>{line}</li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    lines[0]
+                                  )}
+                                </dd>
+                              </div>
+                            );
+                          })}
                         </dl>
                       )}
                     </div>
-                    <span className="shrink-0 text-xs text-zinc-600">
-                      {formatDate(entry.firstSeen)}
-                    </span>
-                    <button
-                      onClick={() => handleStartEdit(entry)}
-                      title="Edit"
-                      className="shrink-0 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-indigo-300"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      onClick={() => handleDelete(entry.id)}
-                      disabled={deletingId === entry.id}
-                      title="Delete"
-                      className="shrink-0 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      ✕
-                    </button>
+                    {/* Grouped and centered against each other, not
+                        against the row as a whole — the row itself stays
+                        `items-start` so the word column can grow tall when
+                        expanded, but the date's plain text and the buttons'
+                        own padding don't share a height, so top-aligning
+                        them individually left the date sitting visibly
+                        above the button glyphs (Question 246). */}
+                    <div className="flex shrink-0 items-center gap-1">
+                      <span className="text-xs text-zinc-600">
+                        {formatDate(entry.firstSeen)}
+                      </span>
+                      <button
+                        onClick={() => handleStartEdit(entry)}
+                        title="Edit"
+                        className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-indigo-300"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        onClick={() => handleDelete(entry.id)}
+                        disabled={deletingId === entry.id}
+                        title="Delete"
+                        className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
                 ),
               )}
