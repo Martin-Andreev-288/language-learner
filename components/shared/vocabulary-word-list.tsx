@@ -77,6 +77,14 @@ function populatedEnrichment(entry: VocabularyEntryData) {
   return DETAIL_FIELDS.filter(({ field }) => entry[field]?.trim());
 }
 
+// "Enriched" means any generated field is filled, not just the ones behind
+// Details — a word with only a gender and plural has had information added
+// to it just as much as one with synonyms, and filtering it into the
+// "not yet" bucket would send you to re-generate something it already has.
+function hasEnrichment(entry: VocabularyEntryData) {
+  return ENRICHMENT_FIELDS.some(({ field }) => entry[field]?.trim());
+}
+
 function emptyEnrichment(): Record<EnrichmentKey, string> {
   return Object.fromEntries(
     ENRICHMENT_FIELDS.map(({ field }) => [field, ""]),
@@ -84,6 +92,7 @@ function emptyEnrichment(): Record<EnrichmentKey, string> {
 }
 
 type SortBy = "recent" | "alphabetical";
+type EnrichmentFilter = "all" | "enriched" | "plain";
 
 function formatDate(date: string | Date) {
   const parsed = new Date(date);
@@ -106,6 +115,8 @@ export default function VocabularyWordList({
   const [addSummary, setAddSummary] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [languageFilter, setLanguageFilter] = useState("all");
+  const [enrichmentFilter, setEnrichmentFilter] =
+    useState<EnrichmentFilter>("all");
   const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   // Only one row editable at a time — same one-card-at-a-time principle
@@ -295,6 +306,10 @@ export default function VocabularyWordList({
     .filter(
       (entry) =>
         (languageFilter === "all" || entry.language === languageFilter) &&
+        (enrichmentFilter === "all" ||
+          (enrichmentFilter === "enriched"
+            ? hasEnrichment(entry)
+            : !hasEnrichment(entry))) &&
         (!normalizedSearch ||
           entry.word.toLowerCase().includes(normalizedSearch) ||
           (entry.translation?.toLowerCase().includes(normalizedSearch) ??
@@ -394,6 +409,18 @@ export default function VocabularyWordList({
                 ))}
               </select>
               <select
+                value={enrichmentFilter}
+                onChange={(event) =>
+                  setEnrichmentFilter(event.target.value as EnrichmentFilter)
+                }
+                title="Filter by whether a word has any generated information yet"
+                className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+              >
+                <option value="all">Enriched &amp; not</option>
+                <option value="enriched">Enriched only</option>
+                <option value="plain">Not yet enriched</option>
+              </select>
+              <select
                 value={sortBy}
                 onChange={(event) => setSortBy(event.target.value as SortBy)}
                 className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
@@ -452,7 +479,12 @@ export default function VocabularyWordList({
               {normalizedSearch
                 ? `No words match "${searchTerm.trim()}"`
                 : "No words match this filter"}
-              {languageFilter !== "all" ? ` in ${languageFilter}.` : "."}
+              {languageFilter !== "all" ? ` in ${languageFilter}` : ""}
+              {enrichmentFilter === "enriched"
+                ? " with information added yet."
+                : enrichmentFilter === "plain"
+                  ? " still waiting for information."
+                  : "."}
             </p>
           ) : (
             <div className="divide-y divide-zinc-800">
