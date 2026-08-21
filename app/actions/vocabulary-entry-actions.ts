@@ -3,6 +3,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { formatError } from "@/lib/utils";
+import { ENRICHMENT_DETAIL_FIELDS } from "@/lib/vocabulary-enrichment";
 
 const MAX_WORDS = 100;
 
@@ -98,7 +99,18 @@ export async function getVocabularyEntries() {
 // instead of a raw database error reaching the page.
 export async function updateVocabularyEntry(
     id: string,
-    updates: { word: string; translation: string; language: string },
+    updates: {
+        word: string;
+        translation: string;
+        language: string;
+        // Any generated field the caller chose to send. Omitting one leaves
+        // it untouched; sending it empty clears it — which is what makes
+        // "delete this piece of information" need no separate action of its
+        // own (Question 250). Deliberately not run through
+        // sanitizeGeneratedText: that exists to repair model output, and
+        // text a person typed on purpose is theirs to keep as written.
+        enrichment?: Partial<Record<string, string>>;
+    },
 ) {
     const userId = await requireUserId();
 
@@ -120,10 +132,22 @@ export async function updateVocabularyEntry(
         throw new Error("Language can't be empty.");
     }
 
+    const data: Record<string, string | null> = {
+        word,
+        language,
+        translation: translation || null,
+    };
+
+    for (const field of ENRICHMENT_DETAIL_FIELDS) {
+        const value = updates.enrichment?.[field];
+        if (value === undefined) continue;
+        data[field] = value.trim() || null;
+    }
+
     try {
         return await prisma.vocabularyEntry.update({
             where: { id },
-            data: { word, language, translation: translation || null },
+            data,
         });
     } catch (error) {
         throw new Error(formatError(error));

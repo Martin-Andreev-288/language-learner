@@ -13,6 +13,7 @@ import { enrichVocabularyEntries } from "@/app/actions/vocabulary-enrich-actions
 import {
   MAX_ENRICH_WORDS,
   type EnrichableField,
+  type EnrichmentDetailField,
 } from "@/lib/vocabulary-enrichment";
 
 interface VocabularyEntryData {
@@ -30,31 +31,56 @@ interface VocabularyEntryData {
   collocations: string | null;
 }
 
-// The AI-generated fields, in the order they're shown when a word is
-// expanded. Typed as its own key union rather than `keyof
-// VocabularyEntryData` so indexing an entry with one of these is known to
-// give `string | null` — not the wider `string | Date` the whole-entry key
-// type would allow. `nounInfo` is deliberately excluded — it's shown inline
-// beside the word instead, not behind "Details" (Question 246).
-type EnrichmentKey =
-  | "level"
-  | "partOfSpeech"
-  | "wordFamily"
-  | "synonyms"
-  | "aiExamples"
-  | "collocations";
+// One description per generated field, covering both how it's displayed and
+// how it's edited — a single list rather than one for each, so a label can't
+// end up saying different things in the two places. Typed as its own key
+// union rather than `keyof VocabularyEntryData` so indexing an entry with
+// one of these is known to give `string | null`, not the wider
+// `string | Date` the whole-entry key type would allow.
+type EnrichmentKey = EnrichmentDetailField;
 
-const ENRICHMENT_LABELS: [EnrichmentKey, string][] = [
-  ["level", "Level"],
-  ["partOfSpeech", "Part of speech"],
-  ["wordFamily", "Word family"],
-  ["synonyms", "Synonyms"],
-  ["aiExamples", "Examples"],
-  ["collocations", "Collocations"],
+const ENRICHMENT_FIELDS: {
+  field: EnrichmentKey;
+  label: string;
+  // Stored one value per line: a textarea when editing, a bullet list when
+  // shown.
+  multiline?: boolean;
+  // `nounInfo` is the one field shown inline beside the word rather than in
+  // the Details panel (Question 246) — still fully editable like the rest.
+  inDetails?: boolean;
+  placeholder?: string;
+}[] = [
+  { field: "level", label: "Level", inDetails: true, placeholder: "e.g. B2" },
+  { field: "nounInfo", label: "Gender & plural", placeholder: "e.g. f, -n" },
+  { field: "partOfSpeech", label: "Part of speech", inDetails: true },
+  { field: "wordFamily", label: "Word family", inDetails: true },
+  { field: "synonyms", label: "Synonyms", inDetails: true },
+  {
+    field: "aiExamples",
+    label: "Examples",
+    multiline: true,
+    inDetails: true,
+    placeholder: "One per line",
+  },
+  {
+    field: "collocations",
+    label: "Collocations",
+    multiline: true,
+    inDetails: true,
+    placeholder: "One per line",
+  },
 ];
 
+const DETAIL_FIELDS = ENRICHMENT_FIELDS.filter((entry) => entry.inDetails);
+
 function populatedEnrichment(entry: VocabularyEntryData) {
-  return ENRICHMENT_LABELS.filter(([field]) => entry[field]?.trim());
+  return DETAIL_FIELDS.filter(({ field }) => entry[field]?.trim());
+}
+
+function emptyEnrichment(): Record<EnrichmentKey, string> {
+  return Object.fromEntries(
+    ENRICHMENT_FIELDS.map(({ field }) => [field, ""]),
+  ) as Record<EnrichmentKey, string>;
 }
 
 type SortBy = "recent" | "alphabetical";
@@ -89,6 +115,12 @@ export default function VocabularyWordList({
   const [editWord, setEditWord] = useState("");
   const [editTranslation, setEditTranslation] = useState("");
   const [editLanguage, setEditLanguage] = useState("");
+  // All generated fields in one object rather than a useState per field —
+  // seven separate ones would be pure noise, and this keeps adding a field
+  // to ENRICHMENT_FIELDS enough on its own.
+  const [editEnrichment, setEditEnrichment] = useState<
+    Record<EnrichmentKey, string>
+  >(emptyEnrichment);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   // Selection for enrichment, by entry id — same Set-of-ids shape Inline
@@ -202,7 +234,16 @@ export default function VocabularyWordList({
     setEditWord(entry.word);
     setEditTranslation(entry.translation ?? "");
     setEditLanguage(entry.language);
+    setEditEnrichment(
+      Object.fromEntries(
+        ENRICHMENT_FIELDS.map(({ field }) => [field, entry[field] ?? ""]),
+      ) as Record<EnrichmentKey, string>,
+    );
     setEditError(null);
+  }
+
+  function updateEditField(field: EnrichmentKey, value: string) {
+    setEditEnrichment((prev) => ({ ...prev, [field]: value }));
   }
 
   function handleCancelEdit() {
@@ -224,6 +265,7 @@ export default function VocabularyWordList({
         word: editWord,
         translation: editTranslation,
         language: editLanguage,
+        enrichment: editEnrichment,
       });
       setEditingId(null);
       router.refresh();
@@ -441,24 +483,98 @@ export default function VocabularyWordList({
                         compact
                         className="w-32 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
                       />
-                      <button
-                        onClick={handleSaveEdit}
-                        disabled={savingEdit}
-                        className="shrink-0 rounded-md bg-indigo-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {savingEdit ? "Saving…" : "Save"}
-                      </button>
+                    </div>
+
+                    {/* Every generated field is editable here whether or not
+                        it was ever generated — that's what makes "add the
+                        parts I skipped in the modal" work without a separate
+                        feature: an empty box is just a field waiting to be
+                        typed into (Question 242). Emptying a filled one and
+                        saving clears it, which is also why deleting a single
+                        piece of information needs no delete action of its
+                        own. */}
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {ENRICHMENT_FIELDS.map(
+                        ({ field, label, multiline, placeholder }) => {
+                          const inputId = `${entry.id}-${field}`;
+                          const value = editEnrichment[field];
+                          return (
+                            <div
+                              key={field}
+                              className={multiline ? "sm:col-span-2" : undefined}
+                            >
+                              <div className="mb-1 flex items-center justify-between gap-2">
+                                <label
+                                  htmlFor={inputId}
+                                  className="text-xs font-medium uppercase tracking-wider text-zinc-500"
+                                >
+                                  {label}
+                                </label>
+                                {value.trim() && (
+                                  <button
+                                    type="button"
+                                    onClick={() => updateEditField(field, "")}
+                                    title={`Clear ${label} — takes effect when you save`}
+                                    className="text-xs text-zinc-600 transition-colors hover:text-red-400"
+                                  >
+                                    Clear
+                                  </button>
+                                )}
+                              </div>
+                              {multiline ? (
+                                <textarea
+                                  id={inputId}
+                                  value={value}
+                                  onChange={(event) =>
+                                    updateEditField(field, event.target.value)
+                                  }
+                                  placeholder={placeholder}
+                                  className="h-20 w-full resize-none rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                                />
+                              ) : (
+                                <input
+                                  id={inputId}
+                                  type="text"
+                                  value={value}
+                                  onChange={(event) =>
+                                    updateEditField(field, event.target.value)
+                                  }
+                                  placeholder={placeholder}
+                                  className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                                />
+                              )}
+                            </div>
+                          );
+                        },
+                      )}
+                    </div>
+
+                    {editError && (
+                      <p className="mt-3 text-sm text-red-400">{editError}</p>
+                    )}
+
+                    {/* Below the form rather than up in the word row: with
+                        this many fields, Save sitting at the top would mean
+                        scrolling back up to commit what you just typed. */}
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <p className="mr-auto text-xs text-zinc-600">
+                        Emptying a field removes it when you save.
+                      </p>
                       <button
                         onClick={handleCancelEdit}
                         disabled={savingEdit}
-                        className="shrink-0 rounded-md bg-zinc-800 px-3 py-1 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed"
+                        className="rounded-md bg-zinc-800 px-3 py-1 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed"
                       >
                         Cancel
                       </button>
+                      <button
+                        onClick={handleSaveEdit}
+                        disabled={savingEdit}
+                        className="rounded-md bg-indigo-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {savingEdit ? "Saving…" : "Save"}
+                      </button>
                     </div>
-                    {editError && (
-                      <p className="mt-2 text-sm text-red-400">{editError}</p>
-                    )}
                   </div>
                 ) : (
                   <div
@@ -530,7 +646,7 @@ export default function VocabularyWordList({
                       )}
                       {expandedIds.has(entry.id) && (
                         <dl className="mt-2 space-y-2 rounded-lg bg-zinc-950/60 p-3 text-xs">
-                          {populatedEnrichment(entry).map(([field, label]) => {
+                          {populatedEnrichment(entry).map(({ field, label }) => {
                             // Multi-value fields are stored one per line, so
                             // anything with line breaks renders as a list
                             // rather than a wall of text. Single-line values

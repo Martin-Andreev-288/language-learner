@@ -29,6 +29,23 @@ export const ENRICHABLE_FIELDS = [
 
 export type EnrichableField = (typeof ENRICHABLE_FIELDS)[number];
 
+// The generated fields that live in their own columns and are hand-editable
+// (Question 250). Deliberately not the same list as ENRICHABLE_FIELDS:
+// `translation` is excluded because it predates enrichment and is already
+// edited alongside the word and language, so it would otherwise appear
+// twice in the same form.
+export const ENRICHMENT_DETAIL_FIELDS = [
+    "level",
+    "nounInfo",
+    "partOfSpeech",
+    "wordFamily",
+    "synonyms",
+    "aiExamples",
+    "collocations",
+] as const;
+
+export type EnrichmentDetailField = (typeof ENRICHMENT_DETAIL_FIELDS)[number];
+
 export interface EnrichOptions {
     fields: EnrichableField[];
     // Only read when "translation" is among the fields — which language to
