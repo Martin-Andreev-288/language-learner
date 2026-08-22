@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   addVocabularyEntries,
@@ -95,6 +95,22 @@ type SortBy = "recent" | "alphabetical";
 type EnrichmentFilter = "all" | "enriched" | "plain";
 type ViewMode = "list" | "table";
 
+// Only these two columns get a header filter (Question 254). Language is
+// deliberately excluded: it's a required column, so its "no value" bucket
+// could never have anything in it, and the Language dropdown above the
+// table already filters by exactly this.
+type FilterableColumn = "level" | "partOfSpeech";
+const FILTERABLE_COLUMNS: FilterableColumn[] = ["level", "partOfSpeech"];
+
+// The empty string stands for "this word has no value in this column".
+// Safe as a sentinel precisely because every real value is trimmed and
+// non-empty before it's stored, so it can never collide with one.
+const NO_VALUE = "";
+
+function columnValue(entry: VocabularyEntryData, field: FilterableColumn) {
+  return entry[field]?.trim() || NO_VALUE;
+}
+
 function formatDate(date: string | Date) {
   const parsed = new Date(date);
   const day = String(parsed.getDate()).padStart(2, "0");
@@ -122,6 +138,22 @@ export default function VocabularyWordList({
   // its place when you want to compare several words' information at once
   // (Answer 241). A view preference, so nothing about it is persisted.
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  // Per-column value filters, Table view only. An empty set means "no
+  // filter on this column" rather than "match nothing", so the initial
+  // state shows everything.
+  const [columnFilters, setColumnFilters] = useState<
+    Record<FilterableColumn, Set<string>>
+  >({ level: new Set(), partOfSpeech: new Set() });
+  const [openFilter, setOpenFilter] = useState<FilterableColumn | null>(null);
+  // Fixed coordinates rather than an absolutely-positioned child: the table
+  // sits in an `overflow-x-auto` wrapper, and a container that clips one
+  // axis clips the other too, so a panel hanging below the header would be
+  // cut off. Same reason LanguageCombobox positions its dropdown this way.
+  const [filterAnchor, setFilterAnchor] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const filterPanelRef = useRef<HTMLDivElement>(null);
   const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   // Only one row editable at a time — same one-card-at-a-time principle
@@ -134,9 +166,8 @@ export default function VocabularyWordList({
   // All generated fields in one object rather than a useState per field —
   // seven separate ones would be pure noise, and this keeps adding a field
   // to ENRICHMENT_FIELDS enough on its own.
-  const [editEnrichment, setEditEnrichment] = useState<
-    Record<EnrichmentKey, string>
-  >(emptyEnrichment);
+  const [editEnrichment, setEditEnrichment] =
+    useState<Record<EnrichmentKey, string>>(emptyEnrichment);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   // Selection for enrichment, by entry id — same Set-of-ids shape Inline
@@ -173,7 +204,11 @@ export default function VocabularyWordList({
       );
       router.refresh();
     } catch (err) {
-      setAddError(err instanceof Error ? err.message : "Couldn't add those words — try again.");
+      setAddError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't add those words — try again.",
+      );
     } finally {
       setAdding(false);
     }
@@ -189,6 +224,32 @@ export default function VocabularyWordList({
     } finally {
       setDeletingId(null);
     }
+  }
+
+  function openColumnFilter(field: FilterableColumn, anchor: HTMLElement) {
+    if (openFilter === field) {
+      setOpenFilter(null);
+      return;
+    }
+    const bounds = anchor.getBoundingClientRect();
+    setFilterAnchor({ left: bounds.left, top: bounds.bottom + 4 });
+    setOpenFilter(field);
+  }
+
+  function toggleColumnValue(field: FilterableColumn, value: string) {
+    setColumnFilters((prev) => {
+      const next = new Set(prev[field]);
+      if (next.has(value)) {
+        next.delete(value);
+      } else {
+        next.add(value);
+      }
+      return { ...prev, [field]: next };
+    });
+  }
+
+  function clearColumnFilter(field: FilterableColumn) {
+    setColumnFilters((prev) => ({ ...prev, [field]: new Set() }));
   }
 
   function toggleExpanded(id: string) {
@@ -294,6 +355,33 @@ export default function VocabularyWordList({
     }
   }
 
+  // Same close-on-outside-click, Escape, and scroll handling the language
+  // picker uses — a fixed-positioned panel has to close when the page moves
+  // under it, or it visually detaches from the header it belongs to.
+  useEffect(() => {
+    if (!openFilter) return;
+
+    function close(event: Event) {
+      const target = event.target as Node;
+      if (filterPanelRef.current?.contains(target)) return;
+      setOpenFilter(null);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpenFilter(null);
+    }
+
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [openFilter]);
+
   // Sorted, de-duplicated straight from what's actually saved — no separate
   // list to keep in sync, and it only ever offers languages you actually
   // have words in.
@@ -326,16 +414,40 @@ export default function VocabularyWordList({
         : new Date(b.firstSeen).getTime() - new Date(a.firstSeen).getTime(),
     );
 
+  // Table view's own extra layer, applied on top of the shared filters
+  // rather than folded into them — column filters are Table-view state
+  // (Question 255), so switching to List must not silently hide words with
+  // no column header on screen to explain why.
+  const tableEntries = visibleEntries.filter((entry) =>
+    FILTERABLE_COLUMNS.every((field) => {
+      const chosen = columnFilters[field];
+      return chosen.size === 0 || chosen.has(columnValue(entry, field));
+    }),
+  );
+
+  // Options come from `visibleEntries` — what the shared filters allow —
+  // not from `tableEntries`, so checking a value doesn't make the other
+  // options in that same menu disappear underneath you.
+  function columnOptions(field: FilterableColumn) {
+    return Array.from(
+      new Set(visibleEntries.map((entry) => columnValue(entry, field))),
+    ).sort((a, b) =>
+      a === NO_VALUE ? 1 : b === NO_VALUE ? -1 : a.localeCompare(b),
+    );
+  }
+
+  const activeColumnFilters = FILTERABLE_COLUMNS.filter(
+    (field) => columnFilters[field].size > 0,
+  );
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-3xl px-6 py-10">
         <div className="mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Vocabulary
-          </h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Vocabulary</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Every word you save lands here, whatever it came from — typed in
-            by hand or added from another tool. One shared list.
+            Every word you save lands here, whatever it came from — typed in by
+            hand or added from another tool. One shared list.
           </p>
         </div>
 
@@ -380,9 +492,7 @@ export default function VocabularyWordList({
               {adding ? "Adding…" : "Add"}
             </button>
           </div>
-          {addError && (
-            <p className="mt-3 text-sm text-red-400">{addError}</p>
-          )}
+          {addError && <p className="mt-3 text-sm text-red-400">{addError}</p>}
           {addSummary && (
             <p className="mt-3 text-sm text-emerald-400">{addSummary}</p>
           )}
@@ -521,105 +631,164 @@ export default function VocabularyWordList({
                   : "."}
             </p>
           ) : viewMode === "table" ? (
-            // The same visibleEntries the list renders — same filters, same
-            // sort, same selection — just laid out for scanning across words
-            // instead of down one. Deliberately read-only: editing stays in
-            // List view rather than being rebuilt a second time here, since
-            // the row-level edit form is far too tall to live in a cell.
-            <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse border border-zinc-800 text-sm">
-                <thead>
-                  <tr className="bg-zinc-800">
-                    <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
-                      <span className="sr-only">Select</span>
-                    </th>
-                    <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
-                      Word
-                    </th>
-                    <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
-                      Translation
-                    </th>
-                    <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
-                      Language
-                    </th>
-                    {ENRICHMENT_FIELDS.map(({ field, label }) => (
-                      <th
+            <>
+              {activeColumnFilters.length > 0 && (
+                <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                  <span>
+                    Showing {tableEntries.length} of {visibleEntries.length}
+                  </span>
+                  {activeColumnFilters.map((field) => {
+                    const label =
+                      ENRICHMENT_FIELDS.find((item) => item.field === field)
+                        ?.label ?? field;
+                    return (
+                      <button
                         key={field}
-                        className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300"
+                        onClick={() => clearColumnFilter(field)}
+                        title={`Clear the ${label.toLowerCase()} filter`}
+                        className="rounded-full border border-indigo-800 bg-indigo-950/60 px-2 py-0.5 text-indigo-300 transition-colors hover:border-red-500 hover:text-red-400"
                       >
-                        {label}
-                      </th>
-                    ))}
-                    <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
-                      Added
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleEntries.map((entry) => (
-                    <tr key={entry.id} className="hover:bg-zinc-800/40">
-                      <td className="border border-zinc-800 px-3 py-2 align-top">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(entry.id)}
-                          onChange={() => toggleSelected(entry.id)}
-                          disabled={
-                            !selectedIds.has(entry.id) &&
-                            selectedIds.size >= MAX_ENRICH_WORDS
-                          }
-                          title={
-                            !selectedIds.has(entry.id) &&
-                            selectedIds.size >= MAX_ENRICH_WORDS
-                              ? `${MAX_ENRICH_WORDS} words at a time is the maximum`
-                              : "Select for adding information"
-                          }
-                          className="accent-indigo-600 disabled:cursor-not-allowed disabled:opacity-30"
-                        />
-                      </td>
-                      <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top font-medium text-zinc-100">
-                        {entry.word}
-                      </td>
-                      <td className="border border-zinc-800 px-3 py-2 align-top text-zinc-400">
-                        {entry.translation}
-                      </td>
-                      <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top text-zinc-500">
-                        {entry.language}
-                      </td>
-                      {ENRICHMENT_FIELDS.map(({ field, multiline }) => {
-                        // A word with nothing generated yet simply leaves
-                        // empty cells, rather than being excluded or given
-                        // placeholder text — the gaps are the point of this
-                        // view, since they show at a glance what's missing.
-                        const value = entry[field]?.trim();
-                        const lines = (value ?? "")
-                          .split("\n")
-                          .map((line) => line.trim())
-                          .filter(Boolean);
-                        return (
-                          <td
-                            key={field}
-                            className="border border-zinc-800 px-3 py-2 align-top text-zinc-300"
-                          >
-                            {multiline && lines.length > 1 ? (
-                              <ul className="list-disc space-y-0.5 pl-4">
-                                {lines.map((line, lineIndex) => (
-                                  <li key={lineIndex}>{line}</li>
-                                ))}
-                              </ul>
-                            ) : (
-                              lines[0]
-                            )}
+                        {label}: {columnFilters[field].size} ✕
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {tableEntries.length === 0 ? (
+                <p className="py-10 text-center text-sm text-zinc-600">
+                  No words match the column filters — clear one above to see
+                  more.
+                </p>
+              ) : (
+                // The same visibleEntries the list renders — same filters, same
+                // sort, same selection — just laid out for scanning across words
+                // instead of down one. Deliberately read-only: editing stays in
+                // List view rather than being rebuilt a second time here, since
+                // the row-level edit form is far too tall to live in a cell.
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border-collapse border border-zinc-800 text-sm">
+                    <thead>
+                      <tr className="bg-zinc-800">
+                        <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                          <span className="sr-only">Select</span>
+                        </th>
+                        <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                          Word
+                        </th>
+                        <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                          Translation
+                        </th>
+                        <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                          Language
+                        </th>
+                        {ENRICHMENT_FIELDS.map(({ field, label }) => {
+                          const filterable = FILTERABLE_COLUMNS.includes(
+                            field as FilterableColumn,
+                          );
+                          const active =
+                            filterable &&
+                            columnFilters[field as FilterableColumn].size > 0;
+                          return (
+                            <th
+                              key={field}
+                              className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300"
+                            >
+                              {filterable ? (
+                                <button
+                                  onClick={(event) =>
+                                    openColumnFilter(
+                                      field as FilterableColumn,
+                                      event.currentTarget,
+                                    )
+                                  }
+                                  title={`Filter by ${label.toLowerCase()}`}
+                                  className={`flex items-center gap-1 transition-colors hover:text-indigo-300 ${
+                                    active ? "text-indigo-300" : ""
+                                  }`}
+                                >
+                                  {label}
+                                  <span className="text-[10px]">
+                                    {active ? "▼" : "▾"}
+                                  </span>
+                                </button>
+                              ) : (
+                                label
+                              )}
+                            </th>
+                          );
+                        })}
+                        <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                          Added
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tableEntries.map((entry) => (
+                        <tr key={entry.id} className="hover:bg-zinc-800/40">
+                          <td className="border border-zinc-800 px-3 py-2 align-top">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(entry.id)}
+                              onChange={() => toggleSelected(entry.id)}
+                              disabled={
+                                !selectedIds.has(entry.id) &&
+                                selectedIds.size >= MAX_ENRICH_WORDS
+                              }
+                              title={
+                                !selectedIds.has(entry.id) &&
+                                selectedIds.size >= MAX_ENRICH_WORDS
+                                  ? `${MAX_ENRICH_WORDS} words at a time is the maximum`
+                                  : "Select for adding information"
+                              }
+                              className="accent-indigo-600 disabled:cursor-not-allowed disabled:opacity-30"
+                            />
                           </td>
-                        );
-                      })}
-                      <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top text-xs text-zinc-600">
-                        {formatDate(entry.firstSeen)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                          <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top font-medium text-zinc-100">
+                            {entry.word}
+                          </td>
+                          <td className="border border-zinc-800 px-3 py-2 align-top text-zinc-400">
+                            {entry.translation}
+                          </td>
+                          <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top text-zinc-500">
+                            {entry.language}
+                          </td>
+                          {ENRICHMENT_FIELDS.map(({ field, multiline }) => {
+                            // A word with nothing generated yet simply leaves
+                            // empty cells, rather than being excluded or given
+                            // placeholder text — the gaps are the point of this
+                            // view, since they show at a glance what's missing.
+                            const value = entry[field]?.trim();
+                            const lines = (value ?? "")
+                              .split("\n")
+                              .map((line) => line.trim())
+                              .filter(Boolean);
+                            return (
+                              <td
+                                key={field}
+                                className="border border-zinc-800 px-3 py-2 align-top text-zinc-300"
+                              >
+                                {multiline && lines.length > 1 ? (
+                                  <ul className="list-disc space-y-0.5 pl-4">
+                                    {lines.map((line, lineIndex) => (
+                                      <li key={lineIndex}>{line}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  lines[0]
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top text-xs text-zinc-600">
+                            {formatDate(entry.firstSeen)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           ) : (
             <div className="divide-y divide-zinc-800">
               {visibleEntries.map((entry) =>
@@ -667,7 +836,9 @@ export default function VocabularyWordList({
                           return (
                             <div
                               key={field}
-                              className={multiline ? "sm:col-span-2" : undefined}
+                              className={
+                                multiline ? "sm:col-span-2" : undefined
+                              }
                             >
                               <div className="mb-1 flex items-center justify-between gap-2">
                                 <label
@@ -812,35 +983,37 @@ export default function VocabularyWordList({
                       )}
                       {expandedIds.has(entry.id) && (
                         <dl className="mt-2 space-y-2 rounded-lg bg-zinc-950/60 p-3 text-xs">
-                          {populatedEnrichment(entry).map(({ field, label }) => {
-                            // Multi-value fields are stored one per line, so
-                            // anything with line breaks renders as a list
-                            // rather than a wall of text. Single-line values
-                            // (level, part of speech, and the comma-separated
-                            // ones) stay as they are.
-                            const lines = (entry[field] ?? "")
-                              .split("\n")
-                              .map((line) => line.trim())
-                              .filter(Boolean);
-                            return (
-                              <div key={field}>
-                                <dt className="font-medium uppercase tracking-wider text-zinc-600">
-                                  {label}
-                                </dt>
-                                <dd className="mt-0.5 text-zinc-300">
-                                  {lines.length > 1 ? (
-                                    <ul className="list-disc space-y-0.5 pl-4">
-                                      {lines.map((line, lineIndex) => (
-                                        <li key={lineIndex}>{line}</li>
-                                      ))}
-                                    </ul>
-                                  ) : (
-                                    lines[0]
-                                  )}
-                                </dd>
-                              </div>
-                            );
-                          })}
+                          {populatedEnrichment(entry).map(
+                            ({ field, label }) => {
+                              // Multi-value fields are stored one per line, so
+                              // anything with line breaks renders as a list
+                              // rather than a wall of text. Single-line values
+                              // (level, part of speech, and the comma-separated
+                              // ones) stay as they are.
+                              const lines = (entry[field] ?? "")
+                                .split("\n")
+                                .map((line) => line.trim())
+                                .filter(Boolean);
+                              return (
+                                <div key={field}>
+                                  <dt className="font-medium uppercase tracking-wider text-zinc-600">
+                                    {label}
+                                  </dt>
+                                  <dd className="mt-0.5 text-zinc-300">
+                                    {lines.length > 1 ? (
+                                      <ul className="list-disc space-y-0.5 pl-4">
+                                        {lines.map((line, lineIndex) => (
+                                          <li key={lineIndex}>{line}</li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      lines[0]
+                                    )}
+                                  </dd>
+                                </div>
+                              );
+                            },
+                          )}
                         </dl>
                       )}
                     </div>
@@ -878,6 +1051,50 @@ export default function VocabularyWordList({
           )}
         </div>
       </div>
+
+      {openFilter && filterAnchor && (
+        <div
+          ref={filterPanelRef}
+          style={{ left: filterAnchor.left, top: filterAnchor.top }}
+          className="fixed z-50 max-h-72 w-56 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 py-1 shadow-2xl"
+        >
+          <div className="flex items-center justify-between gap-2 px-3 py-1">
+            <span className="text-xs font-semibold text-zinc-500">
+              {ENRICHMENT_FIELDS.find((item) => item.field === openFilter)
+                ?.label ?? openFilter}
+            </span>
+            {columnFilters[openFilter].size > 0 && (
+              <button
+                onClick={() => clearColumnFilter(openFilter)}
+                className="text-xs text-zinc-500 transition-colors hover:text-red-400"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {columnOptions(openFilter).map((value) => (
+            <label
+              key={value || "(none)"}
+              className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+            >
+              <input
+                type="checkbox"
+                checked={columnFilters[openFilter].has(value)}
+                onChange={() => toggleColumnValue(openFilter, value)}
+                className="shrink-0 accent-indigo-600"
+              />
+              {/* The "no value" bucket is offered like any other option,
+                  since "which words still have nothing here" is one of the
+                  more useful things to filter for (Question 254). */}
+              {value === NO_VALUE ? (
+                <span className="italic text-zinc-500">(none)</span>
+              ) : (
+                value
+              )}
+            </label>
+          ))}
+        </div>
+      )}
 
       {enrichModalOpen && (
         <VocabularyEnrichModal
