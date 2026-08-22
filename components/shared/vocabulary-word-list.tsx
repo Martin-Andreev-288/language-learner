@@ -93,6 +93,7 @@ function emptyEnrichment(): Record<EnrichmentKey, string> {
 
 type SortBy = "recent" | "alphabetical";
 type EnrichmentFilter = "all" | "enriched" | "plain";
+type ViewMode = "list" | "table";
 
 function formatDate(date: string | Date) {
   const parsed = new Date(date);
@@ -117,6 +118,10 @@ export default function VocabularyWordList({
   const [languageFilter, setLanguageFilter] = useState("all");
   const [enrichmentFilter, setEnrichmentFilter] =
     useState<EnrichmentFilter>("all");
+  // List stays the default: it's the everyday view, and Table only earns
+  // its place when you want to compare several words' information at once
+  // (Answer 241). A view preference, so nothing about it is persisted.
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   // Only one row editable at a time — same one-card-at-a-time principle
@@ -385,9 +390,38 @@ export default function VocabularyWordList({
 
         <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
-            <h2 className="text-lg font-semibold text-zinc-100">
-              {entries.length} word{entries.length !== 1 ? "s" : ""}
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold text-zinc-100">
+                {entries.length} word{entries.length !== 1 ? "s" : ""}
+              </h2>
+              {/* Same segmented-toggle pattern Parallel Listen's own
+                  Table/Vertical switch uses — this is a second way of
+                  rendering the same already-filtered, already-sorted list,
+                  not a second page or a second query. */}
+              <div className="flex overflow-hidden rounded-md border border-zinc-700">
+                <button
+                  onClick={() => setViewMode("list")}
+                  className={`px-3 py-1 text-xs font-medium transition-colors ${
+                    viewMode === "list"
+                      ? "bg-indigo-600 text-white"
+                      : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  List
+                </button>
+                <button
+                  onClick={() => setViewMode("table")}
+                  title="Compare several words' information side by side"
+                  className={`px-3 py-1 text-xs font-medium transition-colors ${
+                    viewMode === "table"
+                      ? "bg-indigo-600 text-white"
+                      : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  Table
+                </button>
+              </div>
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <input
                 type="text"
@@ -486,6 +520,106 @@ export default function VocabularyWordList({
                   ? " still waiting for information."
                   : "."}
             </p>
+          ) : viewMode === "table" ? (
+            // The same visibleEntries the list renders — same filters, same
+            // sort, same selection — just laid out for scanning across words
+            // instead of down one. Deliberately read-only: editing stays in
+            // List view rather than being rebuilt a second time here, since
+            // the row-level edit form is far too tall to live in a cell.
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-collapse border border-zinc-800 text-sm">
+                <thead>
+                  <tr className="bg-zinc-800">
+                    <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                      <span className="sr-only">Select</span>
+                    </th>
+                    <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                      Word
+                    </th>
+                    <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                      Translation
+                    </th>
+                    <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                      Language
+                    </th>
+                    {ENRICHMENT_FIELDS.map(({ field, label }) => (
+                      <th
+                        key={field}
+                        className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300"
+                      >
+                        {label}
+                      </th>
+                    ))}
+                    <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                      Added
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleEntries.map((entry) => (
+                    <tr key={entry.id} className="hover:bg-zinc-800/40">
+                      <td className="border border-zinc-800 px-3 py-2 align-top">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(entry.id)}
+                          onChange={() => toggleSelected(entry.id)}
+                          disabled={
+                            !selectedIds.has(entry.id) &&
+                            selectedIds.size >= MAX_ENRICH_WORDS
+                          }
+                          title={
+                            !selectedIds.has(entry.id) &&
+                            selectedIds.size >= MAX_ENRICH_WORDS
+                              ? `${MAX_ENRICH_WORDS} words at a time is the maximum`
+                              : "Select for adding information"
+                          }
+                          className="accent-indigo-600 disabled:cursor-not-allowed disabled:opacity-30"
+                        />
+                      </td>
+                      <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top font-medium text-zinc-100">
+                        {entry.word}
+                      </td>
+                      <td className="border border-zinc-800 px-3 py-2 align-top text-zinc-400">
+                        {entry.translation}
+                      </td>
+                      <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top text-zinc-500">
+                        {entry.language}
+                      </td>
+                      {ENRICHMENT_FIELDS.map(({ field, multiline }) => {
+                        // A word with nothing generated yet simply leaves
+                        // empty cells, rather than being excluded or given
+                        // placeholder text — the gaps are the point of this
+                        // view, since they show at a glance what's missing.
+                        const value = entry[field]?.trim();
+                        const lines = (value ?? "")
+                          .split("\n")
+                          .map((line) => line.trim())
+                          .filter(Boolean);
+                        return (
+                          <td
+                            key={field}
+                            className="border border-zinc-800 px-3 py-2 align-top text-zinc-300"
+                          >
+                            {multiline && lines.length > 1 ? (
+                              <ul className="list-disc space-y-0.5 pl-4">
+                                {lines.map((line, lineIndex) => (
+                                  <li key={lineIndex}>{line}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              lines[0]
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top text-xs text-zinc-600">
+                        {formatDate(entry.firstSeen)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="divide-y divide-zinc-800">
               {visibleEntries.map((entry) =>
