@@ -31,7 +31,12 @@ const checkSchema = z.object({
     corrections: z.array(correctionSchema),
 });
 
-export async function checkWriting(text: string) {
+// `language`, when given, tells the model what the text is *meant* to be
+// in. Optional because Writing Check works on a pasted passage long enough
+// to be obvious, but the chat (Question 259) sends single messages that can
+// be three words long — short enough that guessing the language wrong is a
+// real risk, and a wrong guess turns every word into a "mistake".
+export async function checkWriting(text: string, language?: string) {
     const session = await auth();
     if (!session?.user?.id) {
         throw new Error("Unauthorized");
@@ -48,12 +53,17 @@ export async function checkWriting(text: string) {
         );
     }
 
+    const trimmedLanguage = language?.trim();
+    const languageLine = trimmedLanguage
+        ? `The text below is written by someone learning ${trimmedLanguage}, and is meant to be in ${trimmedLanguage}. Judge it as ${trimmedLanguage} — do not treat it as another language, and do not report it as a mistake merely for being in ${trimmedLanguage}.\n\n`
+        : "";
+
     let output: z.infer<typeof checkSchema>;
     try {
         const result = await generateText({
             model: google("gemini-3.6-flash"),
             output: Output.object({ schema: checkSchema }),
-            prompt: `You are reviewing a piece of writing for mistakes — grammar, word choice, clarity, or phrasing that reads as incorrect or awkward, not only strict grammar rules.
+            prompt: `${languageLine}You are reviewing a piece of writing for mistakes — grammar, word choice, clarity, or phrasing that reads as incorrect or awkward, not only strict grammar rules.
 
 For each mistake found, identify the exact minimal word or phrase that is wrong — not the whole sentence it appears in, just the specific part that needs to change — its corrected version, and a short explanation of what was wrong and why the correction is better. If the mistake is a single wrong word, "original" should be that one word, not the sentence around it. If the text has no notable issues, return an empty corrections list — do not invent issues just to have something to report.
 
