@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.23",
+    "@ai-sdk/react": "^4.0.80",
     "@auth/prisma-adapter": "^2.11.1",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.8.0",
