@@ -5,6 +5,8 @@ import { useChat } from "@ai-sdk/react";
 import { type UIMessage } from "ai";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import { checkWriting } from "@/app/actions/writing-check-actions";
+import { createNote } from "@/app/actions/note-actions";
+import { NotePage } from "@/app/generated/prisma";
 
 interface Correction {
   original: string;
@@ -21,6 +23,40 @@ type FeedbackState =
   | { status: "checking" }
   | { status: "done"; corrections: Correction[] }
   | { status: "error"; message: string };
+
+// A plain, read-only Markdown record of the conversation so far — not a
+// format meant to be loaded back in and resumed (Answer 263 scoped that
+// out deliberately, as its own later feature). Corrections sit right under
+// the message they belong to, in the same struck-through/corrected/
+// explanation shape the chat itself already shows, rather than collected
+// into a separate list at the end — the point of saving this is a record
+// of what was actually wrong and why, in the moment it happened.
+function buildConversationNote(
+  messages: UIMessage[],
+  feedback: Map<string, FeedbackState>,
+  language: string,
+) {
+  const title = language.trim() || "Chat";
+  const turns = messages.map((message) => {
+    const speaker = message.role === "user" ? "You" : `${title} partner`;
+    let block = `**${speaker}:** ${messageText(message)}`;
+
+    const state = feedback.get(message.id);
+    if (message.role === "user" && state?.status === "done") {
+      const corrections = state.corrections
+        .map(
+          (correction) =>
+            `> ~~${correction.original}~~ → **${correction.corrected}**\n>\n> ${correction.explanation}`,
+        )
+        .join("\n>\n");
+      if (corrections) block += `\n\n${corrections}`;
+    }
+
+    return block;
+  });
+
+  return turns.join("\n\n---\n\n");
+}
 
 // Message content arrives as an array of parts rather than a plain string —
 // only the text ones are of interest here, since this chat has no tools.
@@ -42,6 +78,10 @@ export default function LanguageChat() {
     new Map(),
   );
   const [openFeedback, setOpenFeedback] = useState<Set<string>>(new Set());
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [noteError, setNoteError] = useState<string | null>(null);
 
   // No transport configured: /api/chat is already useChat's default
   // endpoint. The language rides along per message instead (see
@@ -128,6 +168,30 @@ export default function LanguageChat() {
     setMessages([]);
     setFeedback(new Map());
     setOpenFeedback(new Set());
+    setNoteError(null);
+    setNoteSaved(false);
+  }
+
+  async function handleSaveToNote() {
+    if (messages.length === 0) return;
+
+    setSavingNote(true);
+    setNoteError(null);
+    try {
+      const title = language.trim() || "Chat";
+      await createNote(
+        NotePage.writing,
+        title,
+        buildConversationNote(messages, feedback, language),
+      );
+      setNoteSaved(true);
+      if (noteResetRef.current) clearTimeout(noteResetRef.current);
+      noteResetRef.current = setTimeout(() => setNoteSaved(false), 2000);
+    } catch {
+      setNoteError("Couldn't save to Notes — try again.");
+    } finally {
+      setSavingNote(false);
+    }
   }
 
   return (
@@ -160,14 +224,32 @@ export default function LanguageChat() {
               />
             </div>
             {messages.length > 0 && (
-              <button
-                onClick={handleNewChat}
-                disabled={busy}
-                title="Clear this conversation"
-                className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                New chat
-              </button>
+              <>
+                <button
+                  onClick={handleSaveToNote}
+                  disabled={savingNote}
+                  title="Save this conversation, with any feedback found so far, as a note"
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                    noteSaved
+                      ? "bg-emerald-600 text-white"
+                      : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                  } disabled:cursor-not-allowed`}
+                >
+                  {noteSaved
+                    ? "Saved!"
+                    : savingNote
+                      ? "Saving…"
+                      : "Save to a new note"}
+                </button>
+                <button
+                  onClick={handleNewChat}
+                  disabled={busy}
+                  title="Clear this conversation"
+                  className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  New chat
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -304,6 +386,11 @@ export default function LanguageChat() {
           {error && (
             <p className="border-t border-zinc-800 px-6 py-3 text-sm text-red-400">
               {error.message || "Something went wrong — try sending again."}
+            </p>
+          )}
+          {noteError && (
+            <p className="border-t border-zinc-800 px-6 py-3 text-sm text-red-400">
+              {noteError}
             </p>
           )}
 
