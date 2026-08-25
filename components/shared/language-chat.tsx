@@ -2,80 +2,32 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { type UIMessage } from "ai";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import { checkWriting } from "@/app/actions/writing-check-actions";
 import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
-
-interface Correction {
-  original: string;
-  corrected: string;
-  explanation: string;
-}
-
-// Per-message mistake check. Runs on its own, alongside the streamed reply,
-// rather than as a tool the model chooses to call: this has to happen for
-// every message, and tool-calling leaves that to the model's judgement
-// (Answer 256). Keyed by message id so a slow check can never attach itself
-// to the wrong message if you send another one meanwhile.
-type FeedbackState =
-  | { status: "checking" }
-  | { status: "done"; corrections: Correction[] }
-  | { status: "error"; message: string };
-
-// A plain, read-only Markdown record of the conversation so far — not a
-// format meant to be loaded back in and resumed (Answer 263 scoped that
-// out deliberately, as its own later feature). Corrections sit right under
-// the message they belong to, in the same struck-through/corrected/
-// explanation shape the chat itself already shows, rather than collected
-// into a separate list at the end — the point of saving this is a record
-// of what was actually wrong and why, in the moment it happened.
-function buildConversationNote(
-  messages: UIMessage[],
-  feedback: Map<string, FeedbackState>,
-  language: string,
-) {
-  const title = language.trim() || "Chat";
-  const turns = messages.map((message) => {
-    const speaker = message.role === "user" ? "You" : `${title} partner`;
-    let block = `**${speaker}:** ${messageText(message)}`;
-
-    const state = feedback.get(message.id);
-    if (message.role === "user" && state?.status === "done") {
-      const corrections = state.corrections
-        .map(
-          (correction) =>
-            `> ~~${correction.original}~~ → **${correction.corrected}**\n>\n> ${correction.explanation}`,
-        )
-        .join("\n>\n");
-      if (corrections) block += `\n\n${corrections}`;
-    }
-
-    return block;
-  });
-
-  return turns.join("\n\n---\n\n");
-}
-
-// Message content arrives as an array of parts rather than a plain string —
-// only the text ones are of interest here, since this chat has no tools.
-function messageText(message: UIMessage) {
-  return message.parts
-    .filter(
-      (part): part is { type: "text"; text: string } => part.type === "text",
-    )
-    .map((part) => part.text)
-    .join("");
-}
+import {
+  CHAT_METADATA_KIND,
+  encodeChatMetadata,
+  formatChatTranscript,
+  messageText,
+  type FeedbackState,
+} from "@/lib/language-chat-note-format";
+import { readAndClearChatCarry } from "@/lib/language-chat-carry";
 
 export default function LanguageChat() {
-  const [language, setLanguage] = useState("");
+  // Restored from a saved note, if the user arrived via "Continue this
+  // conversation" — read as part of the initial state itself (Answer
+  // 171/225's discipline), not in an effect afterward, and exactly once:
+  // the carry read clears itself as a side effect, so calling it more than
+  // once would silently lose everything after the first read.
+  const [initialCarry] = useState(() => readAndClearChatCarry());
+  const [language, setLanguage] = useState(() => initialCarry?.language ?? "");
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [feedback, setFeedback] = useState<Map<string, FeedbackState>>(
-    new Map(),
+    () => initialCarry?.feedback ?? new Map(),
   );
   const [openFeedback, setOpenFeedback] = useState<Set<string>>(new Set());
   const [savingNote, setSavingNote] = useState(false);
@@ -86,8 +38,13 @@ export default function LanguageChat() {
   // No transport configured: /api/chat is already useChat's default
   // endpoint. The language rides along per message instead (see
   // handleSubmit), which keeps it read from state at send time rather than
-  // captured once when the hook was set up.
-  const { messages, sendMessage, status, error, setMessages } = useChat();
+  // captured once when the hook was set up. A restored conversation's
+  // messages already carry mistake feedback from `feedback` above — none of
+  // that gets re-checked, so resuming costs no extra AI calls for history
+  // that was already looked at.
+  const { messages, sendMessage, status, error, setMessages } = useChat({
+    messages: initialCarry?.messages ?? [],
+  });
 
   const busy = status === "submitted" || status === "streaming";
 
@@ -179,10 +136,15 @@ export default function LanguageChat() {
     setNoteError(null);
     try {
       const title = language.trim() || "Chat";
+      const data = { language, messages, feedback };
       await createNote(
         NotePage.writing,
         title,
-        buildConversationNote(messages, feedback, language),
+        // The note's text is only the readable transcript now; everything
+        // needed to resume rides in metadata instead of being hidden in it.
+        formatChatTranscript(data),
+        null,
+        { kind: CHAT_METADATA_KIND, data: encodeChatMetadata(data) },
       );
       setNoteSaved(true);
       if (noteResetRef.current) clearTimeout(noteResetRef.current);

@@ -24,11 +24,16 @@ async function requireOwnedNote(userId: string, noteId: string) {
     return note;
 }
 
+// `metadata`, when given, is structured data the saving tool needs to
+// reopen this note later (Question 266) — kept out of `content` so the note
+// stays purely what the user reads and edits. `kind` names the format, so
+// the notes list can spot a resumable note without loading the payload.
 export async function createNote(
     page: NotePage,
     title: string,
     content: string,
     folderId?: string | null,
+    metadata?: { kind: string; data: string },
 ) {
     const userId = await requireUserId();
     const normalizedTitle = title.trim();
@@ -54,6 +59,8 @@ export async function createNote(
             title: normalizedTitle,
             content,
             folderId: folderId ?? null,
+            metadataKind: metadata?.kind ?? null,
+            metadata: metadata?.data ?? null,
         },
     });
 }

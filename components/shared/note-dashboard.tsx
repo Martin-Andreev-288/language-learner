@@ -35,6 +35,11 @@ import {
   isInlineListenNote,
   parseInlineListenNote,
 } from "@/lib/inline-listen-note-format";
+import { writeChatCarry } from "@/lib/language-chat-carry";
+import {
+  CHAT_METADATA_KIND,
+  decodeChatMetadata,
+} from "@/lib/language-chat-note-format";
 
 type NotePage =
   | "reading"
@@ -58,6 +63,11 @@ type DashboardNote = {
   preview: string;
   createdAt: string | Date;
   updatedAt: string | Date;
+  // Names the saved-tool format this note came from, when it came from one
+  // at all. Only the kind travels with the list — the payload is fetched
+  // with the note itself, so a long saved conversation doesn't get
+  // downloaded just to decide whether to show a button.
+  metadataKind?: string | null;
 };
 
 type DashboardData = {
@@ -270,14 +280,17 @@ export default function NoteDashboard({ page, data }: Props) {
     }
   }
 
-  // Listening-only: a note saved by Parallel Listen's or Inline Listen's own
-  // "Save to a new note" carries its raw pasted content, recognizable by a
-  // marker at the start — one marker per page, since each has its own
-  // shape (see lib/parallel-listen-note-format.ts and
-  // lib/inline-listen-note-format.ts). Whichever one matches gets handed
-  // back to its own page the same one-time, unsaved way a Parallel
-  // Translate carry already works — nothing about "listening again" is
-  // itself persisted anywhere new.
+  // A note saved by Parallel Listen's, Inline Listen's, or the chat's own
+  // "Save to a new note" carries its structured content, recognizable by a
+  // marker at the start — one marker per format, since each has its own
+  // shape (see lib/parallel-listen-note-format.ts, lib/inline-listen-note-
+  // format.ts, and lib/language-chat-note-format.ts). Whichever one matches
+  // gets handed back to its own page the same one-time, unsaved way a
+  // Parallel Translate carry already works — nothing about "picking up
+  // where this left off" is itself persisted anywhere new. Despite the name
+  // (kept for the two call sites that really are "listen again"), this now
+  // also covers resuming a saved chat — see the label passed alongside it
+  // at the FolderSection call site below.
   async function handleListenAgain(note: DashboardNote) {
     const full = await getNote(note.id);
 
@@ -292,6 +305,16 @@ export default function NoteDashboard({ page, data }: Props) {
     if (inlineListen) {
       writeInlineListenCarry(inlineListen);
       router.push("/listening/inline-listen");
+      return;
+    }
+
+    // Read from the note's own metadata rather than its text: the text is
+    // just the readable transcript, and the user is free to edit it without
+    // breaking their ability to continue the conversation.
+    const chat = decodeChatMetadata(full.metadata);
+    if (chat) {
+      writeChatCarry(chat);
+      router.push("/writing/chat");
       return;
     }
   }
@@ -600,7 +623,16 @@ export default function NoteDashboard({ page, data }: Props) {
                   ? (note) =>
                       isParallelListenNote(note.preview) ||
                       isInlineListenNote(note.preview)
-                  : undefined
+                  : page === "writing"
+                    ? (note) => note.metadataKind === CHAT_METADATA_KIND
+                    : undefined
+              }
+              // Same action, worded for what it actually resumes on this
+              // page — a chat isn't "listened to". Defaults to "Listen
+              // again" inside NoteCard when omitted, so the Listening page
+              // is unaffected.
+              listenAgainLabel={
+                page === "writing" ? "Continue this conversation" : undefined
               }
               onListenAgain={handleListenAgain}
               onOpenNote={(note) => {
@@ -984,11 +1016,15 @@ type FolderSectionProps = {
   dragItem: DragItem | null;
   dragOverTarget: string | null;
   onToggleCollapse: (folderId: string) => void;
-  // Listening-only escape hatch: when set, a note this returns true for gets
-  // a "Listen again" action on its card, calling onListenAgain when clicked.
-  // Undefined on every other notes page — most pages have neither prop.
+  // Escape hatch: when set, a note this returns true for gets a "resume"
+  // action on its card, calling onListenAgain when clicked. Undefined on
+  // most notes pages — only Listening and Writing use it, for their own
+  // note kinds. listenAgainLabel words the button for whichever page this
+  // is; omitted means "Listen again", the original and still most common
+  // case.
   canListenAgain?: (note: DashboardNote) => boolean;
   onListenAgain?: (note: DashboardNote) => void;
+  listenAgainLabel?: string;
   onOpenNote: (note: DashboardNote) => void;
   onDeleteNote: (note: DashboardNote) => void;
   onMoveNote: (note: DashboardNote) => void;
@@ -1022,6 +1058,7 @@ function FolderSection(props: FolderSectionProps) {
     onToggleCollapse,
     canListenAgain,
     onListenAgain,
+    listenAgainLabel,
     onOpenNote,
     onDeleteNote,
     onMoveNote,
@@ -1161,6 +1198,7 @@ function FolderSection(props: FolderSectionProps) {
                       ? () => onListenAgain(note)
                       : undefined
                   }
+                  listenAgainLabel={listenAgainLabel}
                 />
               ))}
             </div>
@@ -1190,6 +1228,7 @@ function NoteCard({
   onDragStart,
   onDragEnd,
   onListenAgain,
+  listenAgainLabel = "Listen again",
 }: {
   note: DashboardNote;
   isDragging: boolean;
@@ -1198,9 +1237,11 @@ function NoteCard({
   onMove: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
-  // Only set for a Parallel Listen save on the Listening notes page — see
-  // canListenAgain/onListenAgain on FolderSectionProps.
+  // Set for a Parallel/Inline Listen save on the Listening notes page, or a
+  // chat save on the Writing notes page — see canListenAgain/onListenAgain/
+  // listenAgainLabel on FolderSectionProps.
   onListenAgain?: () => void;
+  listenAgainLabel?: string;
 }) {
   return (
     <div
@@ -1224,7 +1265,7 @@ function NoteCard({
         {onListenAgain && (
           <button
             type="button"
-            title="Listen again"
+            title={listenAgainLabel}
             onClick={(event) => {
               event.stopPropagation();
               onListenAgain();

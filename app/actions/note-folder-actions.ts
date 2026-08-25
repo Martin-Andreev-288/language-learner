@@ -228,6 +228,10 @@ export async function getNoteFolderTree(page: NotePage) {
                 folderId: true,
                 createdAt: true,
                 updatedAt: true,
+                // Only the kind, never the payload: a saved conversation's
+                // metadata can be large, and the list just needs to know
+                // whether a note is resumable, not what's in it.
+                metadataKind: true,
             },
         }),
     ]);
@@ -238,6 +242,7 @@ export async function getNoteFolderTree(page: NotePage) {
         folderId: note.folderId,
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,
+        metadataKind: note.metadataKind,
         preview:
             note.content.length > PREVIEW_LENGTH
                 ? `${note.content.slice(0, PREVIEW_LENGTH)}…`

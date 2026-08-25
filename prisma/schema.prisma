@@ -212,6 +212,18 @@ model Note {
     createdAt DateTime    @default(now())
     updatedAt DateTime    @updatedAt
 
+    // Structured data a tool needs to reopen what it saved — kept out of
+    // `content` on purpose (Question 266): `content` is what the user reads
+    // and edits, so anything hidden in it is neither hidden (react-markdown
+    // renders raw HTML as literal text) nor safe from being edited away.
+    //
+    // Two columns rather than one so the notes list can tell which notes are
+    // resumable without downloading every saved conversation: `metadataKind`
+    // is short and always selected, `metadata` holds the payload and is only
+    // read when a note is actually opened or resumed.
+    metadataKind String?
+    metadata     String? @db.Text
+
     // Relations
     user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
     folder NoteFolder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
