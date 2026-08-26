@@ -5,9 +5,11 @@ import { generateText, Output } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 import { describeAiError } from "@/lib/ai-error";
-
-const MAX_WORD_LENGTH = 100;
-const MAX_CONTEXT_LENGTH = 500;
+import { actionError, actionOk, type ActionResult } from "@/lib/action-result";
+import {
+    WORD_LOOKUP_MAX_CONTEXT_LENGTH as MAX_CONTEXT_LENGTH,
+    WORD_LOOKUP_MAX_WORD_LENGTH as MAX_WORD_LENGTH,
+} from "@/lib/limits";
 
 const lookupSchema = z.object({
     definition: z.string(),
@@ -19,7 +21,12 @@ const lookupSchema = z.object({
         ),
 });
 
-export async function lookupWord(word: string, context: string) {
+// Returns failures rather than throwing them, so the message survives a
+// production build — see lib/action-result.ts.
+export async function lookupWord(
+    word: string,
+    context: string,
+): Promise<ActionResult<z.infer<typeof lookupSchema>>> {
     const session = await auth();
     if (!session?.user?.id) {
         throw new Error("Unauthorized");
@@ -27,13 +34,13 @@ export async function lookupWord(word: string, context: string) {
 
     const trimmedWord = word.trim();
     if (!trimmedWord) {
-        throw new Error("There's no word to look up.");
+        return actionError("There's no word to look up.");
     }
     if (trimmedWord.length > MAX_WORD_LENGTH) {
-        throw new Error("That's too long to be a single word — try clicking just one word.");
+        return actionError("That's too long to be a single word — try clicking just one word.");
     }
     if (context.length > MAX_CONTEXT_LENGTH) {
-        throw new Error(
+        return actionError(
             `The surrounding phrase is too long — please keep it under ${MAX_CONTEXT_LENGTH} characters.`,
         );
     }
@@ -56,8 +63,8 @@ Explain "${trimmedWord}" as it's actually used in that phrase — if it has mult
         result = response.output;
     } catch (err) {
         console.error("lookupWord failed:", err);
-        throw describeAiError(err, "Lookup service");
+        return actionError(describeAiError(err, "Lookup service").message);
     }
 
-    return result;
+    return actionOk(result);
 }

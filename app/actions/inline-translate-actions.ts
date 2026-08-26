@@ -5,32 +5,38 @@ import { generateText, Output } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 import { describeAiError } from "@/lib/ai-error";
+import { actionError, actionOk, type ActionResult } from "@/lib/action-result";
+import {
+    INLINE_TRANSLATE_MAX_CHARACTERS as MAX_CONTEXT_LENGTH,
+    INLINE_TRANSLATE_MAX_PHRASES as MAX_PHRASES,
+} from "@/lib/limits";
 
-const MAX_PHRASES = 40;
-const MAX_CONTEXT_LENGTH = 3000;
-
+// Returns failures rather than throwing them, so the message survives a
+// production build — see lib/action-result.ts. Unauthorized still throws:
+// it isn't something the user can act on, and it shouldn't be rendered as
+// friendly copy.
 export async function translateMarkedPhrases(
     phrases: string[],
     fullText: string,
     targetLanguage: string,
-) {
+): Promise<ActionResult<string[]>> {
     const session = await auth();
     if (!session?.user?.id) {
         throw new Error("Unauthorized");
     }
 
     if (phrases.length === 0) {
-        throw new Error("Mark at least one word before translating.");
+        return actionError("Mark at least one word before translating.");
     }
 
     if (phrases.length > MAX_PHRASES) {
-        throw new Error(
+        return actionError(
             `That's ${phrases.length} marked items — please translate ${MAX_PHRASES} or fewer at a time.`,
         );
     }
 
     if (fullText.length > MAX_CONTEXT_LENGTH) {
-        throw new Error(
+        return actionError(
             `That's ${fullText.length} characters — please translate a shorter passage at a time (up to ${MAX_CONTEXT_LENGTH} characters).`,
         );
     }
@@ -57,14 +63,14 @@ ${phrases.map((phrase, index) => `${index + 1}. ${phrase}`).join("\n")}`,
         translations = result.output;
     } catch (err) {
         console.error("translateMarkedPhrases failed:", err);
-        throw describeAiError(err, "Translation service");
+        return actionError(describeAiError(err, "Translation service").message);
     }
 
     if (translations.length !== phrases.length) {
-        throw new Error(
+        return actionError(
             "The translation didn't come back with the expected number of items — try again.",
         );
     }
 
-    return translations;
+    return actionOk(translations);
 }

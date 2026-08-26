@@ -11,7 +11,16 @@
 // Capped deliberately: one batched AI call covers the whole selection, so
 // the limit is about keeping that single call's response a sane size (and
 // its cost predictable), not about how many rows the database can take.
-export const MAX_ENRICH_WORDS = 15;
+//
+// Raised in Question 273, but more conservatively than the limits in
+// lib/limits.ts: this is the single most output-expensive item of
+// anything increased so far — each word can ask for up to seven fields at
+// once, several of them multi-line lists, not one short value. Vocabulary's
+// own word-count limit could be raised generously because it's a plain
+// database write with no AI call behind it at all; this one genuinely
+// scales the response with every word added, so it stays well short of
+// that.
+export const MAX_ENRICH_WORDS = 30;
 
 // The fields the user can ask for. Every one is independently selectable —
 // only what's checked is ever generated, per Question 242. Ordered as the

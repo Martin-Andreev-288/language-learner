@@ -4,6 +4,9 @@ import { useRef, useState } from "react";
 import { checkWriting } from "@/app/actions/writing-check-actions";
 import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
+import { describeClientError } from "@/lib/client-error";
+import { WRITING_CHECK_MAX_CHARACTERS } from "@/lib/limits";
+import CharacterCount from "@/components/shared/character-count";
 
 type Correction = {
   original: string;
@@ -125,11 +128,17 @@ export default function WritingCheckTool() {
     setCheckError(null);
     try {
       const result = await checkWriting(text);
-      setCorrections(result.corrections);
-      setCorrectedText(result.correctedText);
+      if (!result.ok) {
+        setCheckError(result.error);
+        setCorrections(null);
+        setCorrectedText(null);
+        return;
+      }
+      setCorrections(result.data.corrections);
+      setCorrectedText(result.data.correctedText);
       setCheckedText(text);
     } catch (err) {
-      setCheckError(err instanceof Error ? err.message : "Check failed.");
+      setCheckError(describeClientError(err, "Check failed."));
       setCorrections(null);
       setCorrectedText(null);
     } finally {
@@ -201,9 +210,11 @@ export default function WritingCheckTool() {
           <textarea
             value={text}
             onChange={(event) => setText(event.target.value)}
+            maxLength={WRITING_CHECK_MAX_CHARACTERS}
             placeholder="Write or paste your text here..."
             className="h-48 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 p-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
           />
+          <CharacterCount value={text} max={WRITING_CHECK_MAX_CHARACTERS} />
 
           {checkError && (
             <p className="mt-3 text-sm text-red-400">{checkError}</p>

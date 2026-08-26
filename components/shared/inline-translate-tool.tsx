@@ -17,6 +17,12 @@ import {
   writeInlineTranslateDraft,
 } from "@/lib/inline-translate-draft";
 import { writeInlineListenCarry } from "@/lib/inline-listen-carry";
+import { describeClientError } from "@/lib/client-error";
+import {
+  INLINE_TRANSLATE_MAX_CHARACTERS,
+  INLINE_TRANSLATE_MAX_PHRASES,
+} from "@/lib/limits";
+import CharacterCount from "@/components/shared/character-count";
 import LanguageCombobox from "@/components/shared/language-combobox";
 
 type TranslatedResult = {
@@ -211,11 +217,16 @@ export default function InlineTranslateTool() {
       addedVocab: false,
     });
     try {
-      const [translation] = await translateMarkedPhrases(
-        [word],
-        text,
-        targetLanguage,
-      );
+      const result = await translateMarkedPhrases([word], text, targetLanguage);
+      if (!result.ok) {
+        setWordPopup((prev) =>
+          prev && prev.word === word
+            ? { ...prev, loading: false, error: result.error }
+            : prev,
+        );
+        return;
+      }
+      const [translation] = result.data;
       setWordPopup((prev) =>
         prev && prev.word === word
           ? { ...prev, loading: false, translation }
@@ -227,7 +238,7 @@ export default function InlineTranslateTool() {
           ? {
               ...prev,
               loading: false,
-              error: err instanceof Error ? err.message : "Translation failed.",
+              error: describeClientError(err, "Translation failed."),
             }
           : prev,
       );
@@ -307,20 +318,22 @@ export default function InlineTranslateTool() {
     setTranslating(true);
     setTranslateError(null);
     try {
-      const translated = await translateMarkedPhrases(
+      const result = await translateMarkedPhrases(
         uniquePhrases,
         text,
         targetLanguage,
       );
+      if (!result.ok) {
+        setTranslateError(result.error);
+        return;
+      }
       const translations = new Map(
-        uniquePhrases.map((phrase, index) => [phrase, translated[index]]),
+        uniquePhrases.map((phrase, index) => [phrase, result.data[index]]),
       );
       setResult({ tokens, runs, translations });
       setShowTranslations(true);
     } catch (err) {
-      setTranslateError(
-        err instanceof Error ? err.message : "Translation failed.",
-      );
+      setTranslateError(describeClientError(err, "Translation failed."));
     } finally {
       setTranslating(false);
     }
@@ -419,6 +432,12 @@ export default function InlineTranslateTool() {
   }
 
   const tokens = tokenizeWords(text);
+  // What the action will actually count: adjacent marked words collapse
+  // into one phrase, so this is the number the limit applies to — not the
+  // raw count of marked tokens, which would over-report.
+  const markedPhraseCount = new Set(
+    groupMarkedRuns(tokens, markedIndices).map((run) => run.text),
+  ).size;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -444,11 +463,21 @@ export default function InlineTranslateTool() {
             </button>
           </div>
 
+          {/* maxLength stops the limit ever being exceeded rather than
+              rejecting the request afterwards, and the counter below makes
+              the ceiling visible before it's reached (Question 271). The
+              server still enforces the same number — this is the field
+              agreeing with it, not replacing it. */}
           <textarea
             value={text}
             onChange={(event) => setText(event.target.value)}
+            maxLength={INLINE_TRANSLATE_MAX_CHARACTERS}
             placeholder="Paste your text here..."
             className="h-48 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 p-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+          />
+          <CharacterCount
+            value={text}
+            max={INLINE_TRANSLATE_MAX_CHARACTERS}
           />
 
           <div className="mt-4 flex flex-wrap gap-4">
@@ -497,9 +526,25 @@ export default function InlineTranslateTool() {
               <h2 className="text-lg font-semibold text-zinc-100">
                 Click the words you don&apos;t know
               </h2>
+              {/* Shows the phrase cap only once it's close enough to
+                  matter — marking a handful of words shouldn't come with a
+                  running quota next to it. */}
               <span className="text-sm text-zinc-500">
-                {markedIndices.size} marked · right-click a word for a quick
-                translation
+                {markedPhraseCount >= INLINE_TRANSLATE_MAX_PHRASES * 0.75 ? (
+                  <span
+                    className={
+                      markedPhraseCount > INLINE_TRANSLATE_MAX_PHRASES
+                        ? "text-amber-400"
+                        : undefined
+                    }
+                  >
+                    {markedPhraseCount} of {INLINE_TRANSLATE_MAX_PHRASES}{" "}
+                    phrases
+                  </span>
+                ) : (
+                  <>{markedIndices.size} marked</>
+                )}{" "}
+                · right-click a word for a quick translation
               </span>
             </div>
             <p className="whitespace-pre-wrap text-lg leading-relaxed text-zinc-100">

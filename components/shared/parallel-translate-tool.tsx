@@ -7,6 +7,9 @@ import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
 import { translateSentences } from "@/app/actions/parallel-translate-actions";
 import { writeCarriedColumns } from "@/lib/parallel-listen-carry";
+import { describeClientError } from "@/lib/client-error";
+import { PARALLEL_TRANSLATE_MAX_CHARACTERS } from "@/lib/limits";
+import CharacterCount from "@/components/shared/character-count";
 import LanguageCombobox from "@/components/shared/language-combobox";
 
 type OutputFormat = "markdown" | "vertical";
@@ -168,20 +171,39 @@ export default function ParallelTranslateTool() {
       const results = await Promise.all(
         targets.map(async (target) => ({
           id: target.id,
-          text: (
-            await translateSentences(sentences, source.text, target.name)
-          ).join("\n"),
+          name: target.name,
+          result: await translateSentences(sentences, source.text, target.name),
         })),
       );
+
+      // Each column is its own request, so some can succeed while others
+      // fail. The successful ones are applied rather than discarded — their
+      // AI calls have already been made and paid for — and the failure is
+      // reported alongside, naming which language it was so it's clear what
+      // is and isn't filled in.
+      const failed = results.filter((entry) => !entry.result.ok);
+
       setColumns((prev) =>
         prev.map((column) => {
-          const result = results.find((r) => r.id === column.id);
-          return result ? { ...column, text: result.text } : column;
+          const entry = results.find((r) => r.id === column.id);
+          if (!entry || !entry.result.ok) return column;
+          return { ...column, text: entry.result.data.join("\n") };
         }),
       );
-      setError(null);
+
+      const firstFailure = failed[0];
+      if (firstFailure && !firstFailure.result.ok) {
+        const label = firstFailure.name.trim() || "one language";
+        setError(
+          failed.length > 1
+            ? `${failed.length} languages couldn't be translated. ${label}: ${firstFailure.result.error}`
+            : `${label}: ${firstFailure.result.error}`,
+        );
+      } else {
+        setError(null);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Translation failed.");
+      setError(describeClientError(err, "Translation failed."));
     } finally {
       setTranslating(false);
     }
@@ -356,8 +378,15 @@ export default function ParallelTranslateTool() {
                     onChange={(event) =>
                       updateColumn(column.id, { text: event.target.value })
                     }
+                    maxLength={PARALLEL_TRANSLATE_MAX_CHARACTERS}
                     placeholder={`Paste your ${column.name || "text"} here...`}
                     className="h-32 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 p-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                  />
+                  {/* Per column, because the limit is per column — the
+                      action receives one source text per request. */}
+                  <CharacterCount
+                    value={column.text}
+                    max={PARALLEL_TRANSLATE_MAX_CHARACTERS}
                   />
                 </div>
               ))}

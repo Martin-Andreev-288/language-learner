@@ -12,6 +12,7 @@ import {
 import { lookupWord } from "@/app/actions/word-lookup-actions";
 import { shuffle } from "@/lib/shuffle";
 import { tokenizeWords } from "@/lib/clickable-words";
+import { describeClientError } from "@/lib/client-error";
 
 type LookupResult = {
   word: string;
@@ -139,12 +140,17 @@ export default function VocabularyShuffleSession({
 
     try {
       const result = await lookupWord(word, current.text);
-      if (lookupRequestRef.current === requestId) {
-        setLookup({ word, ...result });
+      // Guarded on the request id throughout: a slower earlier lookup must
+      // never overwrite the answer to a word clicked more recently.
+      if (lookupRequestRef.current !== requestId) return;
+      if (!result.ok) {
+        setLookupError(result.error);
+        return;
       }
+      setLookup({ word, ...result.data });
     } catch (err) {
       if (lookupRequestRef.current === requestId) {
-        setLookupError(err instanceof Error ? err.message : "Lookup failed.");
+        setLookupError(describeClientError(err, "Lookup failed."));
       }
     } finally {
       if (lookupRequestRef.current === requestId) {

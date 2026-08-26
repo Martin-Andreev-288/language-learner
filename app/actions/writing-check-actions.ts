@@ -5,8 +5,8 @@ import { generateText, Output } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 import { describeAiError } from "@/lib/ai-error";
-
-const MAX_CHARACTERS = 4000;
+import { actionError, actionOk, type ActionResult } from "@/lib/action-result";
+import { WRITING_CHECK_MAX_CHARACTERS as MAX_CHARACTERS } from "@/lib/limits";
 
 const correctionSchema = z.object({
     original: z
@@ -36,7 +36,12 @@ const checkSchema = z.object({
 // to be obvious, but the chat (Question 259) sends single messages that can
 // be three words long — short enough that guessing the language wrong is a
 // real risk, and a wrong guess turns every word into a "mistake".
-export async function checkWriting(text: string, language?: string) {
+// Returns failures rather than throwing them, so the message survives a
+// production build — see lib/action-result.ts.
+export async function checkWriting(
+    text: string,
+    language?: string,
+): Promise<ActionResult<z.infer<typeof checkSchema>>> {
     const session = await auth();
     if (!session?.user?.id) {
         throw new Error("Unauthorized");
@@ -44,11 +49,11 @@ export async function checkWriting(text: string, language?: string) {
 
     const trimmedText = text.trim();
     if (!trimmedText) {
-        throw new Error("There's nothing to check yet.");
+        return actionError("There's nothing to check yet.");
     }
 
     if (trimmedText.length > MAX_CHARACTERS) {
-        throw new Error(
+        return actionError(
             `That's ${trimmedText.length} characters — please check ${MAX_CHARACTERS} or fewer at a time.`,
         );
     }
@@ -77,8 +82,8 @@ ${trimmedText}
         output = result.output;
     } catch (err) {
         console.error("checkWriting failed:", err);
-        throw describeAiError(err, "Writing check service");
+        return actionError(describeAiError(err, "Writing check service").message);
     }
 
-    return output;
+    return actionOk(output);
 }

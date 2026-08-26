@@ -15,6 +15,8 @@ import {
   type EnrichableField,
   type EnrichmentDetailField,
 } from "@/lib/vocabulary-enrichment";
+import { describeClientError } from "@/lib/client-error";
+import { VOCABULARY_MAX_WORDS } from "@/lib/limits";
 
 interface VocabularyEntryData {
   id: string;
@@ -283,10 +285,15 @@ export default function VocabularyWordList({
     setEnriching(true);
     setEnrichError(null);
     try {
-      const { updated, requested } = await enrichVocabularyEntries(
-        Array.from(selectedIds),
-        { fields, translateInto },
-      );
+      const result = await enrichVocabularyEntries(Array.from(selectedIds), {
+        fields,
+        translateInto,
+      });
+      if (!result.ok) {
+        setEnrichError(result.error);
+        return;
+      }
+      const { updated, requested } = result.data;
       setEnrichModalOpen(false);
       setSelectedIds(new Set());
       setEnrichSummary(
@@ -297,9 +304,7 @@ export default function VocabularyWordList({
       router.refresh();
     } catch (err) {
       setEnrichError(
-        err instanceof Error
-          ? err.message
-          : "Couldn't generate that information — try again.",
+        describeClientError(err, "Couldn't generate that information — try again."),
       );
     } finally {
       setEnriching(false);
@@ -381,6 +386,16 @@ export default function VocabularyWordList({
       window.removeEventListener("resize", close);
     };
   }, [openFilter]);
+
+  // Counted the way addVocabularyEntries counts: one entry per non-empty
+  // line, deduplicated, so the number shown is the number the limit is
+  // actually applied to rather than a rough line count.
+  const pastedWordCount = new Set(
+    words
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean),
+  ).size;
 
   // Sorted, de-duplicated straight from what's actually saved — no separate
   // list to keep in sync, and it only ever offers languages you actually
@@ -467,6 +482,23 @@ export default function VocabularyWordList({
             placeholder={"substantial\nnevertheless\nreluctant"}
             className="h-28 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 p-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
           />
+          {/* Counted in words, not characters, so `maxLength` can't express
+              it — the count is shown and Add is disabled past the limit
+              instead, which is the closest equivalent to an uncrossable
+              ceiling for a line-based field. */}
+          {pastedWordCount >= VOCABULARY_MAX_WORDS * 0.75 && (
+            <p
+              className={`mt-1 text-right text-xs ${
+                pastedWordCount > VOCABULARY_MAX_WORDS
+                  ? "text-amber-400"
+                  : "text-zinc-500"
+              }`}
+            >
+              {pastedWordCount} / {VOCABULARY_MAX_WORDS} words
+              {pastedWordCount > VOCABULARY_MAX_WORDS &&
+                " — remove some before adding"}
+            </p>
+          )}
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <div className="flex-1">
               <label
@@ -486,7 +518,7 @@ export default function VocabularyWordList({
             </div>
             <button
               onClick={handleAdd}
-              disabled={adding}
+              disabled={adding || pastedWordCount > VOCABULARY_MAX_WORDS}
               className="rounded-lg bg-indigo-600 px-5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {adding ? "Adding…" : "Add"}

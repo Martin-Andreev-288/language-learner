@@ -14,6 +14,7 @@ import {
   type FeedbackState,
 } from "@/lib/language-chat-note-format";
 import { readAndClearChatCarry } from "@/lib/language-chat-carry";
+import { describeClientError } from "@/lib/client-error";
 
 export default function LanguageChat() {
   // Restored from a saved note, if the user arrived via "Continue this
@@ -80,15 +81,18 @@ export default function LanguageChat() {
     setMessageFeedback(id, { status: "checking" });
     try {
       const result = await checkWriting(text, language);
+      if (!result.ok) {
+        setMessageFeedback(id, { status: "error", message: result.error });
+        return;
+      }
       setMessageFeedback(id, {
         status: "done",
-        corrections: result.corrections,
+        corrections: result.data.corrections,
       });
     } catch (err) {
       setMessageFeedback(id, {
         status: "error",
-        message:
-          err instanceof Error ? err.message : "Couldn't check that message.",
+        message: describeClientError(err, "Couldn't check that message."),
       });
     }
   }

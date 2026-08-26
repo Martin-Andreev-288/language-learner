@@ -6,6 +6,7 @@ import { generateText, Output } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 import { describeAiError } from "@/lib/ai-error";
+import { actionError, actionOk } from "@/lib/action-result";
 import {
     ENRICHABLE_FIELDS,
     MAX_ENRICH_WORDS,
@@ -59,6 +60,8 @@ async function requireUserId(): Promise<string> {
     return session.user.id;
 }
 
+// Returns failures rather than throwing them, so the message survives a
+// production build — see lib/action-result.ts.
 export async function enrichVocabularyEntries(
     entryIds: string[],
     options: EnrichOptions,
@@ -69,19 +72,19 @@ export async function enrichVocabularyEntries(
         options.fields.includes(field),
     );
     if (fields.length === 0) {
-        throw new Error("Pick at least one kind of information to add.");
+        return actionError("Pick at least one kind of information to add.");
     }
 
     const translateInto = options.translateInto?.trim() ?? "";
     if (fields.includes("translation") && !translateInto) {
-        throw new Error("Choose a language to translate into.");
+        return actionError("Choose a language to translate into.");
     }
 
     if (entryIds.length === 0) {
-        throw new Error("Select at least one word first.");
+        return actionError("Select at least one word first.");
     }
     if (entryIds.length > MAX_ENRICH_WORDS) {
-        throw new Error(
+        return actionError(
             `That's ${entryIds.length} words — please select ${MAX_ENRICH_WORDS} or fewer at a time.`,
         );
     }
@@ -92,7 +95,7 @@ export async function enrichVocabularyEntries(
         where: { id: { in: entryIds }, userId },
     });
     if (entries.length === 0) {
-        throw new Error("Those words couldn't be found.");
+        return actionError("Those words couldn't be found.");
     }
 
     const requestedList = fields
@@ -122,7 +125,7 @@ Return one object per word, in the same order, and do not skip any.`,
         output = response.output;
     } catch (err) {
         console.error("enrichVocabularyEntries failed:", err);
-        throw describeAiError(err, "Enrichment service");
+        return actionError(describeAiError(err, "Enrichment service").message);
     }
 
     // Matched by word text rather than by array position — the prompt asks
@@ -154,5 +157,5 @@ Return one object per word, in the same order, and do not skip any.`,
         updated += 1;
     }
 
-    return { updated, requested: entries.length };
+    return actionOk({ updated, requested: entries.length });
 }
