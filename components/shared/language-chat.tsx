@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import { checkWriting } from "@/app/actions/writing-check-actions";
-import { createNote } from "@/app/actions/note-actions";
+import { upsertNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
 import {
   CHAT_METADATA_KIND,
@@ -30,6 +30,13 @@ export default function LanguageChat() {
     () => initialCarry?.feedback ?? new Map(),
   );
   const [openFeedback, setOpenFeedback] = useState<Set<string>>(new Set());
+  // Which note this conversation is saved to, once it has been saved at
+  // all — or the note it was resumed from. Saving again updates that note
+  // rather than creating a second copy of the same, still-growing
+  // conversation (Question 268).
+  const [savedNoteId, setSavedNoteId] = useState<string | null>(
+    () => initialCarry?.noteId ?? null,
+  );
   const [savingNote, setSavingNote] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
   const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -127,6 +134,10 @@ export default function LanguageChat() {
     setOpenFeedback(new Set());
     setNoteError(null);
     setNoteSaved(false);
+    // Critically also forgotten: without this, the first save of the *next*
+    // conversation would overwrite the previous one's note instead of
+    // starting a new one.
+    setSavedNoteId(null);
   }
 
   async function handleSaveToNote() {
@@ -137,15 +148,20 @@ export default function LanguageChat() {
     try {
       const title = language.trim() || "Chat";
       const data = { language, messages, feedback };
-      await createNote(
+      // Updates the note this conversation is already saved to, or creates
+      // one the first time. Passing the id back lets the action fall back to
+      // creating if that note was deleted from Notes in the meantime, so a
+      // deleted note never turns a save into an error.
+      const saved = await upsertNote(
+        savedNoteId,
         NotePage.writing,
         title,
         // The note's text is only the readable transcript now; everything
         // needed to resume rides in metadata instead of being hidden in it.
         formatChatTranscript(data),
-        null,
         { kind: CHAT_METADATA_KIND, data: encodeChatMetadata(data) },
       );
+      setSavedNoteId(saved.id);
       setNoteSaved(true);
       if (noteResetRef.current) clearTimeout(noteResetRef.current);
       noteResetRef.current = setTimeout(() => setNoteSaved(false), 2000);
@@ -190,18 +206,27 @@ export default function LanguageChat() {
                 <button
                   onClick={handleSaveToNote}
                   disabled={savingNote}
-                  title="Save this conversation, with any feedback found so far, as a note"
+                  title={
+                    savedNoteId
+                      ? "Update the note this conversation is saved to"
+                      : "Save this conversation, with any feedback found so far, as a note"
+                  }
                   className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                     noteSaved
                       ? "bg-emerald-600 text-white"
                       : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
                   } disabled:cursor-not-allowed`}
                 >
+                  {/* Wording follows what the click actually does — once
+                      this conversation has a note, saving updates it, so
+                      "Save to a new note" would be a lie. */}
                   {noteSaved
                     ? "Saved!"
                     : savingNote
                       ? "Saving…"
-                      : "Save to a new note"}
+                      : savedNoteId
+                        ? "Save"
+                        : "Save to a new note"}
                 </button>
                 <button
                   onClick={handleNewChat}

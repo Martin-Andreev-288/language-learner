@@ -9,21 +9,30 @@ import { type ChatNoteData } from "@/lib/language-chat-note-format";
 // whole time.
 const STORAGE_KEY = "language-chat:carry";
 
-export function writeChatCarry(data: ChatNoteData) {
+export interface ChatCarry extends ChatNoteData {
+    // Which note this conversation came out of, so saving after resuming
+    // keeps that same note current instead of spawning a second copy of the
+    // same conversation (Question 268). Not part of ChatNoteData itself —
+    // a note has no reason to store its own id inside its own metadata.
+    noteId: string;
+}
+
+export function writeChatCarry(carry: ChatCarry) {
     if (typeof window === "undefined") return;
     // Map isn't JSON-serializable directly — same entries-array conversion
-    // formatChatNote already uses for the same reason.
+    // the note metadata already uses for the same reason.
     window.sessionStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
-            language: data.language,
-            messages: data.messages,
-            feedback: Array.from(data.feedback.entries()),
+            noteId: carry.noteId,
+            language: carry.language,
+            messages: carry.messages,
+            feedback: Array.from(carry.feedback.entries()),
         }),
     );
 }
 
-export function readAndClearChatCarry(): ChatNoteData | null {
+export function readAndClearChatCarry(): ChatCarry | null {
     if (typeof window === "undefined") return null;
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
@@ -31,6 +40,7 @@ export function readAndClearChatCarry(): ChatNoteData | null {
     try {
         const parsed = JSON.parse(raw);
         if (
+            typeof parsed?.noteId !== "string" ||
             typeof parsed?.language !== "string" ||
             !Array.isArray(parsed.messages) ||
             !Array.isArray(parsed.feedback)
@@ -38,6 +48,7 @@ export function readAndClearChatCarry(): ChatNoteData | null {
             return null;
         }
         return {
+            noteId: parsed.noteId,
             language: parsed.language,
             messages: parsed.messages,
             feedback: new Map(parsed.feedback),

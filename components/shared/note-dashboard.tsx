@@ -313,7 +313,9 @@ export default function NoteDashboard({ page, data }: Props) {
     // breaking their ability to continue the conversation.
     const chat = decodeChatMetadata(full.metadata);
     if (chat) {
-      writeChatCarry(chat);
+      // The note's own id rides along, so saving after continuing updates
+      // this note rather than creating a second copy of the conversation.
+      writeChatCarry({ ...chat, noteId: full.id });
       router.push("/writing/chat");
       return;
     }
