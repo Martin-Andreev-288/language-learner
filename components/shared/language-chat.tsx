@@ -14,21 +14,34 @@ import {
   type FeedbackState,
 } from "@/lib/language-chat-note-format";
 import { readAndClearChatCarry } from "@/lib/language-chat-carry";
+import {
+  clearChatDraft,
+  readChatDraft,
+  writeChatDraft,
+} from "@/lib/language-chat-draft";
 import { describeClientError } from "@/lib/client-error";
 
 export default function LanguageChat() {
-  // Restored from a saved note, if the user arrived via "Continue this
-  // conversation" — read as part of the initial state itself (Answer
-  // 171/225's discipline), not in an effect afterward, and exactly once:
-  // the carry read clears itself as a side effect, so calling it more than
-  // once would silently lose everything after the first read.
-  const [initialCarry] = useState(() => readAndClearChatCarry());
-  const [language, setLanguage] = useState(() => initialCarry?.language ?? "");
+  // Two things can seed this page, and they're read in a deliberate order
+  // (Answer 171/225's discipline: as the initial state itself, not in an
+  // effect afterward, and exactly once each).
+  //
+  // A carry wins over a draft when both exist. Clicking "Continue this
+  // conversation" is an explicit request for *that* conversation, so it
+  // must not be quietly overruled by whatever was last left on this page.
+  // The carry read also clears itself as a side effect, so it's read once
+  // into its own state rather than called again per field.
+  const [initial] = useState(() => {
+    const carry = readAndClearChatCarry();
+    if (carry) return carry;
+    return readChatDraft();
+  });
+  const [language, setLanguage] = useState(() => initial?.language ?? "");
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [feedback, setFeedback] = useState<Map<string, FeedbackState>>(
-    () => initialCarry?.feedback ?? new Map(),
+    () => initial?.feedback ?? new Map(),
   );
   const [openFeedback, setOpenFeedback] = useState<Set<string>>(new Set());
   // Which note this conversation is saved to, once it has been saved at
@@ -36,7 +49,7 @@ export default function LanguageChat() {
   // rather than creating a second copy of the same, still-growing
   // conversation (Question 268).
   const [savedNoteId, setSavedNoteId] = useState<string | null>(
-    () => initialCarry?.noteId ?? null,
+    () => initial?.noteId ?? null,
   );
   const [savingNote, setSavingNote] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
@@ -51,7 +64,7 @@ export default function LanguageChat() {
   // that gets re-checked, so resuming costs no extra AI calls for history
   // that was already looked at.
   const { messages, sendMessage, status, error, setMessages } = useChat({
-    messages: initialCarry?.messages ?? [],
+    messages: initial?.messages ?? [],
   });
 
   const busy = status === "submitted" || status === "streaming";
@@ -69,6 +82,25 @@ export default function LanguageChat() {
       return () => clearTimeout(timer);
     }
   }, [busy]);
+
+  // Keeps the conversation recoverable across a navigation (Question 274).
+  // A genuine "sync React state out to an external system" effect, the same
+  // legitimate use Inline Translate's own draft makes of one.
+  //
+  // Skipped entirely while a reply is streaming: `messages` updates on
+  // every token, and serializing the whole conversation that often would be
+  // pure waste. Once streaming settles, `busy` flips and this runs with the
+  // finished message, so nothing is missed by waiting.
+  useEffect(() => {
+    if (busy) return;
+    if (messages.length === 0) {
+      // Nothing worth restoring — and leaving a stale draft behind would
+      // resurrect a conversation the user has already cleared.
+      clearChatDraft();
+      return;
+    }
+    writeChatDraft({ language, messages, feedback, noteId: savedNoteId });
+  }, [busy, messages, language, feedback, savedNoteId]);
 
   function setMessageFeedback(id: string, state: FeedbackState) {
     setFeedback((prev) => new Map(prev).set(id, state));
