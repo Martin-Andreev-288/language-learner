@@ -6,7 +6,11 @@ import { buildParagraphs } from "@/lib/paragraph-sentences";
 import { parseAnnotated, stripAnnotations } from "@/lib/inline-annotations";
 import { guessLanguageCode } from "@/lib/language-codes";
 import LanguageCombobox from "@/components/shared/language-combobox";
-import { formatInlineListenNote } from "@/lib/inline-listen-note-format";
+import {
+  encodeInlineListenMetadata,
+  formatInlineListenTranscript,
+  INLINE_LISTEN_METADATA_KIND,
+} from "@/lib/inline-listen-note-format";
 import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
 
@@ -97,10 +101,18 @@ export default function InlineListenTool() {
     setSavingNote(true);
     try {
       const title = language.trim() || "Inline Listen";
+      const data = { text, sourceLanguage: language };
       await createNote(
         NotePage.listening,
         title,
-        formatInlineListenNote({ text, sourceLanguage: language }),
+        // Content is only the readable passage now; what "Listen again"
+        // needs rides in metadata instead of being hidden inside it.
+        formatInlineListenTranscript(data),
+        null,
+        {
+          kind: INLINE_LISTEN_METADATA_KIND,
+          data: encodeInlineListenMetadata(data),
+        },
       );
       setNoteSaved(true);
       if (noteResetRef.current) clearTimeout(noteResetRef.current);

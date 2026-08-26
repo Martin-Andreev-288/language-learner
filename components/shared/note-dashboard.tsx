@@ -27,13 +27,13 @@ import {
 } from "@/lib/folder-tree";
 import { writeCarriedColumns } from "@/lib/parallel-listen-carry";
 import {
-  isParallelListenNote,
-  parseParallelListenNote,
+  decodeParallelListenMetadata,
+  PARALLEL_LISTEN_METADATA_KIND,
 } from "@/lib/parallel-listen-note-format";
 import { writeInlineListenCarry } from "@/lib/inline-listen-carry";
 import {
-  isInlineListenNote,
-  parseInlineListenNote,
+  decodeInlineListenMetadata,
+  INLINE_LISTEN_METADATA_KIND,
 } from "@/lib/inline-listen-note-format";
 import { writeChatCarry } from "@/lib/language-chat-carry";
 import {
@@ -294,14 +294,14 @@ export default function NoteDashboard({ page, data }: Props) {
   async function handleListenAgain(note: DashboardNote) {
     const full = await getNote(note.id);
 
-    const parallelColumns = parseParallelListenNote(full.content);
+    const parallelColumns = decodeParallelListenMetadata(full.metadata);
     if (parallelColumns) {
       writeCarriedColumns(parallelColumns);
       router.push("/listening/parallel-listen");
       return;
     }
 
-    const inlineListen = parseInlineListenNote(full.content);
+    const inlineListen = decodeInlineListenMetadata(full.metadata);
     if (inlineListen) {
       writeInlineListenCarry(inlineListen);
       router.push("/listening/inline-listen");
@@ -623,8 +623,8 @@ export default function NoteDashboard({ page, data }: Props) {
               canListenAgain={
                 page === "listening"
                   ? (note) =>
-                      isParallelListenNote(note.preview) ||
-                      isInlineListenNote(note.preview)
+                      note.metadataKind === PARALLEL_LISTEN_METADATA_KIND ||
+                      note.metadataKind === INLINE_LISTEN_METADATA_KIND
                   : page === "writing"
                     ? (note) => note.metadataKind === CHAT_METADATA_KIND
                     : undefined

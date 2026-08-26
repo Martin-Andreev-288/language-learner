@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { splitIntoSentences } from "@/lib/sentence-split";
 import { readAndClearCarriedColumns } from "@/lib/parallel-listen-carry";
-import { formatParallelListenNote } from "@/lib/parallel-listen-note-format";
+import {
+  encodeParallelListenMetadata,
+  formatParallelListenTranscript,
+  PARALLEL_LISTEN_METADATA_KIND,
+} from "@/lib/parallel-listen-note-format";
 import { guessLanguageCode } from "@/lib/language-codes";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import { buildParagraphs } from "@/lib/paragraph-sentences";
@@ -412,7 +416,14 @@ export default function ParallelListenTool() {
       await createNote(
         NotePage.listening,
         title,
-        formatParallelListenNote(columns),
+        // Content is only the readable transcript now; what "Listen again"
+        // needs rides in metadata instead of being hidden inside it.
+        formatParallelListenTranscript(columns),
+        null,
+        {
+          kind: PARALLEL_LISTEN_METADATA_KIND,
+          data: encodeParallelListenMetadata(columns),
+        },
       );
       setNoteSaved(true);
       if (noteResetRef.current) clearTimeout(noteResetRef.current);
