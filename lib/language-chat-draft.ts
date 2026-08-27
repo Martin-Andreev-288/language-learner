@@ -13,6 +13,15 @@ import { type FeedbackState } from "@/lib/language-chat-note-format";
 // conversation grows and read back whenever the page is opened again.
 const STORAGE_KEY = "language-chat:draft";
 
+// A reply the user asked to have translated (Question 277). Defined here
+// rather than beside FeedbackState because a translation is only ever a
+// reading aid on this page — it isn't part of the conversation and never
+// goes into a saved note, so this draft is the only thing that persists it.
+export type TranslationState =
+    | { status: "loading" }
+    | { status: "done"; text: string }
+    | { status: "error"; message: string };
+
 export interface ChatDraft {
     language: string;
     messages: UIMessage[];
@@ -22,6 +31,41 @@ export interface ChatDraft {
     // saved conversation belongs to and the next save would create a
     // duplicate (the failure Question 268 built savedNoteId to avoid).
     noteId: string | null;
+    // The chosen "Translate into" language, and whatever has been translated
+    // so far, keyed by message id. Worth carrying: coming back to a
+    // re-picked language field and a row of buttons that each cost an AI
+    // call again is exactly the kind of small loss Question 274 set out to
+    // stop. Bounded by the conversation itself — only messages that exist
+    // can have been translated.
+    translateInto: string;
+    translations: Map<string, TranslationState>;
+}
+
+// An in-flight entry describes a request belonging to a page that no longer
+// exists. Restoring one would show a badge pulsing forever, or a button
+// stuck on "Translating…", with nothing left running to ever finish it —
+// so it's dropped, and the message simply comes back un-checked. (The
+// feedback half of this is a bug from Question 274, found while adding the
+// translation half.)
+//
+// A *failed* check is still worth keeping: the badge shows it, and its
+// message is right there in the tooltip. A failed translation isn't —
+// whether its panel was open isn't persisted, so restoring one would leave
+// a button reading "Try again" above nothing that explains why.
+function persistedFeedback(
+    entries: Map<string, FeedbackState>,
+): [string, FeedbackState][] {
+    return Array.from(entries.entries()).filter(
+        ([, state]) => state.status !== "checking",
+    );
+}
+
+function persistedTranslations(
+    entries: Map<string, TranslationState>,
+): [string, TranslationState][] {
+    return Array.from(entries.entries()).filter(
+        ([, state]) => state.status === "done",
+    );
 }
 
 export function writeChatDraft(draft: ChatDraft) {
@@ -39,8 +83,10 @@ export function writeChatDraft(draft: ChatDraft) {
                 language: draft.language,
                 messages: draft.messages,
                 // Map isn't JSON-serializable directly.
-                feedback: Array.from(draft.feedback.entries()),
+                feedback: persistedFeedback(draft.feedback),
                 noteId: draft.noteId,
+                translateInto: draft.translateInto,
+                translations: persistedTranslations(draft.translations),
             }),
         );
     } catch {
@@ -84,6 +130,16 @@ export function readChatDraft(): ChatDraft | null {
             feedback: new Map(parsed.feedback),
             noteId:
                 typeof parsed.noteId === "string" ? parsed.noteId : null,
+            // Read leniently rather than as required fields, so a draft
+            // written before Question 277 still restores its conversation
+            // instead of being discarded whole over two missing keys.
+            translateInto:
+                typeof parsed.translateInto === "string"
+                    ? parsed.translateInto
+                    : "",
+            translations: new Map(
+                Array.isArray(parsed.translations) ? parsed.translations : [],
+            ),
         };
     } catch {
         return null;

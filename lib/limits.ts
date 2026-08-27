@@ -38,6 +38,14 @@ export const PARALLEL_TRANSLATE_MAX_SENTENCES = 50;
 // Translate above.
 export const WRITING_CHECK_MAX_CHARACTERS = 6000;
 
+// The chat's "Translate" on a reply. Unlike every other limit here, the
+// text isn't typed by anyone — it's a message this app's own model just
+// wrote, so it's already bounded by the reply length. This is a guard
+// against an absurd request (a resumed conversation carrying something
+// unexpected), not a ration on real use, which is why it's generous
+// relative to how long a chat reply actually is.
+export const CHAT_TRANSLATE_MAX_CHARACTERS = 6000;
+
 // Vocabulary: words added in one paste. Not an AI call at all —
 // addVocabularyEntries is a plain database write — so this has none of
 // the cost pressure the limits above do. Raised generously; it exists to

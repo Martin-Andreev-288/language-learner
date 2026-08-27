@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import { checkWriting } from "@/app/actions/writing-check-actions";
+import { translateChatMessage } from "@/app/actions/chat-translate-actions";
 import { upsertNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
 import {
@@ -18,6 +19,7 @@ import {
   clearChatDraft,
   readChatDraft,
   writeChatDraft,
+  type TranslationState,
 } from "@/lib/language-chat-draft";
 import { describeClientError } from "@/lib/client-error";
 
@@ -36,7 +38,20 @@ export default function LanguageChat() {
     if (carry) return carry;
     return readChatDraft();
   });
+  // Only a draft can carry these two. A carry comes out of a saved note,
+  // and a note has never stored a translation — translations are a reading
+  // aid for this page, not part of the conversation itself.
+  const initialDraft = initial && "translations" in initial ? initial : null;
   const [language, setLanguage] = useState(() => initial?.language ?? "");
+  const [translateInto, setTranslateInto] = useState(
+    () => initialDraft?.translateInto ?? "",
+  );
+  const [translations, setTranslations] = useState<
+    Map<string, TranslationState>
+  >(() => initialDraft?.translations ?? new Map());
+  const [openTranslations, setOpenTranslations] = useState<Set<string>>(
+    new Set(),
+  );
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -99,8 +114,23 @@ export default function LanguageChat() {
       clearChatDraft();
       return;
     }
-    writeChatDraft({ language, messages, feedback, noteId: savedNoteId });
-  }, [busy, messages, language, feedback, savedNoteId]);
+    writeChatDraft({
+      language,
+      messages,
+      feedback,
+      noteId: savedNoteId,
+      translateInto,
+      translations,
+    });
+  }, [
+    busy,
+    messages,
+    language,
+    feedback,
+    savedNoteId,
+    translateInto,
+    translations,
+  ]);
 
   function setMessageFeedback(id: string, state: FeedbackState) {
     setFeedback((prev) => new Map(prev).set(id, state));
@@ -141,6 +171,62 @@ export default function LanguageChat() {
     });
   }
 
+  function toggleTranslation(id: string) {
+    setOpenTranslations((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  // Translating into a different language invalidates everything already
+  // translated — those results are in the *old* language, and showing them
+  // again under the new one would be quietly wrong. Cheaper to drop them
+  // than to track which language each was translated into.
+  function handleTranslateIntoChange(next: string) {
+    setTranslateInto(next);
+    setTranslations(new Map());
+    setOpenTranslations(new Set());
+  }
+
+  async function handleTranslate(id: string, text: string) {
+    const existing = translations.get(id);
+    if (existing?.status === "loading") return;
+    // Already have it — this click is only show/hide, not a second AI call.
+    if (existing?.status === "done") {
+      toggleTranslation(id);
+      return;
+    }
+    if (!translateInto.trim()) return;
+
+    // A previous failure falls through to here rather than toggling, so the
+    // button doubles as "try again" instead of leaving a dead panel behind.
+    setTranslations((prev) => new Map(prev).set(id, { status: "loading" }));
+    setOpenTranslations((prev) => new Set(prev).add(id));
+    try {
+      const result = await translateChatMessage(text, language, translateInto);
+      setTranslations((prev) =>
+        new Map(prev).set(
+          id,
+          result.ok
+            ? { status: "done", text: result.data }
+            : { status: "error", message: result.error },
+        ),
+      );
+    } catch (err) {
+      setTranslations((prev) =>
+        new Map(prev).set(id, {
+          status: "error",
+          message: describeClientError(err, "Couldn't translate that message."),
+        }),
+      );
+    }
+  }
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     const text = input.trim();
@@ -168,6 +254,11 @@ export default function LanguageChat() {
     setMessages([]);
     setFeedback(new Map());
     setOpenFeedback(new Set());
+    // The translations go, the chosen language stays — same rule the
+    // practice language above already follows. It's a setting, not part of
+    // the conversation being cleared.
+    setTranslations(new Map());
+    setOpenTranslations(new Set());
     setNoteError(null);
     setNoteSaved(false);
     // Critically also forgotten: without this, the first save of the *next*
@@ -237,6 +328,28 @@ export default function LanguageChat() {
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
               />
             </div>
+            {/* Optional, and left empty by default: the app has no notion of
+                which language you already speak, so there's nothing sensible
+                to guess here. Leaving it blank simply means the reply
+                bubbles carry no Translate button — the chat works exactly as
+                it did before this existed. */}
+            <div>
+              <label
+                htmlFor="chat-translate-into"
+                className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500"
+              >
+                Translate into
+              </label>
+              <LanguageCombobox
+                id="chat-translate-into"
+                value={translateInto}
+                onChange={handleTranslateIntoChange}
+                placeholder="Optional"
+                compact
+                wrapperClassName="w-40"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+              />
+            </div>
             {messages.length > 0 && (
               <>
                 <button
@@ -293,6 +406,8 @@ export default function LanguageChat() {
                 const expanded = openFeedback.has(message.id);
                 const mistakes =
                   state?.status === "done" ? state.corrections : [];
+                const translation = translations.get(message.id);
+                const translationOpen = openTranslations.has(message.id);
 
                 return (
                   <div key={message.id}>
@@ -380,6 +495,61 @@ export default function LanguageChat() {
                         </div>
                       </div>
                     )}
+
+                    {/* Only on replies, and only once a "Translate into"
+                        language is set. Your own messages don't get one —
+                        you wrote them, and the badge beside them is already
+                        the thing that has something to say about them. */}
+                    {message.role === "assistant" &&
+                      translateInto.trim() !== "" && (
+                        <div className="mt-1 flex justify-start">
+                          <button
+                            onClick={() =>
+                              handleTranslate(message.id, messageText(message))
+                            }
+                            /* Disabled while a reply streams: the newest
+                               message is still half-written, and translating
+                               a fragment would spend a request on text
+                               that's about to change. */
+                            disabled={busy || translation?.status === "loading"}
+                            title={
+                              translation?.status === "done" && translationOpen
+                                ? "Hide the translation"
+                                : `Translate this reply into ${translateInto.trim()}`
+                            }
+                            className="rounded px-1.5 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:text-zinc-700 disabled:hover:text-zinc-700"
+                          >
+                            {translation?.status === "loading"
+                              ? "Translating…"
+                              : translation?.status === "error"
+                                ? "Try again"
+                                : translationOpen
+                                  ? "Hide translation"
+                                  : "Translate"}
+                          </button>
+                        </div>
+                      )}
+
+                    {/* Nothing is drawn while it's still loading — the
+                        button already says so, and an empty panel would
+                        just push the conversation around for a second. */}
+                    {translationOpen &&
+                      (translation?.status === "done" ||
+                        translation?.status === "error") && (
+                        <div className="mt-1 flex justify-start">
+                          <div className="w-[85%] rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+                            {translation.status === "error" ? (
+                              <p className="text-sm text-red-400">
+                                {translation.message}
+                              </p>
+                            ) : (
+                              <p className="whitespace-pre-wrap text-sm text-zinc-300">
+                                {translation.text}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
                   </div>
                 );
               })
