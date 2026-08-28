@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import AuthPrompt from "@/components/shared/auth-prompt";
-import WritingCheckTool from "@/components/shared/writing-check-tool";
+import CheckTool from "@/components/shared/check-tool";
 
 export default async function WritingCheckPage() {
   const session = await auth();
@@ -14,5 +14,5 @@ export default async function WritingCheckPage() {
     );
   }
 
-  return <WritingCheckTool />;
+  return <CheckTool mode="writing" />;
 }
