@@ -59,6 +59,7 @@ const navLinks: NavItem[] = [
     label: "Speaking",
     subLinks: [
       { href: "/speaking/speak-check", label: "Speak Check" },
+      { href: "/speaking/voice-chat", label: "Voice Chat" },
       { href: "/speaking/shadowing", label: "Shadowing Practice" },
       { href: "/speaking/notes", label: "Notes" },
     ],

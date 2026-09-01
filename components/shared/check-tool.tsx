@@ -7,6 +7,7 @@ import { NotePage } from "@/app/generated/prisma";
 import { describeClientError } from "@/lib/client-error";
 import { WRITING_CHECK_MAX_CHARACTERS } from "@/lib/limits";
 import CharacterCount from "@/components/shared/character-count";
+import MicIcon from "@/components/shared/mic-icon";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import { guessLanguageCode } from "@/lib/language-codes";
 import { useSpeechToText } from "@/lib/use-speech-to-text";
@@ -70,25 +71,6 @@ type CorrectionSpan = {
   end: number; // exclusive
   index: number; // index into the corrections array
 };
-
-function MicIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-      <path
-        d="M6.5 1.5a1.75 1.75 0 011.75 1.75v3a1.75 1.75 0 11-3.5 0v-3A1.75 1.75 0 016.5 1.5z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-      />
-      <path
-        d="M3 6v.5a3.5 3.5 0 007 0V6M6.5 10v1.5"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
 
 // Finds each correction's `original` text inside the checked passage, so it
 // can be highlighted in place. Not every correction is guaranteed to match —

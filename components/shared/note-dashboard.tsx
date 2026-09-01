@@ -36,6 +36,7 @@ import {
   INLINE_LISTEN_METADATA_KIND,
 } from "@/lib/inline-listen-note-format";
 import { writeChatCarry } from "@/lib/language-chat-carry";
+import { CHAT_MODES, chatModeForPage } from "@/lib/language-chat-mode";
 import {
   CHAT_METADATA_KIND,
   decodeChatMetadata,
@@ -313,10 +314,16 @@ export default function NoteDashboard({ page, data }: Props) {
     // breaking their ability to continue the conversation.
     const chat = decodeChatMetadata(full.metadata);
     if (chat) {
+      // Which chat this note belongs to is decided by the notes section it
+      // was saved in, not hardcoded: a spoken conversation has to come back
+      // to the spoken page, under that page's own carry key, or it would be
+      // handed to the written chat and quietly not found there.
+      const chatMode = chatModeForPage(page);
+      if (!chatMode) return;
       // The note's own id rides along, so saving after continuing updates
       // this note rather than creating a second copy of the conversation.
-      writeChatCarry({ ...chat, noteId: full.id });
-      router.push("/writing/chat");
+      writeChatCarry(chatMode, { ...chat, noteId: full.id });
+      router.push(CHAT_MODES[chatMode].route);
       return;
     }
   }
@@ -625,7 +632,7 @@ export default function NoteDashboard({ page, data }: Props) {
                   ? (note) =>
                       note.metadataKind === PARALLEL_LISTEN_METADATA_KIND ||
                       note.metadataKind === INLINE_LISTEN_METADATA_KIND
-                  : page === "writing"
+                  : chatModeForPage(page)
                     ? (note) => note.metadataKind === CHAT_METADATA_KIND
                     : undefined
               }
@@ -634,7 +641,7 @@ export default function NoteDashboard({ page, data }: Props) {
               // again" inside NoteCard when omitted, so the Listening page
               // is unaffected.
               listenAgainLabel={
-                page === "writing" ? "Continue this conversation" : undefined
+                chatModeForPage(page) ? "Continue this conversation" : undefined
               }
               onListenAgain={handleListenAgain}
               onOpenNote={(note) => {

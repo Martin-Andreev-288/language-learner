@@ -1,4 +1,5 @@
 import { type ChatNoteData } from "@/lib/language-chat-note-format";
+import { CHAT_MODES, type ChatMode } from "@/lib/language-chat-mode";
 
 // One-time hand-off from a saved note back into the chat — same
 // sessionStorage-and-read-once shape as parallel-listen-carry.ts and
@@ -7,7 +8,14 @@ import { type ChatNoteData } from "@/lib/language-chat-note-format";
 // does. Not persisted beyond the one read: as far as the chat page is
 // concerned, it's as if this conversation had just been sitting there the
 // whole time.
-const STORAGE_KEY = "language-chat:carry";
+
+// Keyed per chat for the same reason the draft is (Question 292): a carry
+// written from the Writing notes page must not be picked up by the voice
+// chat, or "Continue this conversation" would open the wrong conversation
+// on the wrong page.
+function storageKey(mode: ChatMode) {
+    return `${CHAT_MODES[mode].storagePrefix}:carry`;
+}
 
 export interface ChatCarry extends ChatNoteData {
     // Which note this conversation came out of, so saving after resuming
@@ -17,12 +25,12 @@ export interface ChatCarry extends ChatNoteData {
     noteId: string;
 }
 
-export function writeChatCarry(carry: ChatCarry) {
+export function writeChatCarry(mode: ChatMode, carry: ChatCarry) {
     if (typeof window === "undefined") return;
     // Map isn't JSON-serializable directly — same entries-array conversion
     // the note metadata already uses for the same reason.
     window.sessionStorage.setItem(
-        STORAGE_KEY,
+        storageKey(mode),
         JSON.stringify({
             noteId: carry.noteId,
             language: carry.language,
@@ -32,11 +40,11 @@ export function writeChatCarry(carry: ChatCarry) {
     );
 }
 
-export function readAndClearChatCarry(): ChatCarry | null {
+export function readAndClearChatCarry(mode: ChatMode): ChatCarry | null {
     if (typeof window === "undefined") return null;
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(storageKey(mode));
     if (!raw) return null;
-    window.sessionStorage.removeItem(STORAGE_KEY);
+    window.sessionStorage.removeItem(storageKey(mode));
     try {
         const parsed = JSON.parse(raw);
         if (

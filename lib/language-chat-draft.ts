@@ -1,5 +1,6 @@
 import { type UIMessage } from "ai";
 import { type FeedbackState } from "@/lib/language-chat-note-format";
+import { CHAT_MODES, type ChatMode } from "@/lib/language-chat-mode";
 
 // Keeps an in-progress conversation alive across a page navigation, so
 // clicking away and coming back doesn't lose it (Question 274) — the same
@@ -11,7 +12,13 @@ import { type FeedbackState } from "@/lib/language-chat-note-format";
 // carry is a one-time, read-and-clear hand-off *from a note into* the chat;
 // this is the chat's own running draft of itself, rewritten as the
 // conversation grows and read back whenever the page is opened again.
-const STORAGE_KEY = "language-chat:draft";
+
+// Keyed per chat rather than one shared key (Question 292). Two chats
+// sharing one draft would silently show each other's conversations — see
+// lib/language-chat-mode.ts's storagePrefix for the full reasoning.
+function storageKey(mode: ChatMode) {
+    return `${CHAT_MODES[mode].storagePrefix}:draft`;
+}
 
 // A reply the user asked to have translated (Question 277). Defined here
 // rather than beside FeedbackState because a translation is only ever a
@@ -39,6 +46,14 @@ export interface ChatDraft {
     // can have been translated.
     translateInto: string;
     translations: Map<string, TranslationState>;
+    // The voice chat's two switches. Worth carrying for the same reason the
+    // translation language is: turning the voice off because you're
+    // somewhere quiet, then having it come back on by itself after clicking
+    // away and back, is exactly the small betrayal Question 274 set out to
+    // stop. Ignored entirely by the written chat.
+    speakReplies: boolean;
+    autoSend: boolean;
+    speechRate: number;
 }
 
 // An in-flight entry describes a request belonging to a page that no longer
@@ -68,7 +83,7 @@ function persistedTranslations(
     );
 }
 
-export function writeChatDraft(draft: ChatDraft) {
+export function writeChatDraft(mode: ChatMode, draft: ChatDraft) {
     if (typeof window === "undefined") return;
 
     // A conversation is much larger than the pasted passages the other
@@ -78,7 +93,7 @@ export function writeChatDraft(draft: ChatDraft) {
     // not persisting, which costs the user nothing they had a moment ago.
     try {
         window.sessionStorage.setItem(
-            STORAGE_KEY,
+            storageKey(mode),
             JSON.stringify({
                 language: draft.language,
                 messages: draft.messages,
@@ -87,6 +102,9 @@ export function writeChatDraft(draft: ChatDraft) {
                 noteId: draft.noteId,
                 translateInto: draft.translateInto,
                 translations: persistedTranslations(draft.translations),
+                speakReplies: draft.speakReplies,
+                autoSend: draft.autoSend,
+                speechRate: draft.speechRate,
             }),
         );
     } catch {
@@ -96,20 +114,20 @@ export function writeChatDraft(draft: ChatDraft) {
     }
 }
 
-export function clearChatDraft() {
+export function clearChatDraft(mode: ChatMode) {
     if (typeof window === "undefined") return;
     try {
-        window.sessionStorage.removeItem(STORAGE_KEY);
+        window.sessionStorage.removeItem(storageKey(mode));
     } catch {
         // Nothing useful to do if storage is unavailable.
     }
 }
 
-export function readChatDraft(): ChatDraft | null {
+export function readChatDraft(mode: ChatMode): ChatDraft | null {
     if (typeof window === "undefined") return null;
     let raw: string | null = null;
     try {
-        raw = window.sessionStorage.getItem(STORAGE_KEY);
+        raw = window.sessionStorage.getItem(storageKey(mode));
     } catch {
         return null;
     }
@@ -140,6 +158,24 @@ export function readChatDraft(): ChatDraft | null {
             translations: new Map(
                 Array.isArray(parsed.translations) ? parsed.translations : [],
             ),
+            // Read leniently, like the two fields above: a draft written
+            // before this existed should restore its conversation rather
+            // than be thrown away over a missing switch. Speaking defaults
+            // on — it's what the page is for — and auto-send defaults off,
+            // so nothing sends itself unless you asked it to.
+            speakReplies:
+                typeof parsed.speakReplies === "boolean"
+                    ? parsed.speakReplies
+                    : true,
+            autoSend: parsed.autoSend === true,
+            // Guarded rather than trusted: a nonsense value out of storage
+            // would be handed straight to the browser's speech engine.
+            speechRate:
+                typeof parsed.speechRate === "number" &&
+                parsed.speechRate > 0 &&
+                parsed.speechRate <= 3
+                    ? parsed.speechRate
+                    : 1,
         };
     } catch {
         return null;

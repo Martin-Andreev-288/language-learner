@@ -14,5 +14,5 @@ export default async function ChatPage() {
     );
   }
 
-  return <LanguageChat />;
+  return <LanguageChat mode="writing" />;
 }
