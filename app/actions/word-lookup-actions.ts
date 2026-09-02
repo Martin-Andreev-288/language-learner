@@ -23,9 +23,19 @@ const lookupSchema = z.object({
 
 // Returns failures rather than throwing them, so the message survives a
 // production build — see lib/action-result.ts.
+// `explainInLanguage` is the language the *answer* is written in — not the
+// language of the word, which is worked out separately and only used to
+// pick a pronunciation voice (Question 305).
+//
+// Optional, and left out entirely when empty, which is deliberate: with no
+// instruction the model answers in English, which is exactly what this did
+// before this parameter existed. So someone who hasn't set a default sees
+// no change at all, and someone who has gets definitions in their own
+// language without a second setting to manage.
 export async function lookupWord(
     word: string,
     context: string,
+    explainInLanguage?: string,
 ): Promise<ActionResult<z.infer<typeof lookupSchema>>> {
     const session = await auth();
     if (!session?.user?.id) {
@@ -45,6 +55,26 @@ export async function lookupWord(
         );
     }
 
+    const answerLanguage = explainInLanguage?.trim();
+    // Added only when there's something to say. Two instructions rather than
+    // one, and the second is the important half: asking for the answer in
+    // another language makes the model translate the *examples* too unless
+    // told plainly not to, which destroys their entire purpose — they exist
+    // to show the word being used in its own language, and a translated
+    // example shows nothing. Verified: without this sentence, an Italian
+    // example came back rewritten in Bulgarian with the word itself
+    // transliterated into something that isn't a word in either language.
+    //
+    // No "don't translate a language into itself" guard is needed here,
+    // unlike the translate-into fields: explaining an Italian word in
+    // Italian is an ordinary monolingual dictionary entry, not a
+    // contradiction.
+    const answerLanguageLine = answerLanguage
+        ? `
+
+Write the definition in ${answerLanguage}. The example sentences are NOT to be translated: leave them entirely in the same language as the phrase above, since their whole purpose is to show the word being used in its own language. Never transliterate or respell "${trimmedWord}" itself.`
+        : "";
+
     let result: z.infer<typeof lookupSchema>;
     try {
         const response = await generateText({
@@ -58,7 +88,7 @@ ${context}
 Explain "${trimmedWord}" as it's actually used in that phrase — if it has multiple meanings, use the sense that fits here, not just the most common dictionary sense. Return:
 - definition: a short, clear definition, in plain language.
 - examples: 2-3 short example sentences using "${trimmedWord}" (or its base form) in other contexts, so the learner can recognize it elsewhere.
-- languageCode: the BCP-47 language tag for the language the phrase itself is written in (not the language of the definition).`,
+- languageCode: the BCP-47 language tag for the language the phrase itself is written in (not the language of the definition).${answerLanguageLine}`,
         });
         result = response.output;
     } catch (err) {

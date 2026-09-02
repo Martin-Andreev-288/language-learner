@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { getDefaultTranslateLanguage } from "@/app/actions/user-actions";
 import AuthPrompt from "@/components/shared/auth-prompt";
 import InlineTranslateTool from "@/components/shared/inline-translate-tool";
 
@@ -14,5 +15,9 @@ export default async function InlineTranslatePage() {
     );
   }
 
-  return <InlineTranslateTool />;
+  const defaultTranslateLanguage = await getDefaultTranslateLanguage();
+
+  return <InlineTranslateTool
+      defaultTranslateLanguage={defaultTranslateLanguage}
+    />;
 }

@@ -255,6 +255,21 @@ model User {
     image         String?
     password      String? // For credentials auth
     role          String    @default("user")
+
+    // The language this user wants things translated *into* by default
+    // (Question 303) — their own language, in practice. Stored as one of
+    // the canonical names in lib/language-codes.ts, the same spelling every
+    // language field in this app writes.
+    //
+    // On the account rather than in the browser, unlike drafts and
+    // recently-used languages: those are conveniences for the tab you're
+    // in, while this is closer to a fact about the person, and should
+    // follow them to a new browser the way their vocabulary already does.
+    //
+    // Null until set. It only ever supplies a starting value to a
+    // "translate into" field — never to a "what language is this" one, and
+    // never as something the field can't be changed away from.
+    defaultTranslateLanguage String?
     createdAt     DateTime  @default(now())
     updatedAt     DateTime  @updatedAt
 

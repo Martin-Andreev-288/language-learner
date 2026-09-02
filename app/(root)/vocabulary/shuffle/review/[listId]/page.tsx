@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { getDefaultTranslateLanguage } from "@/app/actions/user-actions";
 import AuthPrompt from "@/components/shared/auth-prompt";
 import {
   getShuffleDashboard,
@@ -49,6 +50,8 @@ export default async function VocabularyShuffleReviewPage({
     ? lists.split(",").filter(Boolean)
     : undefined;
 
+  const defaultTranslateLanguage = await getDefaultTranslateLanguage();
+
   const [reviewData, dashboard] = await Promise.all([
     getShuffleReviewCards({
       type: ShuffleListType.word,
@@ -73,6 +76,7 @@ export default async function VocabularyShuffleReviewPage({
       dashboardPath="/vocabulary/shuffle"
       listTitle={listTitle}
       initialFilter={initialFilter}
+      defaultTranslateLanguage={defaultTranslateLanguage}
       cards={reviewData.cards.map((card) => ({
         id: card.id,
         listId: card.listId,

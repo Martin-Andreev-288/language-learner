@@ -66,15 +66,19 @@ export default function VocabularyEnrichModal({
   error,
   onCancel,
   onConfirm,
+  defaultTranslateLanguage,
 }: {
   wordCount: number;
   running: boolean;
   error: string | null;
   onCancel: () => void;
   onConfirm: (fields: EnrichableField[], translateInto: string) => void;
+  defaultTranslateLanguage: string;
 }) {
   const [fields, setFields] = useState<EnrichableField[]>(DEFAULT_FIELDS);
-  const [translateInto, setTranslateInto] = useState("");
+  const [translateInto, setTranslateInto] = useState(
+    defaultTranslateLanguage,
+  );
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {

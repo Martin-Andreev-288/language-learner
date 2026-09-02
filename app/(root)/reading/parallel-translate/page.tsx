@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { getDefaultTranslateLanguage } from "@/app/actions/user-actions";
 import AuthPrompt from "@/components/shared/auth-prompt";
 import ParallelTranslateTool from "@/components/shared/parallel-translate-tool";
 
@@ -14,5 +15,9 @@ export default async function ParallelTranslatePage() {
     );
   }
 
-  return <ParallelTranslateTool />;
+  const defaultTranslateLanguage = await getDefaultTranslateLanguage();
+
+  return <ParallelTranslateTool
+      defaultTranslateLanguage={defaultTranslateLanguage}
+    />;
 }

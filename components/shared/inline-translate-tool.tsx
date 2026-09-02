@@ -104,7 +104,11 @@ function getResultText(result: TranslatedResult, showTranslations: boolean) {
   return output;
 }
 
-export default function InlineTranslateTool() {
+export default function InlineTranslateTool({
+  defaultTranslateLanguage,
+}: {
+  defaultTranslateLanguage: string;
+}) {
   const router = useRouter();
   // Restored from the last session's draft, if there is one — read once,
   // as part of the initial state itself (each lazy initializer runs once,
@@ -120,8 +124,12 @@ export default function InlineTranslateTool() {
   const [sourceLanguage, setSourceLanguage] = useState(
     () => initialDraft.sourceLanguage,
   );
+  // The draft wins over the default: a language you picked while working on
+  // *this* passage is a deliberate choice about it, and shouldn't be
+  // overruled by a general preference the next time the page opens. The
+  // default only fills the gap when the draft has nothing to say.
   const [targetLanguage, setTargetLanguage] = useState(
-    () => initialDraft.targetLanguage,
+    () => initialDraft.targetLanguage || defaultTranslateLanguage,
   );
   // Marked by token position, not word text — marking one occurrence of
   // "the" must not mark every "the" in the passage. Restored from the

@@ -66,6 +66,9 @@ type Props = {
   listTitle: string;
   cards: ReviewCard[];
   initialFilter?: ShuffleFilter;
+  // Which language a lookup's definition comes back in. Empty means the
+  // model's own default, which is English — what this page did before.
+  defaultTranslateLanguage: string;
 };
 
 function getFilteredQueue(
@@ -94,6 +97,7 @@ export default function VocabularyShuffleSession({
   listTitle,
   cards: initialCards,
   initialFilter = "unmemorized",
+  defaultTranslateLanguage,
 }: Props) {
   const router = useRouter();
   const [allCards, setAllCards] = useState<ReviewCard[]>(initialCards);
@@ -150,7 +154,11 @@ export default function VocabularyShuffleSession({
     setLookupLoading(true);
 
     try {
-      const result = await lookupWord(word, current.text);
+      const result = await lookupWord(
+        word,
+        current.text,
+        defaultTranslateLanguage,
+      );
       // Guarded on the request id throughout: a slower earlier lookup must
       // never overwrite the answer to a word clicked more recently.
       if (lookupRequestRef.current !== requestId) return;

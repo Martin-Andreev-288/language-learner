@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { auth } from "@/auth";
+import { getDefaultTranslateLanguage } from "@/app/actions/user-actions";
 import { APP_NAME } from "@/lib/constants";
 import NavLinks from "./nav-links";
 import UserButton from "./user-button";
@@ -7,6 +8,7 @@ import MobileMenu from "./mobile-menu";
 
 const Header = async () => {
   const session = await auth();
+  const defaultTranslateLanguage = await getDefaultTranslateLanguage();
 
   return (
     <header className="bg-gray-800 text-white shadow-lg">
@@ -27,7 +29,11 @@ const Header = async () => {
         {/* Right side - Auth */}
         <div className="hidden md:block">
           {session ? (
-            <UserButton name={session.user?.name} email={session.user?.email} />
+            <UserButton
+                name={session.user?.name}
+                email={session.user?.email}
+                defaultTranslateLanguage={defaultTranslateLanguage}
+              />
           ) : (
             <div className="flex items-center gap-2">
               <Link
@@ -47,7 +53,10 @@ const Header = async () => {
         </div>
 
         {/* Mobile Menu Toggle */}
-        <MobileMenu session={session} />
+        <MobileMenu
+          session={session}
+          defaultTranslateLanguage={defaultTranslateLanguage}
+        />
       </div>
     </header>
   );

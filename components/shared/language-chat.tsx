@@ -36,7 +36,13 @@ const AUTO_SEND_AFTER_SILENCE_MS = 2500;
 // growing further.
 const INPUT_MAX_HEIGHT_PX = 140;
 
-export default function LanguageChat({ mode }: { mode: ChatMode }) {
+export default function LanguageChat({
+  mode,
+  defaultTranslateLanguage,
+}: {
+  mode: ChatMode;
+  defaultTranslateLanguage: string;
+}) {
   const config = CHAT_MODES[mode];
 
   // Two things can seed this page, and they're read in a deliberate order
@@ -61,8 +67,10 @@ export default function LanguageChat({ mode }: { mode: ChatMode }) {
   // aid for this page, not part of the conversation itself.
   const initialDraft = initial && "translations" in initial ? initial : null;
   const [language, setLanguage] = useState(() => initial?.language ?? "");
+  // Same order as everywhere else: what this conversation was already using
+  // wins, and the default only fills an empty field.
   const [translateInto, setTranslateInto] = useState(
-    () => initialDraft?.translateInto ?? "",
+    () => initialDraft?.translateInto || defaultTranslateLanguage,
   );
   const [translations, setTranslations] = useState<
     Map<string, TranslationState>

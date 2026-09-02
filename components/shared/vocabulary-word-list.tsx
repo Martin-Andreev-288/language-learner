@@ -123,8 +123,10 @@ function formatDate(date: string | Date) {
 
 export default function VocabularyWordList({
   entries,
+  defaultTranslateLanguage,
 }: {
   entries: VocabularyEntryData[];
+  defaultTranslateLanguage: string;
 }) {
   const router = useRouter();
   const [words, setWords] = useState("");
@@ -1135,6 +1137,7 @@ export default function VocabularyWordList({
           error={enrichError}
           onCancel={() => setEnrichModalOpen(false)}
           onConfirm={handleEnrich}
+          defaultTranslateLanguage={defaultTranslateLanguage}
         />
       )}
     </div>

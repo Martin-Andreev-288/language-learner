@@ -12,9 +12,13 @@ interface MobileMenuProps {
       email?: string | null;
     };
   } | null;
+  defaultTranslateLanguage: string;
 }
 
-export default function MobileMenu({ session }: MobileMenuProps) {
+export default function MobileMenu({
+  session,
+  defaultTranslateLanguage,
+}: MobileMenuProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const toggleMobileMenu = () => {
@@ -67,6 +71,7 @@ export default function MobileMenu({ session }: MobileMenuProps) {
                 <UserButton
                   name={session.user?.name}
                   email={session.user?.email}
+                  defaultTranslateLanguage={defaultTranslateLanguage}
                 />
                 <div className="flex flex-col">
                   <p className="text-sm font-medium text-white truncate">

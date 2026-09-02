@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { getDefaultTranslateLanguage } from "@/app/actions/user-actions";
 import AuthPrompt from "@/components/shared/auth-prompt";
 import LanguageChat from "@/components/shared/language-chat";
 
@@ -14,5 +15,9 @@ export default async function ChatPage() {
     );
   }
 
-  return <LanguageChat mode="writing" />;
+  const defaultTranslateLanguage = await getDefaultTranslateLanguage();
+
+  return <LanguageChat mode="writing"
+      defaultTranslateLanguage={defaultTranslateLanguage}
+    />;
 }

@@ -92,10 +92,18 @@ function makeColumn(name = ""): LanguageColumn {
   return { id: nextColumnId, name, text: "", collapsed: false };
 }
 
-export default function ParallelTranslateTool() {
+export default function ParallelTranslateTool({
+  defaultTranslateLanguage,
+}: {
+  defaultTranslateLanguage: string;
+}) {
   const router = useRouter();
+  // Only the first column starts filled in (Question 302). The second is
+  // left empty deliberately: which column is the *source* here is decided
+  // by whichever one you type into, so filling both in advance would be
+  // guessing at something the page works out for itself.
   const [columns, setColumns] = useState<LanguageColumn[]>(() => [
-    makeColumn(),
+    makeColumn(defaultTranslateLanguage),
     makeColumn(),
   ]);
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("markdown");
