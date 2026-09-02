@@ -9,6 +9,14 @@ import {
 } from "@/app/actions/vocabulary-entry-actions";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import VocabularyEnrichModal from "@/components/shared/vocabulary-enrich-modal";
+import VocabularyToShuffleModal, {
+  type CardContent,
+} from "@/components/shared/vocabulary-to-shuffle-modal";
+import {
+  appendCardsToShuffleList,
+  createShuffleListWithCards,
+} from "@/app/actions/shuffle-actions";
+import { ShuffleListType } from "@/app/generated/prisma";
 import { enrichVocabularyEntries } from "@/app/actions/vocabulary-enrich-actions";
 import {
   MAX_ENRICH_WORDS,
@@ -113,6 +121,30 @@ function columnValue(entry: VocabularyEntryData, field: FilterableColumn) {
   return entry[field]?.trim() || NO_VALUE;
 }
 
+// What a shuffle card ends up saying (Question 307).
+//
+// Laid out exactly as the vocabulary list already shows a word — the word,
+// then its gender and plural, then an em dash and the translation — so a
+// card looks like the row it came from rather than like a third format
+// invented for the occasion.
+//
+// A word missing whichever part you asked for is added on its own rather
+// than skipped or padded with an empty gap: you asked for the translation
+// where there is one, not for only the words that have one.
+function buildCardText(
+  entry: VocabularyEntryData,
+  content: { nounInfo: boolean; translation: boolean },
+) {
+  let text = entry.word;
+  if (content.nounInfo && entry.nounInfo?.trim()) {
+    text += ` ${entry.nounInfo.trim()}`;
+  }
+  if (content.translation && entry.translation?.trim()) {
+    text += ` — ${entry.translation.trim()}`;
+  }
+  return text;
+}
+
 function formatDate(date: string | Date) {
   const parsed = new Date(date);
   const day = String(parsed.getDate()).padStart(2, "0");
@@ -179,6 +211,10 @@ export default function VocabularyWordList({
   // occurrence must not select anything else that merely looks like it.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [enrichModalOpen, setEnrichModalOpen] = useState(false);
+  const [shuffleModalOpen, setShuffleModalOpen] = useState(false);
+  const [sendingToShuffle, setSendingToShuffle] = useState(false);
+  const [shuffleError, setShuffleError] = useState<string | null>(null);
+  const [shuffleSummary, setShuffleSummary] = useState<string | null>(null);
   const [enriching, setEnriching] = useState(false);
   const [enrichError, setEnrichError] = useState<string | null>(null);
   const [enrichSummary, setEnrichSummary] = useState<string | null>(null);
@@ -278,6 +314,58 @@ export default function VocabularyWordList({
       }
       return next;
     });
+  }
+
+  // Cards carry the word alone, not the word and its translation together.
+  // A shuffle review exists to test recall, and a card that shows you the
+  // answer alongside the question tests nothing — and the translation isn't
+  // lost, it stays on the word in Vocabulary. When a word won't come back
+  // to you, clicking it in the review looks it up, now in whichever
+  // language you set as your default (Question 305).
+  async function handleSendToShuffle(
+    destination:
+      | { kind: "new"; title: string }
+      | { kind: "existing"; listId: string },
+    content: CardContent,
+  ) {
+    const selected = entries.filter((entry) => selectedIds.has(entry.id));
+    if (selected.length === 0) return;
+    // One per line is what both shuffle actions parse, and it's the same
+    // convention this page's own bulk word box already uses.
+    const items = selected
+      .map((entry) => buildCardText(entry, content))
+      .join("\n");
+
+    setSendingToShuffle(true);
+    setShuffleError(null);
+    try {
+      if (destination.kind === "new") {
+        const list = await createShuffleListWithCards(
+          ShuffleListType.word,
+          destination.title,
+          items,
+        );
+        setShuffleSummary(
+          `Sent ${selected.length} word${selected.length !== 1 ? "s" : ""} to a new list, "${list.title}".`,
+        );
+      } else {
+        const { createdCount } = await appendCardsToShuffleList(
+          destination.listId,
+          items,
+        );
+        setShuffleSummary(
+          `Added ${createdCount} word${createdCount !== 1 ? "s" : ""} to that list.`,
+        );
+      }
+      setShuffleModalOpen(false);
+      setSelectedIds(new Set());
+    } catch (err) {
+      setShuffleError(
+        describeClientError(err, "Couldn't send those words — try again."),
+      );
+    } finally {
+      setSendingToShuffle(false);
+    }
   }
 
   async function handleEnrich(
@@ -411,6 +499,18 @@ export default function VocabularyWordList({
   // containing those two letters ("entertain," "listen"), which stopped
   // being usable once the list grew. Text search now only looks at the
   // word and its translation.
+  const tooManyToEnrich = selectedIds.size > MAX_ENRICH_WORDS;
+
+  // Offered as the new list's name when every selected word is in the same
+  // language, which is the overwhelmingly common case.
+  const selectedLanguages = new Set(
+    entries
+      .filter((entry) => selectedIds.has(entry.id))
+      .map((entry) => entry.language),
+  );
+  const suggestedListTitle =
+    selectedLanguages.size === 1 ? Array.from(selectedLanguages)[0] : "";
+
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const visibleEntries = entries
     .filter(
@@ -611,12 +711,19 @@ export default function VocabularyWordList({
 
           {selectedIds.size > 0 && (
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-indigo-900/60 bg-indigo-950/30 px-4 py-2.5">
+              {/* The cap belongs to *adding information*, not to selecting
+                  — it's there because that's one AI call per batch. Sending
+                  words to a shuffle list costs nothing, so it shouldn't
+                  inherit a limit that exists for a different reason
+                  (Question 306). The count is now plain, and the limit is
+                  stated on the button it actually applies to. */}
               <span className="text-sm text-zinc-300">
-                {selectedIds.size} of {MAX_ENRICH_WORDS} selected
-                {selectedIds.size >= MAX_ENRICH_WORDS && (
+                {selectedIds.size} selected
+                {tooManyToEnrich && (
                   <span className="text-zinc-500">
                     {" "}
-                    — that&apos;s the maximum
+                    — more than {MAX_ENRICH_WORDS}, so information can&apos;t
+                    be added in one go
                   </span>
                 )}
               </span>
@@ -629,11 +736,27 @@ export default function VocabularyWordList({
                 </button>
                 <button
                   onClick={() => {
+                    setShuffleError(null);
+                    setShuffleSummary(null);
+                    setShuffleModalOpen(true);
+                  }}
+                  className="rounded-md bg-zinc-800 px-3 py-1 text-sm font-semibold text-zinc-200 transition-colors hover:bg-zinc-700"
+                >
+                  Send to Vocab Shuffle…
+                </button>
+                <button
+                  onClick={() => {
                     setEnrichError(null);
                     setEnrichSummary(null);
                     setEnrichModalOpen(true);
                   }}
-                  className="rounded-md bg-indigo-600 px-3 py-1 text-sm font-semibold text-white transition-colors hover:bg-indigo-500"
+                  disabled={tooManyToEnrich}
+                  title={
+                    tooManyToEnrich
+                      ? `${MAX_ENRICH_WORDS} words at a time is the maximum for adding information`
+                      : undefined
+                  }
+                  className="rounded-md bg-indigo-600 px-3 py-1 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Add information…
                 </button>
@@ -643,6 +766,12 @@ export default function VocabularyWordList({
 
           {enrichSummary && (
             <p className="mb-4 text-sm text-emerald-400">{enrichSummary}</p>
+          )}
+          {shuffleSummary && (
+            <p className="mb-4 text-sm text-emerald-400">{shuffleSummary}</p>
+          )}
+          {shuffleError && !shuffleModalOpen && (
+            <p className="mb-4 text-sm text-red-400">{shuffleError}</p>
           )}
           {enrichError && !enrichModalOpen && (
             <p className="mb-4 text-sm text-red-400">{enrichError}</p>
@@ -764,17 +893,8 @@ export default function VocabularyWordList({
                               type="checkbox"
                               checked={selectedIds.has(entry.id)}
                               onChange={() => toggleSelected(entry.id)}
-                              disabled={
-                                !selectedIds.has(entry.id) &&
-                                selectedIds.size >= MAX_ENRICH_WORDS
-                              }
-                              title={
-                                !selectedIds.has(entry.id) &&
-                                selectedIds.size >= MAX_ENRICH_WORDS
-                                  ? `${MAX_ENRICH_WORDS} words at a time is the maximum`
-                                  : "Select for adding information"
-                              }
-                              className="accent-indigo-600 disabled:cursor-not-allowed disabled:opacity-30"
+                              title="Select"
+                              className="accent-indigo-600"
                             />
                           </td>
                           <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top font-medium text-zinc-100">
@@ -956,21 +1076,8 @@ export default function VocabularyWordList({
                       type="checkbox"
                       checked={selectedIds.has(entry.id)}
                       onChange={() => toggleSelected(entry.id)}
-                      // Selecting past the cap is blocked here rather than
-                      // rejected after the fact by the action, so the limit
-                      // is visible while choosing instead of being a
-                      // surprise at generate time.
-                      disabled={
-                        !selectedIds.has(entry.id) &&
-                        selectedIds.size >= MAX_ENRICH_WORDS
-                      }
-                      title={
-                        !selectedIds.has(entry.id) &&
-                        selectedIds.size >= MAX_ENRICH_WORDS
-                          ? `${MAX_ENRICH_WORDS} words at a time is the maximum`
-                          : "Select for adding information"
-                      }
-                      className="mt-1 shrink-0 accent-indigo-600 disabled:cursor-not-allowed disabled:opacity-30"
+                      title="Select"
+                      className="mt-1 shrink-0 accent-indigo-600"
                     />
                     <div className="min-w-0 flex-1">
                       <span className="font-medium text-zinc-100">
@@ -1138,6 +1245,17 @@ export default function VocabularyWordList({
           onCancel={() => setEnrichModalOpen(false)}
           onConfirm={handleEnrich}
           defaultTranslateLanguage={defaultTranslateLanguage}
+        />
+      )}
+
+      {shuffleModalOpen && (
+        <VocabularyToShuffleModal
+          wordCount={selectedIds.size}
+          running={sendingToShuffle}
+          error={shuffleError}
+          suggestedTitle={suggestedListTitle}
+          onCancel={() => setShuffleModalOpen(false)}
+          onConfirm={handleSendToShuffle}
         />
       )}
     </div>
