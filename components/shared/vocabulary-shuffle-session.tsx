@@ -10,6 +10,8 @@ import {
   updateShuffleCardText,
 } from "@/app/actions/shuffle-actions";
 import { lookupWord } from "@/app/actions/word-lookup-actions";
+import { addVocabularyEntries } from "@/app/actions/vocabulary-entry-actions";
+import { languageNameForCode } from "@/lib/language-codes";
 import { shuffle } from "@/lib/shuffle";
 import { tokenizeWords } from "@/lib/clickable-words";
 import { describeClientError } from "@/lib/client-error";
@@ -109,6 +111,13 @@ export default function VocabularyShuffleSession({
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  // Saving the looked-up word to Vocabulary (Question 300). Three states
+  // rather than one, because "saved" has to stay visible after the fact —
+  // the same shape Inline Translate's own popup already uses for its
+  // version of this button.
+  const [savingWord, setSavingWord] = useState(false);
+  const [savedWord, setSavedWord] = useState(false);
+  const [saveWordError, setSaveWordError] = useState<string | null>(null);
   const lookupRequestRef = useRef(0);
 
   useEffect(() => {
@@ -136,6 +145,8 @@ export default function VocabularyShuffleSession({
     setLookup(null);
     setLookupError(null);
     setSpeechError(null);
+    setSavedWord(false);
+    setSaveWordError(null);
     setLookupLoading(true);
 
     try {
@@ -164,9 +175,47 @@ export default function VocabularyShuffleSession({
     setLookup(null);
     setLookupError(null);
     setSpeechError(null);
+    setSavedWord(false);
+    setSaveWordError(null);
     setLookupLoading(false);
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
+    }
+  }
+
+  // Saved under the language the lookup identified, not one the user picked
+  // — this page has no language field, and asking for one here would put a
+  // form in front of a single click. The word goes in on its own, with no
+  // translation: the lookup produces a *definition*, which isn't the same
+  // thing, and writing it into the translation column would fill that
+  // column with something it isn't for. Enrichment can fill in a real
+  // translation later, exactly as it does for any other saved word.
+  async function handleAddToVocabulary() {
+    if (!lookup) return;
+
+    const language = languageNameForCode(lookup.languageCode);
+    if (!language) {
+      setSaveWordError(
+        "This word's language isn't one the app knows, so it can't be filed under a language yet.",
+      );
+      return;
+    }
+
+    setSavingWord(true);
+    setSaveWordError(null);
+    try {
+      const { added } = await addVocabularyEntries(lookup.word, language);
+      setSavedWord(true);
+      // Nothing added means the word was already there. That's a success
+      // worth wording differently, not a failure — saying "Added!" would
+      // claim something that didn't happen.
+      if (added === 0) {
+        setSaveWordError(`Already in your ${language} vocabulary.`);
+      }
+    } catch (err) {
+      setSaveWordError(describeClientError(err, "Couldn't save that word."));
+    } finally {
+      setSavingWord(false);
     }
   }
 
@@ -618,6 +667,33 @@ export default function VocabularyShuffleSession({
                     </ul>
                   </div>
                 )}
+
+                {/* The same button Inline Translate's popup already offers
+                    beside a translation, on the panel that was missing it —
+                    a word worth looking up mid-review is exactly a word
+                    worth keeping. */}
+                <div>
+                  <button
+                    onClick={handleAddToVocabulary}
+                    disabled={savingWord || savedWord}
+                    className={`w-full rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                      savedWord
+                        ? "bg-emerald-600 text-white"
+                        : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    } disabled:cursor-not-allowed`}
+                  >
+                    {savedWord
+                      ? "Added!"
+                      : savingWord
+                        ? "Adding…"
+                        : "+ Add to vocabulary"}
+                  </button>
+                  {saveWordError && (
+                    <p className="mt-1.5 text-xs text-amber-400">
+                      {saveWordError}
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>

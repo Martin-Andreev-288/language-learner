@@ -95,3 +95,45 @@ for (const entry of LANGUAGES) {
 export function guessLanguageCode(name: string): string | undefined {
   return LANGUAGE_CODES[name.trim().toLowerCase()];
 }
+
+// The reverse direction (Question 300): a BCP-47 tag back to the canonical
+// name this app stores.
+//
+// It exists because word lookup identifies a language by tag, while a
+// vocabulary entry records a language by *name* — the same name the picker
+// writes and the vocabulary list groups by. Saving the tag instead would
+// quietly split one language in two, leaving "de-DE" sitting beside
+// "German" in the language filter as if they were unrelated.
+//
+// Matched on the whole tag first, then on the primary subtag alone.
+//
+// Both passes are needed, and the list itself proves why. The tag comes
+// from a model, so a regional variant is a real possibility — "de-AT" and
+// "de" are both German, and neither matches "de-DE" exactly — which is
+// what the subtag pass is for. But subtag-only would file "pt-BR" under
+// "Portuguese", because this list carries Portuguese and Portuguese
+// (Brazil) as separate languages sharing the subtag "pt". They are the
+// only such pair here, and exact-match-first is what keeps them apart.
+//
+// Returns undefined for a language this app doesn't list, which the caller
+// has to handle rather than guess at.
+const NAMES_BY_FULL_CODE: Record<string, string> = {};
+const NAMES_BY_PRIMARY_SUBTAG: Record<string, string> = {};
+for (const entry of LANGUAGES) {
+  NAMES_BY_FULL_CODE[entry.code.toLowerCase()] = entry.name;
+  const primary = entry.code.split("-")[0].toLowerCase();
+  // First wins, so a later entry sharing a subtag can't quietly displace
+  // the canonical one this list already established — which is how a bare
+  // "pt" resolves to Portuguese rather than to the Brazilian variant.
+  if (!(primary in NAMES_BY_PRIMARY_SUBTAG)) {
+    NAMES_BY_PRIMARY_SUBTAG[primary] = entry.name;
+  }
+}
+
+export function languageNameForCode(code: string): string | undefined {
+  const normalized = code.trim().toLowerCase();
+  if (!normalized) return undefined;
+  const exact = NAMES_BY_FULL_CODE[normalized];
+  if (exact) return exact;
+  return NAMES_BY_PRIMARY_SUBTAG[normalized.split("-")[0]];
+}
