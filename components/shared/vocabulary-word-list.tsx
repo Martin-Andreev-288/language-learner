@@ -105,20 +105,79 @@ type SortBy = "recent" | "alphabetical";
 type EnrichmentFilter = "all" | "enriched" | "plain";
 type ViewMode = "list" | "table";
 
-// Only these two columns get a header filter (Question 254). Language is
-// deliberately excluded: it's a required column, so its "no value" bucket
-// could never have anything in it, and the Language dropdown above the
-// table already filters by exactly this.
-type FilterableColumn = "level" | "partOfSpeech";
-const FILTERABLE_COLUMNS: FilterableColumn[] = ["level", "partOfSpeech"];
+// Every column that can be filtered, and how (Question 309). Started as
+// just Level and Part of speech (Question 254); the rest are here now
+// because "which words still have no translation" is as reasonable a
+// question as "which words are B2", and there was no reason beyond effort
+// that only two columns could answer their version of it.
+//
+// The `kind` is the whole design. Level and Part of speech have a handful
+// of repeating values worth listing, so you pick from them. Everything else
+// is different on every word — nobody wants to scroll a list of every word
+// family you own — so those offer only the question actually worth asking:
+// is there something here, or not.
+//
+// Language is still deliberately absent: it's required, so its "nothing
+// here" bucket could never hold anything, and the Language dropdown above
+// the table already does the other half.
+type FilterKind = "values" | "presence";
+
+type FilterableColumn =
+  | "translation"
+  | "level"
+  | "nounInfo"
+  | "partOfSpeech"
+  | "wordFamily"
+  | "synonyms"
+  | "aiExamples"
+  | "collocations";
+
+const FILTERABLE_COLUMNS: {
+  field: FilterableColumn;
+  label: string;
+  kind: FilterKind;
+}[] = [
+  { field: "translation", label: "Translation", kind: "presence" },
+  { field: "level", label: "Level", kind: "values" },
+  { field: "nounInfo", label: "Gender & plural", kind: "presence" },
+  { field: "partOfSpeech", label: "Part of speech", kind: "values" },
+  { field: "wordFamily", label: "Word family", kind: "presence" },
+  { field: "synonyms", label: "Synonyms", kind: "presence" },
+  { field: "aiExamples", label: "Examples", kind: "presence" },
+  { field: "collocations", label: "Collocations", kind: "presence" },
+];
+
+const FILTER_BY_FIELD = new Map(
+  FILTERABLE_COLUMNS.map((column) => [column.field, column]),
+);
 
 // The empty string stands for "this word has no value in this column".
 // Safe as a sentinel precisely because every real value is trimmed and
 // non-empty before it's stored, so it can never collide with one.
 const NO_VALUE = "";
 
-function columnValue(entry: VocabularyEntryData, field: FilterableColumn) {
-  return entry[field]?.trim() || NO_VALUE;
+// A presence column's entire domain is two buckets, which is exactly what a
+// value filter already handles — so it reuses that machinery rather than
+// getting a second mechanism of its own. Everything downstream (the chosen
+// sets, the panel, the chips, the row filtering) stays one code path.
+//
+// No collision risk from the sentinel: filters are held per column, and
+// this string is only ever produced for a column whose kind is "presence",
+// where no real value is ever offered.
+const HAS_VALUE = "present";
+
+function columnValue(
+  entry: VocabularyEntryData,
+  column: { field: FilterableColumn; kind: FilterKind },
+) {
+  const raw = entry[column.field]?.trim() || NO_VALUE;
+  if (column.kind === "presence") return raw ? HAS_VALUE : NO_VALUE;
+  return raw;
+}
+
+function optionLabel(kind: FilterKind, value: string) {
+  if (kind === "presence") return value === NO_VALUE ? "Missing" : "Has one";
+  return value;
 }
 
 // What a shuffle card ends up saying (Question 307).
@@ -177,9 +236,16 @@ export default function VocabularyWordList({
   // Per-column value filters, Table view only. An empty set means "no
   // filter on this column" rather than "match nothing", so the initial
   // state shows everything.
+  // Built from the column table rather than listed by hand, so a column
+  // added there is filterable without anything else being remembered.
   const [columnFilters, setColumnFilters] = useState<
     Record<FilterableColumn, Set<string>>
-  >({ level: new Set(), partOfSpeech: new Set() });
+  >(
+    () =>
+      Object.fromEntries(
+        FILTERABLE_COLUMNS.map((column) => [column.field, new Set<string>()]),
+      ) as Record<FilterableColumn, Set<string>>,
+  );
   const [openFilter, setOpenFilter] = useState<FilterableColumn | null>(null);
   // Fixed coordinates rather than an absolutely-positioned child: the table
   // sits in an `overflow-x-auto` wrapper, and a container that clips one
@@ -286,6 +352,32 @@ export default function VocabularyWordList({
       }
       return { ...prev, [field]: next };
     });
+  }
+
+  // One renderer for every filterable header, so Translation and the
+  // generated columns can't drift into looking or behaving differently —
+  // they're the same control over the same state, and the only thing that
+  // varies between them is what's inside the panel it opens.
+  function renderColumnHeader(field: string, label: string) {
+    const column = FILTER_BY_FIELD.get(field as FilterableColumn);
+    if (!column) return label;
+    const active = columnFilters[column.field].size > 0;
+    return (
+      <button
+        onClick={(event) => openColumnFilter(column.field, event.currentTarget)}
+        title={
+          column.kind === "presence"
+            ? `Show only words that have ${label.toLowerCase()}, or only those that don't`
+            : `Filter by ${label.toLowerCase()}`
+        }
+        className={`flex items-center gap-1 transition-colors hover:text-indigo-300 ${
+          active ? "text-indigo-300" : ""
+        }`}
+      >
+        {label}
+        <span className="text-[10px]">{active ? "▼" : "▾"}</span>
+      </button>
+    );
   }
 
   function clearColumnFilter(field: FilterableColumn) {
@@ -536,25 +628,32 @@ export default function VocabularyWordList({
   // (Question 255), so switching to List must not silently hide words with
   // no column header on screen to explain why.
   const tableEntries = visibleEntries.filter((entry) =>
-    FILTERABLE_COLUMNS.every((field) => {
-      const chosen = columnFilters[field];
-      return chosen.size === 0 || chosen.has(columnValue(entry, field));
+    FILTERABLE_COLUMNS.every((column) => {
+      const chosen = columnFilters[column.field];
+      return chosen.size === 0 || chosen.has(columnValue(entry, column));
     }),
   );
 
   // Options come from `visibleEntries` — what the shared filters allow —
   // not from `tableEntries`, so checking a value doesn't make the other
   // options in that same menu disappear underneath you.
-  function columnOptions(field: FilterableColumn) {
+  function columnOptions(column: (typeof FILTERABLE_COLUMNS)[number]) {
+    // A presence column always offers both answers, even when every word
+    // currently happens to fall on one side. "Missing: none" is a useful
+    // thing to be told; an option that quietly isn't there just looks like
+    // the filter is broken.
+    if (column.kind === "presence") return [HAS_VALUE, NO_VALUE];
     return Array.from(
-      new Set(visibleEntries.map((entry) => columnValue(entry, field))),
+      new Set(visibleEntries.map((entry) => columnValue(entry, column))),
     ).sort((a, b) =>
       a === NO_VALUE ? 1 : b === NO_VALUE ? -1 : a.localeCompare(b),
     );
   }
 
+  const openColumn = openFilter ? FILTER_BY_FIELD.get(openFilter) : undefined;
+
   const activeColumnFilters = FILTERABLE_COLUMNS.filter(
-    (field) => columnFilters[field].size > 0,
+    (column) => columnFilters[column.field].size > 0,
   );
 
   return (
@@ -800,21 +899,26 @@ export default function VocabularyWordList({
                   <span>
                     Showing {tableEntries.length} of {visibleEntries.length}
                   </span>
-                  {activeColumnFilters.map((field) => {
-                    const label =
-                      ENRICHMENT_FIELDS.find((item) => item.field === field)
-                        ?.label ?? field;
-                    return (
-                      <button
-                        key={field}
-                        onClick={() => clearColumnFilter(field)}
-                        title={`Clear the ${label.toLowerCase()} filter`}
-                        className="rounded-full border border-indigo-800 bg-indigo-950/60 px-2 py-0.5 text-indigo-300 transition-colors hover:border-red-500 hover:text-red-400"
-                      >
-                        {label}: {columnFilters[field].size} ✕
-                      </button>
-                    );
-                  })}
+                  {activeColumnFilters.map((column) => (
+                    <button
+                      key={column.field}
+                      onClick={() => clearColumnFilter(column.field)}
+                      title={`Clear the ${column.label.toLowerCase()} filter`}
+                      className="rounded-full border border-indigo-800 bg-indigo-950/60 px-2 py-0.5 text-indigo-300 transition-colors hover:border-red-500 hover:text-red-400"
+                    >
+                      {/* A presence filter with both options ticked is the
+                          same as no filter, so showing a count there would
+                          be noise — it says what it's showing instead. */}
+                      {column.kind === "presence" &&
+                      columnFilters[column.field].size === 1
+                        ? `${column.label}: ${optionLabel(
+                            column.kind,
+                            Array.from(columnFilters[column.field])[0],
+                          )}`
+                        : `${column.label}: ${columnFilters[column.field].size}`}{" "}
+                      ✕
+                    </button>
+                  ))}
                 </div>
               )}
               {tableEntries.length === 0 ? (
@@ -839,47 +943,19 @@ export default function VocabularyWordList({
                           Word
                         </th>
                         <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
-                          Translation
+                          {renderColumnHeader("translation", "Translation")}
                         </th>
                         <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
                           Language
                         </th>
-                        {ENRICHMENT_FIELDS.map(({ field, label }) => {
-                          const filterable = FILTERABLE_COLUMNS.includes(
-                            field as FilterableColumn,
-                          );
-                          const active =
-                            filterable &&
-                            columnFilters[field as FilterableColumn].size > 0;
-                          return (
-                            <th
-                              key={field}
-                              className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300"
-                            >
-                              {filterable ? (
-                                <button
-                                  onClick={(event) =>
-                                    openColumnFilter(
-                                      field as FilterableColumn,
-                                      event.currentTarget,
-                                    )
-                                  }
-                                  title={`Filter by ${label.toLowerCase()}`}
-                                  className={`flex items-center gap-1 transition-colors hover:text-indigo-300 ${
-                                    active ? "text-indigo-300" : ""
-                                  }`}
-                                >
-                                  {label}
-                                  <span className="text-[10px]">
-                                    {active ? "▼" : "▾"}
-                                  </span>
-                                </button>
-                              ) : (
-                                label
-                              )}
-                            </th>
-                          );
-                        })}
+                        {ENRICHMENT_FIELDS.map(({ field, label }) => (
+                          <th
+                            key={field}
+                            className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300"
+                          >
+                            {renderColumnHeader(field, label)}
+                          </th>
+                        ))}
                         <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
                           Added
                         </th>
@@ -1201,8 +1277,7 @@ export default function VocabularyWordList({
         >
           <div className="flex items-center justify-between gap-2 px-3 py-1">
             <span className="text-xs font-semibold text-zinc-500">
-              {ENRICHMENT_FIELDS.find((item) => item.field === openFilter)
-                ?.label ?? openFilter}
+              {FILTER_BY_FIELD.get(openFilter)?.label ?? openFilter}
             </span>
             {columnFilters[openFilter].size > 0 && (
               <button
@@ -1213,27 +1288,29 @@ export default function VocabularyWordList({
               </button>
             )}
           </div>
-          {columnOptions(openFilter).map((value) => (
-            <label
-              key={value || "(none)"}
-              className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-            >
-              <input
-                type="checkbox"
-                checked={columnFilters[openFilter].has(value)}
-                onChange={() => toggleColumnValue(openFilter, value)}
-                className="shrink-0 accent-indigo-600"
-              />
-              {/* The "no value" bucket is offered like any other option,
-                  since "which words still have nothing here" is one of the
-                  more useful things to filter for (Question 254). */}
-              {value === NO_VALUE ? (
-                <span className="italic text-zinc-500">(none)</span>
-              ) : (
-                value
-              )}
-            </label>
-          ))}
+          {openColumn &&
+            columnOptions(openColumn).map((value) => (
+              <label
+                key={value || "(none)"}
+                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+              >
+                <input
+                  type="checkbox"
+                  checked={columnFilters[openFilter].has(value)}
+                  onChange={() => toggleColumnValue(openFilter, value)}
+                  className="shrink-0 accent-indigo-600"
+                />
+                {/* The "nothing here" bucket is offered like any other
+                    option, since "which words still have nothing here" is
+                    one of the more useful things to filter for (Question
+                    254) — and for a presence column it's one of only two. */}
+                {value === NO_VALUE && openColumn.kind === "values" ? (
+                  <span className="italic text-zinc-500">(none)</span>
+                ) : (
+                  optionLabel(openColumn.kind, value)
+                )}
+              </label>
+            ))}
         </div>
       )}
 
