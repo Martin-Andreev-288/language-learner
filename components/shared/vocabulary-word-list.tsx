@@ -304,7 +304,16 @@ export default function VocabularyWordList({
   const [addError, setAddError] = useState<string | null>(null);
   const [addSummary, setAddSummary] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [languageFilter, setLanguageFilter] = useState("all");
+  // A set rather than a single value, and empty means "every language"
+  // rather than "no language" — the same shape the Table's column filters
+  // use, so the two read alike even though they answer to different parts
+  // of the page. It stays shared state, not Table-only state: List has its
+  // own control for it on screen, so nothing is hidden there for a reason
+  // that view can't explain (Question 255).
+  const [languageFilters, setLanguageFilters] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [languagesOpen, setLanguagesOpen] = useState(false);
   const [enrichmentFilter, setEnrichmentFilter] =
     useState<EnrichmentFilter>("all");
   // List stays the default: it's the everyday view, and Table only earns
@@ -324,7 +333,15 @@ export default function VocabularyWordList({
         FILTERABLE_COLUMNS.map((column) => [column.field, new Set<string>()]),
       ) as Record<FilterableColumn, Set<string>>,
   );
-  const [openFilter, setOpenFilter] = useState<FilterableColumn | null>(null);
+  // Language joins this same state as a literal alongside the real
+  // FilterableColumns, so its header can open through the identical
+  // anchored panel — without joining FILTERABLE_COLUMNS itself, which
+  // would mean joining columnFilters too, and columnFilters is Table-only
+  // state (Question 255). Language stays shared; only the header's click
+  // affordance is being reused here, not the state underneath it.
+  const [openFilter, setOpenFilter] = useState<
+    FilterableColumn | "language" | null
+  >(null);
   // Read through useSyncExternalStore rather than useState, for the same
   // reason the speech hook does: the value lives outside React, and the
   // server needs its own answer for it — there's no localStorage there, so
@@ -347,6 +364,10 @@ export default function VocabularyWordList({
     top: number;
   } | null>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
+  // Wraps the button as well as the panel, so clicking the button counts as
+  // inside: otherwise mousedown would close the panel a moment before the
+  // click reopened it, and the button would never close what it opened.
+  const languagePanelRef = useRef<HTMLDivElement>(null);
   const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   // Only one row editable at a time — same one-card-at-a-time principle
@@ -425,7 +446,13 @@ export default function VocabularyWordList({
     }
   }
 
-  function openColumnFilter(field: FilterableColumn, anchor: HTMLElement) {
+  // Renamed from openColumnFilter now that it also opens Language's panel:
+  // the anchoring and toggle-closed logic don't care what they're opening,
+  // which is exactly what let Language join this without its own copy.
+  function openHeaderFilter(
+    field: FilterableColumn | "language",
+    anchor: HTMLElement,
+  ) {
     if (openFilter === field) {
       setOpenFilter(null);
       return;
@@ -433,6 +460,18 @@ export default function VocabularyWordList({
     const bounds = anchor.getBoundingClientRect();
     setFilterAnchor({ left: bounds.left, top: bounds.bottom + 4 });
     setOpenFilter(field);
+  }
+
+  function toggleLanguageFilter(value: string) {
+    setLanguageFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) {
+        next.delete(value);
+      } else {
+        next.add(value);
+      }
+      return next;
+    });
   }
 
   function toggleColumnValue(field: FilterableColumn, value: string) {
@@ -451,13 +490,35 @@ export default function VocabularyWordList({
   // generated columns can't drift into looking or behaving differently —
   // they're the same control over the same state, and the only thing that
   // varies between them is what's inside the panel it opens.
+  //
+  // Language is handled here too, ahead of the FilterableColumn lookup,
+  // for the same reason: this button should be indistinguishable from the
+  // others by look or behaviour (Question 325). It reads and writes
+  // languageFilters instead of columnFilters, because that state has to
+  // stay shared with List (Question 324) — the button is the only part
+  // that's borrowed, not the data underneath it.
   function renderColumnHeader(field: string, label: string) {
+    if (field === "language") {
+      const active = languageFilters.size > 0;
+      return (
+        <button
+          onClick={(event) => openHeaderFilter("language", event.currentTarget)}
+          title="Filter by language"
+          className={`flex items-center gap-1 transition-colors hover:text-indigo-300 ${
+            active ? "text-indigo-300" : ""
+          }`}
+        >
+          {label}
+          <span className="text-[10px]">{active ? "▼" : "▾"}</span>
+        </button>
+      );
+    }
     const column = FILTER_BY_FIELD.get(field as FilterableColumn);
     if (!column) return label;
     const active = columnFilters[column.field].size > 0;
     return (
       <button
-        onClick={(event) => openColumnFilter(column.field, event.currentTarget)}
+        onClick={(event) => openHeaderFilter(column.field, event.currentTarget)}
         title={
           column.kind === "presence"
             ? `Show only words that have ${label.toLowerCase()}, or only those that don't`
@@ -695,6 +756,29 @@ export default function VocabularyWordList({
     };
   }, [openFilter]);
 
+  // Same treatment for the language panel, minus the scroll handling: this
+  // one is positioned against its own button rather than at fixed page
+  // coordinates, so it travels with the toolbar instead of detaching.
+  useEffect(() => {
+    if (!languagesOpen) return;
+
+    function close(event: Event) {
+      const target = event.target as Node;
+      if (languagePanelRef.current?.contains(target)) return;
+      setLanguagesOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setLanguagesOpen(false);
+    }
+
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [languagesOpen]);
+
   // Counted the way addVocabularyEntries counts: one entry per non-empty
   // line, deduplicated, so the number shown is the number the limit is
   // actually applied to rather than a rough line count.
@@ -712,7 +796,24 @@ export default function VocabularyWordList({
     new Set(entries.map((entry) => entry.language)),
   ).sort((a, b) => a.localeCompare(b));
 
-  // Language is an exact match picked from a dropdown, not part of the free
+  // Derived from the available list rather than from the set itself, so the
+  // button and the empty state name languages in the order they're listed —
+  // and so a language whose last word was just deleted stops being counted
+  // instead of silently filtering against an option no longer on offer.
+  const chosenLanguages = availableLanguages.filter((lang) =>
+    languageFilters.has(lang),
+  );
+  // The button says what it's filtering to while it's closed — one or two
+  // names outright, a count past that, since three or more names would
+  // stretch the toolbar and wrap it.
+  const languageFilterLabel =
+    chosenLanguages.length === 0
+      ? "All languages"
+      : chosenLanguages.length <= 2
+        ? chosenLanguages.join(", ")
+        : `${chosenLanguages.length} languages`;
+
+  // Language is an exact match ticked in its own panel, not part of the free
   // -text search — searching "En" as text used to also match any word
   // containing those two letters ("entertain," "listen"), which stopped
   // being usable once the list grew. Text search now only looks at the
@@ -733,7 +834,11 @@ export default function VocabularyWordList({
   const visibleEntries = entries
     .filter(
       (entry) =>
-        (languageFilter === "all" || entry.language === languageFilter) &&
+        // Guarded on the derived list, not the raw set: if the last word
+        // in a ticked language is deleted, that tick would otherwise keep
+        // filtering while the button had already stopped mentioning it.
+        (chosenLanguages.length === 0 ||
+          languageFilters.has(entry.language)) &&
         (enrichmentFilter === "all" ||
           (enrichmentFilter === "enriched"
             ? hasEnrichment(entry)
@@ -847,7 +952,12 @@ export default function VocabularyWordList({
     );
   }
 
-  const openColumn = openFilter ? FILTER_BY_FIELD.get(openFilter) : undefined;
+  // "language" isn't a key FILTER_BY_FIELD knows — it's rendered from
+  // availableLanguages/languageFilters directly, in the panel below.
+  const openColumn =
+    openFilter && openFilter !== "language"
+      ? FILTER_BY_FIELD.get(openFilter)
+      : undefined;
 
   const activeColumnFilters = FILTERABLE_COLUMNS.filter(
     (column) => columnFilters[column.field].size > 0,
@@ -970,18 +1080,58 @@ export default function VocabularyWordList({
                 placeholder="Search word or translation…"
                 className="w-48 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
               />
-              <select
-                value={languageFilter}
-                onChange={(event) => setLanguageFilter(event.target.value)}
-                className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
-              >
-                <option value="all">All languages</option>
-                {availableLanguages.map((lang) => (
-                  <option key={lang} value={lang}>
-                    {lang}
-                  </option>
-                ))}
-              </select>
+              {/* Checkboxes in a panel rather than a native multi-select:
+                  that one needs ctrl-click to reach a second value and shows
+                  no ticks, which makes it a poor neighbour to the column
+                  filters already looking like this. Borrowed look, its own
+                  state — this filter belongs to both views, while the column
+                  filters belong to Table alone. */}
+              <div className="relative" ref={languagePanelRef}>
+                <button
+                  onClick={() => setLanguagesOpen((prev) => !prev)}
+                  aria-expanded={languagesOpen}
+                  className={`rounded-lg border bg-zinc-800 px-3 py-1.5 text-sm outline-none transition-colors hover:border-zinc-500 ${
+                    chosenLanguages.length > 0
+                      ? "border-indigo-700 text-indigo-300"
+                      : "border-zinc-700 text-zinc-200"
+                  }`}
+                >
+                  {languageFilterLabel}
+                  <span className="ml-1.5 text-zinc-500">▾</span>
+                </button>
+
+                {languagesOpen && (
+                  <div className="absolute left-0 top-full z-40 mt-1 max-h-72 w-56 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 py-1 shadow-2xl">
+                    <div className="flex items-center justify-between gap-2 px-3 py-1">
+                      <span className="text-xs font-semibold text-zinc-500">
+                        Languages
+                      </span>
+                      {chosenLanguages.length > 0 && (
+                        <button
+                          onClick={() => setLanguageFilters(new Set())}
+                          className="text-xs text-zinc-500 transition-colors hover:text-red-400"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    {availableLanguages.map((lang) => (
+                      <label
+                        key={lang}
+                        className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={languageFilters.has(lang)}
+                          onChange={() => toggleLanguageFilter(lang)}
+                          className="shrink-0 accent-indigo-600"
+                        />
+                        <span className="truncate">{lang}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
               <select
                 value={enrichmentFilter}
                 onChange={(event) =>
@@ -1082,7 +1232,9 @@ export default function VocabularyWordList({
               {normalizedSearch
                 ? `No words match "${searchTerm.trim()}"`
                 : "No words match this filter"}
-              {languageFilter !== "all" ? ` in ${languageFilter}` : ""}
+              {chosenLanguages.length > 0
+                ? ` in ${chosenLanguages.join(" or ")}`
+                : ""}
               {enrichmentFilter === "enriched"
                 ? " with information added yet."
                 : enrichmentFilter === "plain"
@@ -1234,11 +1386,17 @@ export default function VocabularyWordList({
                             key={key}
                             className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300"
                           >
-                            {/* Language and Added have no header filter —
-                                Language is filtered from the dropdown above
-                                the table, and a date isn't a value picked
-                                from a list. renderColumnHeader falls back to
-                                the plain label for anything not filterable. */}
+                            {/* Only Added has no header filter — a date
+                                isn't a value picked from a list, the same
+                                reason the other presence-only columns don't
+                                list values either. Language gets the same
+                                clickable header as everything else now
+                                (Question 325), reading and writing the
+                                shared languageFilters state so the toolbar
+                                dropdown above stays in sync — it's the same
+                                filter, opened two ways. renderColumnHeader
+                                falls back to the plain label for anything
+                                not filterable at all. */}
                             {renderColumnHeader(key, COLUMN_LABELS[key])}
                           </th>
                         ))}
@@ -1550,40 +1708,68 @@ export default function VocabularyWordList({
         >
           <div className="flex items-center justify-between gap-2 px-3 py-1">
             <span className="text-xs font-semibold text-zinc-500">
-              {FILTER_BY_FIELD.get(openFilter)?.label ?? openFilter}
+              {openFilter === "language"
+                ? "Language"
+                : FILTER_BY_FIELD.get(openFilter)?.label ?? openFilter}
             </span>
-            {columnFilters[openFilter].size > 0 && (
+            {/* Same Clear affordance either way, just pointed at whichever
+                state this panel currently belongs to. */}
+            {(openFilter === "language"
+              ? languageFilters.size > 0
+              : columnFilters[openFilter].size > 0) && (
               <button
-                onClick={() => clearColumnFilter(openFilter)}
+                onClick={() =>
+                  openFilter === "language"
+                    ? setLanguageFilters(new Set())
+                    : clearColumnFilter(openFilter)
+                }
                 className="text-xs text-zinc-500 transition-colors hover:text-red-400"
               >
                 Clear
               </button>
             )}
           </div>
-          {openColumn &&
-            columnOptions(openColumn).map((value) => (
-              <label
-                key={value || "(none)"}
-                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-              >
-                <input
-                  type="checkbox"
-                  checked={columnFilters[openFilter].has(value)}
-                  onChange={() => toggleColumnValue(openFilter, value)}
-                  className="shrink-0 accent-indigo-600"
-                />
-                {/* The "nothing here" bucket is offered like any other
-                    option, since "which words still have nothing here" is
-                    one of the more useful things to filter for (Question
-                    254) — and for a presence column it's one of only two. */}
-                {value === NO_VALUE && openColumn.kind === "values" ? (
-                  <span className="italic text-zinc-500">(none)</span>
-                ) : (
-                  optionLabel(openColumn.kind, value)
-                )}
-              </label>
-            ))}
+          {openFilter === "language"
+            ? // Same list the toolbar dropdown offers, in the same order —
+              // opening this from the header shouldn't show a different set
+              // of languages than opening it from above the table would.
+              availableLanguages.map((lang) => (
+                <label
+                  key={lang}
+                  className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                >
+                  <input
+                    type="checkbox"
+                    checked={languageFilters.has(lang)}
+                    onChange={() => toggleLanguageFilter(lang)}
+                    className="shrink-0 accent-indigo-600"
+                  />
+                  <span className="truncate">{lang}</span>
+                </label>
+              ))
+            : openColumn &&
+              columnOptions(openColumn).map((value) => (
+                <label
+                  key={value || "(none)"}
+                  className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                >
+                  <input
+                    type="checkbox"
+                    checked={columnFilters[openFilter].has(value)}
+                    onChange={() => toggleColumnValue(openFilter, value)}
+                    className="shrink-0 accent-indigo-600"
+                  />
+                  {/* The "nothing here" bucket is offered like any other
+                      option, since "which words still have nothing here" is
+                      one of the more useful things to filter for (Question
+                      254) — and for a presence column it's one of only two. */}
+                  {value === NO_VALUE && openColumn.kind === "values" ? (
+                    <span className="italic text-zinc-500">(none)</span>
+                  ) : (
+                    optionLabel(openColumn.kind, value)
+                  )}
+                </label>
+              ))}
         </div>
       )}
 
