@@ -91,6 +91,27 @@ model VocabularyEntry {
     aiExamples       String?
     collocations     String?
 
+    // Added in Question 310.
+    //
+    // Where this word is actually met — one of a short fixed set (see
+    // lib/vocabulary-enrichment.ts). Deliberately not the same axis as
+    // `level`: level says how advanced a word is, this says which kind of
+    // situation it belongs to, and a word can easily be easy and confined
+    // to one trade, or hard and heard everywhere.
+    //
+    // Renamed from `worthLearning` in Question 316, when the values stopped
+    // being a ranking and became contexts — nothing here outranks anything
+    // else, so a name promising a verdict was a name that lied.
+    usedIn           String?
+    // The topic it belongs to, suggested from lib/word-categories.ts but
+    // stored as plain text, so a category invented by hand is as valid as
+    // one from the list.
+    category         String?
+    // A sentence the user wrote themselves, unlike `aiExamples`. The one
+    // field here that never comes from the model — it can be checked by
+    // one on request, but it is never generated.
+    ownExample       String?
+
     timesSeenReading Int      @default(0)
     timesSeenWriting Int      @default(0)
     firstSeen        DateTime @default(now())

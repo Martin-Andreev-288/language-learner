@@ -18,6 +18,7 @@ import {
 } from "@/app/actions/shuffle-actions";
 import { ShuffleListType } from "@/app/generated/prisma";
 import { enrichVocabularyEntries } from "@/app/actions/vocabulary-enrich-actions";
+import { checkWriting } from "@/app/actions/writing-check-actions";
 import {
   MAX_ENRICH_WORDS,
   type EnrichableField,
@@ -39,6 +40,9 @@ interface VocabularyEntryData {
   synonyms: string | null;
   aiExamples: string | null;
   collocations: string | null;
+  usedIn: string | null;
+  category: string | null;
+  ownExample: string | null;
 }
 
 // One description per generated field, covering both how it's displayed and
@@ -63,6 +67,18 @@ const ENRICHMENT_FIELDS: {
   { field: "level", label: "Level", inDetails: true, placeholder: "e.g. B2" },
   { field: "nounInfo", label: "Gender & plural", placeholder: "e.g. f, -n" },
   { field: "partOfSpeech", label: "Part of speech", inDetails: true },
+  {
+    field: "usedIn",
+    label: "Used in",
+    inDetails: true,
+    placeholder: "e.g. Everyday conversation",
+  },
+  {
+    field: "category",
+    label: "Category",
+    inDetails: true,
+    placeholder: "e.g. Animals",
+  },
   { field: "wordFamily", label: "Word family", inDetails: true },
   { field: "synonyms", label: "Synonyms", inDetails: true },
   {
@@ -78,6 +94,13 @@ const ENRICHMENT_FIELDS: {
     multiline: true,
     inDetails: true,
     placeholder: "One per line",
+  },
+  {
+    field: "ownExample",
+    label: "Your sentence",
+    multiline: true,
+    inDetails: true,
+    placeholder: "Write a sentence using this word",
   },
 ];
 
@@ -130,7 +153,10 @@ type FilterableColumn =
   | "wordFamily"
   | "synonyms"
   | "aiExamples"
-  | "collocations";
+  | "collocations"
+  | "usedIn"
+  | "category"
+  | "ownExample";
 
 const FILTERABLE_COLUMNS: {
   field: FilterableColumn;
@@ -141,10 +167,16 @@ const FILTERABLE_COLUMNS: {
   { field: "level", label: "Level", kind: "values" },
   { field: "nounInfo", label: "Gender & plural", kind: "presence" },
   { field: "partOfSpeech", label: "Part of speech", kind: "values" },
+  // Both take repeating values from a known set, so both list them rather
+  // than only asking whether there's anything there — exactly the reason
+  // Level and Part of speech do.
+  { field: "usedIn", label: "Used in", kind: "values" },
+  { field: "category", label: "Category", kind: "values" },
   { field: "wordFamily", label: "Word family", kind: "presence" },
   { field: "synonyms", label: "Synonyms", kind: "presence" },
   { field: "aiExamples", label: "Examples", kind: "presence" },
   { field: "collocations", label: "Collocations", kind: "presence" },
+  { field: "ownExample", label: "Your sentence", kind: "presence" },
 ];
 
 const FILTER_BY_FIELD = new Map(
@@ -270,6 +302,8 @@ export default function VocabularyWordList({
   // to ENRICHMENT_FIELDS enough on its own.
   const [editEnrichment, setEditEnrichment] =
     useState<Record<EnrichmentKey, string>>(emptyEnrichment);
+  const [fixingSentence, setFixingSentence] = useState(false);
+  const [fixSentenceError, setFixSentenceError] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   // Selection for enrichment, by entry id — same Set-of-ids shape Inline
@@ -406,6 +440,39 @@ export default function VocabularyWordList({
       }
       return next;
     });
+  }
+
+  // Your own sentence, checked by the same action Writing Check, the chat
+  // and Speak Check all use — pointed at one sentence instead of a passage
+  // (Question 310). The corrected text replaces what's in the box, but only
+  // in the box: nothing is saved until you save the word, so a correction
+  // you disagree with costs you a Cancel, not an undo.
+  async function handleFixOwnSentence(language: string) {
+    const sentence = editEnrichment.ownExample.trim();
+    if (!sentence) return;
+
+    setFixingSentence(true);
+    setFixSentenceError(null);
+    try {
+      const result = await checkWriting(sentence, language);
+      if (!result.ok) {
+        setFixSentenceError(result.error);
+        return;
+      }
+      // Nothing to say when it was already right — silently replacing the
+      // sentence with an identical one looks like the button did nothing.
+      if (result.data.correctedText.trim() === sentence) {
+        setFixSentenceError("That already looks right.");
+        return;
+      }
+      updateEditField("ownExample", result.data.correctedText);
+    } catch (err) {
+      setFixSentenceError(
+        describeClientError(err, "Couldn't check that sentence."),
+      );
+    } finally {
+      setFixingSentence(false);
+    }
   }
 
   // Cards carry the word alone, not the word and its translation together.
@@ -1077,16 +1144,31 @@ export default function VocabularyWordList({
                                 >
                                   {label}
                                 </label>
-                                {value.trim() && (
-                                  <button
-                                    type="button"
-                                    onClick={() => updateEditField(field, "")}
-                                    title={`Clear ${label} — takes effect when you save`}
-                                    className="text-xs text-zinc-600 transition-colors hover:text-red-400"
-                                  >
-                                    Clear
-                                  </button>
-                                )}
+                                <div className="flex items-center gap-3">
+                                  {field === "ownExample" && value.trim() && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleFixOwnSentence(entry.language)
+                                      }
+                                      disabled={fixingSentence}
+                                      title="Check this sentence and correct it"
+                                      className="text-xs text-indigo-400 transition-colors hover:text-indigo-300 disabled:cursor-not-allowed disabled:text-zinc-600"
+                                    >
+                                      {fixingSentence ? "Checking…" : "Fix with AI"}
+                                    </button>
+                                  )}
+                                  {value.trim() && (
+                                    <button
+                                      type="button"
+                                      onClick={() => updateEditField(field, "")}
+                                      title={`Clear ${label} — takes effect when you save`}
+                                      className="text-xs text-zinc-600 transition-colors hover:text-red-400"
+                                    >
+                                      Clear
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                               {multiline ? (
                                 <textarea
@@ -1118,6 +1200,14 @@ export default function VocabularyWordList({
 
                     {editError && (
                       <p className="mt-3 text-sm text-red-400">{editError}</p>
+                    )}
+                    {/* Amber, not red: "that already looks right" is the
+                        most likely thing this ever says, and it isn't a
+                        failure. */}
+                    {fixSentenceError && (
+                      <p className="mt-3 text-sm text-amber-400">
+                        {fixSentenceError}
+                      </p>
                     )}
 
                     {/* Below the form rather than up in the word row: with

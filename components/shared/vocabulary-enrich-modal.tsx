@@ -20,6 +20,16 @@ const FIELD_LABELS: {
   },
   { field: "level", label: "Level", hint: "CEFR: A1 to C2." },
   {
+    field: "usedIn",
+    label: "Used in",
+    hint: "The kind of situation the word belongs to — everyday speech, jargon, older texts. Not a ranking.",
+  },
+  {
+    field: "category",
+    label: "Category",
+    hint: "The topic it belongs to, picked from your own list of sections.",
+  },
+  {
     field: "nounInfo",
     label: "Gender & plural",
     hint: "Nouns only, shown next to the word (e.g. “f, -n”). Skipped for anything that isn’t a noun.",
@@ -49,7 +59,11 @@ const FIELD_LABELS: {
   },
 ];
 
-// Everything except part of speech, per Answer 241.
+// Everything except part of speech, used-in and category. Part of speech
+// has been off since Answer 241 for an accuracy reason stated in its own
+// hint; the other two are off because they were added later (Question 310)
+// and turning on new work for everybody by default isn't a decision worth
+// making silently.
 const DEFAULT_FIELDS: EnrichableField[] = [
   "translation",
   "level",
@@ -59,6 +73,27 @@ const DEFAULT_FIELDS: EnrichableField[] = [
   "aiExamples",
   "collocations",
 ];
+
+const ALL_FIELDS = FIELD_LABELS.map((entry) => entry.field);
+
+// On-by-default first, off-by-default after, each group keeping the order
+// above (Question 317). Before this, the two fields added in Question 310
+// sat near the top while unchecked, above several checked ones, which made
+// the list look shuffled rather than grouped.
+//
+// Derived from DEFAULT_FIELDS rather than from what's currently ticked,
+// which is the whole reason nothing jumps: the order is a fact about the
+// defaults, so it can't change while you're clicking. That makes it a
+// module constant rather than something the component has to freeze when
+// it opens.
+const ORDERED_FIELDS = [
+  ...FIELD_LABELS.filter((entry) => DEFAULT_FIELDS.includes(entry.field)),
+  ...FIELD_LABELS.filter((entry) => !DEFAULT_FIELDS.includes(entry.field)),
+];
+
+const FIRST_OFF_BY_DEFAULT = ORDERED_FIELDS.find(
+  (entry) => !DEFAULT_FIELDS.includes(entry.field),
+)?.field;
 
 export default function VocabularyEnrichModal({
   wordCount,
@@ -96,6 +131,16 @@ export default function VocabularyEnrichModal({
     );
   }
 
+  function selectAll() {
+    setFields(ALL_FIELDS);
+  }
+
+  function clearAll() {
+    setFields([]);
+  }
+
+  const allSelected = fields.length === ALL_FIELDS.length;
+  const noneSelected = fields.length === 0;
   const wantsTranslation = fields.includes("translation");
   const missingLanguage = wantsTranslation && !translateInto.trim();
   const canConfirm = fields.length > 0 && !missingLanguage && !running;
@@ -117,10 +162,45 @@ export default function VocabularyEnrichModal({
           saved. You can add the rest later by editing a word.
         </p>
 
-        <div className="mt-4 space-y-2">
-          {FIELD_LABELS.map(({ field, label, hint }) => (
+        <div className="mt-4 flex items-center justify-between gap-3 border-b border-zinc-800 pb-2">
+          <span className="text-xs text-zinc-500">
+            {fields.length} of {ALL_FIELDS.length} selected
+          </span>
+          {/* Two named actions rather than one toggle: with a default state
+              already in play, a single "toggle all" button can't say which
+              way it's about to go. Reopening the modal is the third state —
+              it always comes back to the defaults. */}
+          <span className="flex items-center gap-3 text-xs">
+            <button
+              type="button"
+              onClick={selectAll}
+              disabled={running || allSelected}
+              className="font-medium text-indigo-400 transition-colors hover:text-indigo-300 disabled:cursor-not-allowed disabled:text-zinc-700"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={clearAll}
+              disabled={running || noneSelected}
+              className="font-medium text-zinc-400 transition-colors hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-zinc-700"
+            >
+              Clear all
+            </button>
+          </span>
+        </div>
+
+        <div className="mt-2 space-y-2">
+          {ORDERED_FIELDS.map(({ field, label, hint }) => (
+            <div key={field}>
+              {/* Says why the order changes here, rather than leaving the
+                  break between the two groups looking accidental. */}
+              {field === FIRST_OFF_BY_DEFAULT && (
+                <p className="mb-1 mt-3 border-t border-zinc-800 pt-3 text-xs font-medium uppercase tracking-wider text-zinc-600">
+                  Off by default
+                </p>
+              )}
             <label
-              key={field}
               className="flex cursor-pointer gap-2.5 rounded-lg p-2 transition-colors hover:bg-zinc-800/60"
             >
               <input
@@ -137,6 +217,7 @@ export default function VocabularyEnrichModal({
                 <span className="block text-xs text-zinc-500">{hint}</span>
               </span>
             </label>
+            </div>
           ))}
         </div>
 

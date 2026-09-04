@@ -34,6 +34,8 @@ export const ENRICHABLE_FIELDS = [
     "aiExamples",
     "collocations",
     "partOfSpeech",
+    "usedIn",
+    "category",
 ] as const;
 
 export type EnrichableField = (typeof ENRICHABLE_FIELDS)[number];
@@ -47,10 +49,17 @@ export const ENRICHMENT_DETAIL_FIELDS = [
     "level",
     "nounInfo",
     "partOfSpeech",
+    "usedIn",
+    "category",
     "wordFamily",
     "synonyms",
     "aiExamples",
     "collocations",
+    // Never generated, unlike everything above it — it's yours to write.
+    // It lives in this list all the same, because this list is what the
+    // page renders and edits, and a sentence you wrote should be editable
+    // exactly like every other field on the word (Question 310).
+    "ownExample",
 ] as const;
 
 export type EnrichmentDetailField = (typeof ENRICHMENT_DETAIL_FIELDS)[number];
@@ -90,3 +99,39 @@ export function sanitizeGeneratedText(value: string): string {
     }
     return cleaned.replace(/[\u0080-\u009f]/g, "").trim();
 }
+
+// Where a word is actually used (Questions 312-316).
+//
+// This replaced a frequency scale — Essential through Niche — and the
+// replacement is a different question, not a relabelling. "How often is
+// this word used" flattens a legal term into "rare" and stops there;
+// "where would you meet it" says it's ordinary inside its field and
+// absent outside, which is the part that actually tells you whether to
+// bother. Six rather than four because "formal or technical" was hiding
+// two different payoffs, and "specialized or dialect" was hiding three
+// different pieces of advice (Answer 313).
+//
+// Unordered on purpose, unlike the scale it replaced. Nothing here ranks
+// above anything else: jargon is essential to someone studying that
+// field and useless to everyone else, which is exactly what a ranked
+// scale could not say.
+export const USED_IN_VALUES = [
+    "Everyday conversation",
+    "Slang or very informal",
+    "Reading & media",
+    "Formal or academic",
+    "Technical or professional jargon",
+    "Archaic, dialect, or regional",
+] as const;
+
+export const USED_IN_HINTS: Record<string, string> = {
+    "Everyday conversation": "Ordinary spoken language — safe anywhere.",
+    "Slang or very informal":
+        "Current and casual. Useful, but easy to misplace and quick to date.",
+    "Reading & media": "Books, news, film and television rather than speech.",
+    "Formal or academic": "Careful writing, official language, study.",
+    "Technical or professional jargon":
+        "Ordinary inside one field, rarely met outside it.",
+    "Archaic, dialect, or regional":
+        "Worth recognising in older or local texts; not for speaking.",
+};

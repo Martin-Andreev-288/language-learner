@@ -6,6 +6,8 @@ import { generateText, Output } from "ai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 import { describeAiError } from "@/lib/ai-error";
+import { WORD_CATEGORIES } from "@/lib/word-categories";
+import { USED_IN_VALUES } from "@/lib/vocabulary-enrichment";
 import { actionError, actionOk } from "@/lib/action-result";
 import {
     ENRICHABLE_FIELDS,
@@ -34,6 +36,26 @@ const FIELD_PROMPTS: Record<EnrichableField, string> = {
         "collocations: 3-5 very short, natural word pairings this word commonly appears in (e.g. \"make a decision\", \"heavy rain\") — short reusable chunks, not full sentences. One per line, no numbering or bullets.",
     partOfSpeech:
         "partOfSpeech: the word's most common part of speech (noun, verb, adjective, adverb, etc.) — a single word.",
+    // Unlike every other field here, this one can't be judged from the word
+    // alone — it's a claim about how the word sits in the language as a
+    // whole. The prompt says so plainly rather than asking for it in the
+    // same breath as gender or part of speech (Answer 298). It also says
+    // outright that this is not a ranking, because the values read like
+    // one and a model asked for "the best" answer will invent an order
+    // that isn't there.
+    //
+    // The six are listed as bare names on their own lines, and the guidance
+    // for them sits in a separate sentence afterwards. The first version put
+    // each explanation in brackets beside its value and asked for the phrase
+    // "exactly as written" — which came back wrong on all eight test words,
+    // every one of them carrying its bracket along ("Everyday conversation
+    // (ordinary spoken language)"). The judgment was right every time; only
+    // the copying was wrong, and a value that doesn't match the list exactly
+    // is a value its own filter can't group (Question 316).
+    usedIn:
+        "usedIn: the kind of situation this word actually belongs to. Choose the closest match from this list:\n{{USED_IN}}\nCopy the chosen name exactly as written, with nothing added to it. For guidance: everyday conversation is ordinary spoken language; slang is casual and current; reading and media means books, news and film rather than speech; formal or academic means careful writing, official language and study; jargon is ordinary inside one field and rarely met outside it; archaic, dialect or regional belongs to older or local texts rather than to speaking. This is not a ranking and none of them is better than another — a technical term is not a worse word than an everyday one, it just belongs somewhere else.",
+    category:
+        "category: the topic this word belongs to. Choose the closest match from this list:\n{{CATEGORIES}}\nCopy the chosen name exactly as written. If genuinely nothing on the list fits, write a short topic name of your own instead, two or three words at most.",
 };
 
 // Built per request from exactly the checked fields, per Question 242.
@@ -98,9 +120,25 @@ export async function enrichVocabularyEntries(
         return actionError("Those words couldn't be found.");
     }
 
+    // The category list is only pasted in when a category was actually
+    // asked for — it's the longest thing in this prompt by far, and there's
+    // no reason to spend it on a batch that only wants translations.
     const requestedList = fields
-        .map((field) =>
-            `- ${FIELD_PROMPTS[field].replace("{{TARGET}}", translateInto)}`,
+        .map(
+            (field) =>
+                `- ${FIELD_PROMPTS[field]
+                    .replace("{{TARGET}}", translateInto)
+                    .replace(
+                        "{{CATEGORIES}}",
+                        WORD_CATEGORIES.map((name) => `  - ${name}`).join("\n"),
+                    )
+                    // Formatted exactly like the category list above, which
+                    // is the reason it's formatted that way at all — see the
+                    // note on the usedIn prompt.
+                    .replace(
+                        "{{USED_IN}}",
+                        USED_IN_VALUES.map((name) => `  - ${name}`).join("\n"),
+                    )}`,
         )
         .join("\n");
 
