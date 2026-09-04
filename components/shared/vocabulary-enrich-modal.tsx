@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 import LanguageCombobox from "@/components/shared/language-combobox";
-import { type EnrichableField } from "@/lib/vocabulary-enrichment";
+import {
+  USED_IN_HINTS,
+  USED_IN_VALUES,
+  type EnrichableField,
+} from "@/lib/vocabulary-enrichment";
+import { WORD_CATEGORIES } from "@/lib/word-categories";
 
 // Label and one-line explanation per field. Kept here rather than in the
 // action, since these are purely what the user reads — the action's own
@@ -76,6 +81,27 @@ const DEFAULT_FIELDS: EnrichableField[] = [
 
 const ALL_FIELDS = FIELD_LABELS.map((entry) => entry.field);
 
+// The two fields whose values are chosen from a fixed list, and so are the
+// two worth being able to read before you ask for them (Question 319).
+// Everything else here is generated freely — there's no list of possible
+// synonyms to go and look at.
+//
+// Shown from inside this modal rather than anywhere else because this is
+// the moment the question comes up: you're deciding whether to ask for a
+// category, and "what are the categories?" is a fair thing to want
+// answered without leaving. The table's own filter can't answer it — it
+// lists only the values already used by your words, which is deliberately
+// a different and much shorter list.
+const REFERENCE_LISTS: Partial<
+  Record<EnrichableField, { title: string; entries: readonly string[] }>
+> = {
+  usedIn: { title: "The six kinds", entries: USED_IN_VALUES },
+  category: {
+    title: `All ${WORD_CATEGORIES.length} topics`,
+    entries: WORD_CATEGORIES,
+  },
+};
+
 // On-by-default first, off-by-default after, each group keeping the order
 // above (Question 317). Before this, the two fields added in Question 310
 // sat near the top while unchecked, above several checked ones, which made
@@ -111,6 +137,11 @@ export default function VocabularyEnrichModal({
   defaultTranslateLanguage: string;
 }) {
   const [fields, setFields] = useState<EnrichableField[]>(DEFAULT_FIELDS);
+  // Only one list open at a time — two long lists at once would bury
+  // the rest of the modal.
+  const [openReference, setOpenReference] = useState<EnrichableField | null>(
+    null,
+  );
   const [translateInto, setTranslateInto] = useState(
     defaultTranslateLanguage,
   );
@@ -200,23 +231,77 @@ export default function VocabularyEnrichModal({
                   Off by default
                 </p>
               )}
-            <label
-              className="flex cursor-pointer gap-2.5 rounded-lg p-2 transition-colors hover:bg-zinc-800/60"
-            >
-              <input
-                type="checkbox"
-                checked={fields.includes(field)}
-                onChange={() => toggleField(field)}
-                disabled={running}
-                className="mt-0.5 shrink-0 accent-indigo-600"
-              />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-zinc-200">
-                  {label}
+            {/* The "?" is a sibling of the label, not inside it: a button
+                within a <label> activates that label's checkbox as well as
+                itself, so opening the list would have silently ticked the
+                field every time. */}
+            <div className="flex items-start gap-1 rounded-lg transition-colors hover:bg-zinc-800/60">
+              <label className="flex min-w-0 flex-1 cursor-pointer gap-2.5 p-2">
+                <input
+                  type="checkbox"
+                  checked={fields.includes(field)}
+                  onChange={() => toggleField(field)}
+                  disabled={running}
+                  className="mt-0.5 shrink-0 accent-indigo-600"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-zinc-200">
+                    {label}
+                  </span>
+                  <span className="block text-xs text-zinc-500">{hint}</span>
                 </span>
-                <span className="block text-xs text-zinc-500">{hint}</span>
-              </span>
-            </label>
+              </label>
+              {REFERENCE_LISTS[field] && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenReference((prev) => (prev === field ? null : field))
+                  }
+                  aria-expanded={openReference === field}
+                  title={
+                    openReference === field
+                      ? "Hide the list"
+                      : `See every value ${label.toLowerCase()} can take`
+                  }
+                  className={`mt-2 mr-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs font-semibold transition-colors ${
+                    openReference === field
+                      ? "border-indigo-500 bg-indigo-600 text-white"
+                      : "border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  ?
+                </button>
+              )}
+            </div>
+
+            {openReference === field && REFERENCE_LISTS[field] && (
+              <div className="mb-1 ml-8 mr-2 rounded-lg border border-zinc-800 bg-zinc-950 p-2.5">
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  {REFERENCE_LISTS[field]!.title}
+                </p>
+                {/* Scrolls rather than growing: sixty-three topics would
+                    push the buttons at the bottom of this modal off the
+                    screen entirely. */}
+                <ul className="max-h-44 space-y-1 overflow-y-auto pr-1 text-xs text-zinc-400">
+                  {REFERENCE_LISTS[field]!.entries.map((entry) => (
+                    <li key={entry}>
+                      <span className="text-zinc-300">{entry}</span>
+                      {USED_IN_HINTS[entry] && (
+                        <span className="text-zinc-600">
+                          {" "}
+                          — {USED_IN_HINTS[entry]}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-zinc-600">
+                  {field === "category"
+                    ? "A word that fits none of these gets a short topic of its own instead."
+                    : "Not a ranking — none of these is better than another."}
+                </p>
+              </div>
+            )}
             </div>
           ))}
         </div>
