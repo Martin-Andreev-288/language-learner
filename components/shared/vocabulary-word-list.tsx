@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   addVocabularyEntries,
@@ -26,6 +26,16 @@ import {
 } from "@/lib/vocabulary-enrichment";
 import { describeClientError } from "@/lib/client-error";
 import { VOCABULARY_MAX_WORDS } from "@/lib/limits";
+import {
+  moveColumn,
+  DEFAULT_COLUMN_LAYOUT,
+  readColumnLayout,
+  readDefaultColumnLayout,
+  subscribeToColumnLayout,
+  toggleColumn,
+  writeColumnLayout,
+  type ConfigurableColumn,
+} from "@/lib/vocabulary-columns";
 
 interface VocabularyEntryData {
   id: string;
@@ -105,6 +115,17 @@ const ENRICHMENT_FIELDS: {
 ];
 
 const DETAIL_FIELDS = ENRICHMENT_FIELDS.filter((entry) => entry.inDetails);
+
+// Every configurable column's label in one place, so the header and the
+// column chooser can't end up calling the same column two different things.
+const COLUMN_LABELS: Record<ConfigurableColumn, string> = {
+  translation: "Translation",
+  language: "Language",
+  added: "Added",
+  ...(Object.fromEntries(
+    ENRICHMENT_FIELDS.map(({ field, label }) => [field, label]),
+  ) as Record<EnrichmentKey, string>),
+};
 
 function populatedEnrichment(entry: VocabularyEntryData) {
   return DETAIL_FIELDS.filter(({ field }) => entry[field]?.trim());
@@ -304,6 +325,19 @@ export default function VocabularyWordList({
       ) as Record<FilterableColumn, Set<string>>,
   );
   const [openFilter, setOpenFilter] = useState<FilterableColumn | null>(null);
+  // Read through useSyncExternalStore rather than useState, for the same
+  // reason the speech hook does: the value lives outside React, and the
+  // server needs its own answer for it — there's no localStorage there, so
+  // it renders the default order and the stored one takes over on the
+  // client. A useState initializer would disagree with the server's markup;
+  // an effect would be setState inside an effect, which the lint rules
+  // reject and which would flash the wrong order anyway.
+  const columnLayout = useSyncExternalStore(
+    subscribeToColumnLayout,
+    readColumnLayout,
+    readDefaultColumnLayout,
+  );
+  const [columnsOpen, setColumnsOpen] = useState(false);
   // Fixed coordinates rather than an absolutely-positioned child: the table
   // sits in an `overflow-x-auto` wrapper, and a container that clips one
   // axis clips the other too, so a panel hanging below the header would be
@@ -747,6 +781,72 @@ export default function VocabularyWordList({
     );
   }
 
+  const visibleColumns = columnLayout.filter((column) => column.visible);
+  const hiddenColumnCount = columnLayout.length - visibleColumns.length;
+
+  // Renders one cell's worth of a word, whichever column it belongs to.
+  // Kept in one place so the header order and the body order can't drift:
+  // both walk the same list.
+  function renderCell(entry: VocabularyEntryData, key: ConfigurableColumn) {
+    if (key === "translation") {
+      return (
+        <td
+          key={key}
+          className="border border-zinc-800 px-3 py-2 align-top text-zinc-400"
+        >
+          {entry.translation}
+        </td>
+      );
+    }
+    if (key === "language") {
+      return (
+        <td
+          key={key}
+          className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top text-zinc-500"
+        >
+          {entry.language}
+        </td>
+      );
+    }
+    if (key === "added") {
+      return (
+        <td
+          key={key}
+          className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top text-xs text-zinc-600"
+        >
+          {formatDate(entry.firstSeen)}
+        </td>
+      );
+    }
+    // A word with nothing generated yet simply leaves empty cells, rather
+    // than being excluded or given placeholder text — the gaps are the
+    // point of this view, since they show at a glance what's missing.
+    const field = key as EnrichmentKey;
+    const multiline = ENRICHMENT_FIELDS.find(
+      (item) => item.field === field,
+    )?.multiline;
+    const lines = (entry[field]?.trim() ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return (
+      <td
+        key={key}
+        className="border border-zinc-800 px-3 py-2 align-top text-zinc-300"
+      >
+        {multiline && lines.length > 1 ? (
+          <ul className="list-disc space-y-0.5 pl-4">
+            {lines.map((line, lineIndex) => (
+              <li key={lineIndex}>{line}</li>
+            ))}
+          </ul>
+        ) : (
+          lines[0]
+        )}
+      </td>
+    );
+  }
+
   const openColumn = openFilter ? FILTER_BY_FIELD.get(openFilter) : undefined;
 
   const activeColumnFilters = FILTERABLE_COLUMNS.filter(
@@ -991,6 +1091,96 @@ export default function VocabularyWordList({
             </p>
           ) : viewMode === "table" ? (
             <>
+              {/* Both behaviours in one control, because they're one piece
+                  of state: an ordered list of columns, each shown or not.
+                  Splitting them into a "hide" menu and separate arrows in
+                  the headers would have been two interfaces onto the same
+                  array — and the headers already carry a filter button. */}
+              <div className="mb-3">
+                <button
+                  onClick={() => setColumnsOpen((prev) => !prev)}
+                  aria-expanded={columnsOpen}
+                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+                >
+                  Columns
+                  {hiddenColumnCount > 0 && (
+                    <span className="text-zinc-500">
+                      {" "}
+                      · {hiddenColumnCount} hidden
+                    </span>
+                  )}
+                </button>
+
+                {columnsOpen && (
+                  <div className="mt-2 w-72 rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                        Columns
+                      </p>
+                      <button
+                        onClick={() => writeColumnLayout(DEFAULT_COLUMN_LAYOUT)}
+                        className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                    {/* Said outright, because a vertical list moving things
+                        left and right is otherwise a guess. */}
+                    <p className="mb-2 text-xs text-zinc-600">
+                      Top to bottom is left to right in the table.
+                    </p>
+                    <ul className="max-h-64 space-y-0.5 overflow-y-auto pr-1">
+                      {columnLayout.map((column, index) => (
+                        <li
+                          key={column.key}
+                          className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-zinc-800/60"
+                        >
+                          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm text-zinc-300">
+                            <input
+                              type="checkbox"
+                              checked={column.visible}
+                              onChange={() =>
+                                writeColumnLayout(
+                                  toggleColumn(columnLayout, column.key),
+                                )
+                              }
+                              className="shrink-0 accent-indigo-600"
+                            />
+                            <span className="truncate">
+                              {COLUMN_LABELS[column.key]}
+                            </span>
+                          </label>
+                          <button
+                            onClick={() =>
+                              writeColumnLayout(
+                                moveColumn(columnLayout, index, -1),
+                              )
+                            }
+                            disabled={index === 0}
+                            title="Move left"
+                            className="shrink-0 px-1 text-xs text-zinc-500 transition-colors hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-zinc-800"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            onClick={() =>
+                              writeColumnLayout(
+                                moveColumn(columnLayout, index, 1),
+                              )
+                            }
+                            disabled={index === columnLayout.length - 1}
+                            title="Move right"
+                            className="shrink-0 px-1 text-xs text-zinc-500 transition-colors hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-zinc-800"
+                          >
+                            ▼
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
               {activeColumnFilters.length > 0 && (
                 <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
                   <span>
@@ -1039,23 +1229,19 @@ export default function VocabularyWordList({
                         <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
                           Word
                         </th>
-                        <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
-                          {renderColumnHeader("translation", "Translation")}
-                        </th>
-                        <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
-                          Language
-                        </th>
-                        {ENRICHMENT_FIELDS.map(({ field, label }) => (
+                        {visibleColumns.map(({ key }) => (
                           <th
-                            key={field}
+                            key={key}
                             className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300"
                           >
-                            {renderColumnHeader(field, label)}
+                            {/* Language and Added have no header filter —
+                                Language is filtered from the dropdown above
+                                the table, and a date isn't a value picked
+                                from a list. renderColumnHeader falls back to
+                                the plain label for anything not filterable. */}
+                            {renderColumnHeader(key, COLUMN_LABELS[key])}
                           </th>
                         ))}
-                        <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
-                          Added
-                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1073,42 +1259,9 @@ export default function VocabularyWordList({
                           <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top font-medium text-zinc-100">
                             {entry.word}
                           </td>
-                          <td className="border border-zinc-800 px-3 py-2 align-top text-zinc-400">
-                            {entry.translation}
-                          </td>
-                          <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top text-zinc-500">
-                            {entry.language}
-                          </td>
-                          {ENRICHMENT_FIELDS.map(({ field, multiline }) => {
-                            // A word with nothing generated yet simply leaves
-                            // empty cells, rather than being excluded or given
-                            // placeholder text — the gaps are the point of this
-                            // view, since they show at a glance what's missing.
-                            const value = entry[field]?.trim();
-                            const lines = (value ?? "")
-                              .split("\n")
-                              .map((line) => line.trim())
-                              .filter(Boolean);
-                            return (
-                              <td
-                                key={field}
-                                className="border border-zinc-800 px-3 py-2 align-top text-zinc-300"
-                              >
-                                {multiline && lines.length > 1 ? (
-                                  <ul className="list-disc space-y-0.5 pl-4">
-                                    {lines.map((line, lineIndex) => (
-                                      <li key={lineIndex}>{line}</li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  lines[0]
-                                )}
-                              </td>
-                            );
-                          })}
-                          <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top text-xs text-zinc-600">
-                            {formatDate(entry.firstSeen)}
-                          </td>
+                          {visibleColumns.map(({ key }) =>
+                            renderCell(entry, key),
+                          )}
                         </tr>
                       ))}
                     </tbody>
