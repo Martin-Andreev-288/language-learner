@@ -22,6 +22,12 @@
 // that.
 export const MAX_ENRICH_WORDS = 30;
 
+// A word can belong to two topics — plenty of words genuinely do — but not
+// to a handful (Question 320). Past two, a category stops narrowing
+// anything: filter by Animals and you'd get every word that was ever
+// tangentially animal-ish, which is the same as having no filter at all.
+export const MAX_CATEGORIES_PER_WORD = 2;
+
 // The fields the user can ask for. Every one is independently selectable —
 // only what's checked is ever generated, per Question 242. Ordered as the
 // modal lists them.

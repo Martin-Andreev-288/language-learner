@@ -11,6 +11,7 @@ import { USED_IN_VALUES } from "@/lib/vocabulary-enrichment";
 import { actionError, actionOk } from "@/lib/action-result";
 import {
     ENRICHABLE_FIELDS,
+    MAX_CATEGORIES_PER_WORD,
     MAX_ENRICH_WORDS,
     sanitizeGeneratedText,
     type EnrichableField,
@@ -54,8 +55,25 @@ const FIELD_PROMPTS: Record<EnrichableField, string> = {
     // is a value its own filter can't group (Question 316).
     usedIn:
         "usedIn: the kind of situation this word actually belongs to. Choose the closest match from this list:\n{{USED_IN}}\nCopy the chosen name exactly as written, with nothing added to it. For guidance: everyday conversation is ordinary spoken language; slang is casual and current; reading and media means books, news and film rather than speech; formal or academic means careful writing, official language and study; jargon is ordinary inside one field and rarely met outside it; archaic, dialect or regional belongs to older or local texts rather than to speaking. This is not a ranking and none of them is better than another — a technical term is not a worse word than an everyday one, it just belongs somewhere else.",
+    // One topic normally, two when the word genuinely sits in both — a
+    // sailor's knot is as much sea as it is tools, and forcing a choice
+    // there loses whichever half you didn't pick (Question 320). Two is the
+    // ceiling because past that a category stops narrowing anything.
+    //
+    // Separated by a semicolon, and the instruction says why: 36 of the 63
+    // topic names contain a comma of their own, so asking for
+    // comma-separated topics would produce a string nothing could take
+    // apart again.
+    //
+    // The two examples are load-bearing, not decoration. An earlier version
+    // said "only if the word belongs to two of them equally", and across
+    // sixteen test words — including a sports doctor, a music teacher and a
+    // vet — it produced a second topic exactly zero times. "Equally" reads
+    // as a bar almost nothing clears. Naming two concrete pairs fixed it
+    // without the opposite failure: the same run kept dog, rain, apple and
+    // chair on one topic each (Question 320).
     category:
-        "category: the topic this word belongs to. Choose the closest match from this list:\n{{CATEGORIES}}\nCopy the chosen name exactly as written. If genuinely nothing on the list fits, write a short topic name of your own instead, two or three words at most.",
+        "category: the topic this word belongs to. Choose from this list:\n{{CATEGORIES}}\nCopy each chosen name exactly as written, including any commas inside it. Give one topic when a single one clearly fits best. Give two when the word sits squarely in both — a sports doctor belongs to health and to sport, a cookbook to food and to books — separating them with a semicolon (;). Never more than two, and never a second topic that is merely related rather than genuinely a second home for the word. Use a semicolon and never a comma between the two, because many topic names contain commas themselves. If genuinely nothing on the list fits, write a short topic name of your own instead, two or three words at most.",
 };
 
 // Built per request from exactly the checked fields, per Question 242.
@@ -72,6 +90,20 @@ function buildResultSchema(fields: EnrichableField[]) {
         wordShape[field] = z.string();
     }
     return z.object({ results: z.array(z.object(wordShape)) });
+}
+
+// The prompt asks for at most two topics; this is what happens when it
+// asks anyway (Question 320). Enforced here rather than trusted to the
+// prompt because the cap is the whole reason the field stays readable —
+// a word filed under five topics is a word filed under none of them in
+// any useful sense, and nothing downstream would have complained.
+function capCategories(value: string): string {
+    return value
+        .split(";")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .slice(0, MAX_CATEGORIES_PER_WORD)
+        .join("; ");
 }
 
 async function requireUserId(): Promise<string> {
@@ -186,7 +218,9 @@ Return one object per word, in the same order, and do not skip any.`,
             if (field === "translation" && entry.translation) continue;
             const raw = (result as Record<string, string | undefined>)[field];
             if (typeof raw === "string" && raw.trim()) {
-                data[field] = sanitizeGeneratedText(raw);
+                const cleaned = sanitizeGeneratedText(raw);
+                data[field] =
+                    field === "category" ? capCategories(cleaned) : cleaned;
             }
         }
 

@@ -162,6 +162,9 @@ const FILTERABLE_COLUMNS: {
   field: FilterableColumn;
   label: string;
   kind: FilterKind;
+  // One column holds more than one value at a time, comma-separated —
+  // see columnValues below.
+  multi?: boolean;
 }[] = [
   { field: "translation", label: "Translation", kind: "presence" },
   { field: "level", label: "Level", kind: "values" },
@@ -171,7 +174,7 @@ const FILTERABLE_COLUMNS: {
   // than only asking whether there's anything there — exactly the reason
   // Level and Part of speech do.
   { field: "usedIn", label: "Used in", kind: "values" },
-  { field: "category", label: "Category", kind: "values" },
+  { field: "category", label: "Category", kind: "values", multi: true },
   { field: "wordFamily", label: "Word family", kind: "presence" },
   { field: "synonyms", label: "Synonyms", kind: "presence" },
   { field: "aiExamples", label: "Examples", kind: "presence" },
@@ -198,13 +201,35 @@ const NO_VALUE = "";
 // where no real value is ever offered.
 const HAS_VALUE = "present";
 
-function columnValue(
+// A semicolon, not the comma that synonyms and word family use, and this
+// is not a style choice: 36 of the 63 topic names contain a comma of their
+// own — "Sea, water terms, vacation, leave" is one topic, not four. A
+// comma separator shredded more than half the list into fragments, so
+// filtering by a topic whose name contained a comma matched nothing at
+// all. No topic contains a semicolon (Question 320).
+const MULTI_VALUE_SEPARATOR = ";";
+
+// Returns a list rather than one value, because a word can sit in two
+// topics at once (Question 320). Every other column returns a list of one,
+// which keeps the filter to a single code path — a multi-value column is
+// just a value column that happens to answer with more than one, the same
+// way a presence column is a value column with only two possible answers.
+//
+// The alternative was matching the stored text exactly, which is what this
+// used to do: a word saved with two topics would have been a third thing,
+// findable under neither of them.
+function columnValues(
   entry: VocabularyEntryData,
-  column: { field: FilterableColumn; kind: FilterKind },
-) {
+  column: { field: FilterableColumn; kind: FilterKind; multi?: boolean },
+): string[] {
   const raw = entry[column.field]?.trim() || NO_VALUE;
-  if (column.kind === "presence") return raw ? HAS_VALUE : NO_VALUE;
-  return raw;
+  if (column.kind === "presence") return [raw ? HAS_VALUE : NO_VALUE];
+  if (!column.multi || !raw) return [raw];
+  const parts = raw
+    .split(MULTI_VALUE_SEPARATOR)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts : [NO_VALUE];
 }
 
 function optionLabel(kind: FilterKind, value: string) {
@@ -697,7 +722,12 @@ export default function VocabularyWordList({
   const tableEntries = visibleEntries.filter((entry) =>
     FILTERABLE_COLUMNS.every((column) => {
       const chosen = columnFilters[column.field];
-      return chosen.size === 0 || chosen.has(columnValue(entry, column));
+      // `some`, not equality: a word shows up under a topic it carries,
+      // whether or not it also carries another one.
+      return (
+        chosen.size === 0 ||
+        columnValues(entry, column).some((value) => chosen.has(value))
+      );
     }),
   );
 
@@ -711,7 +741,7 @@ export default function VocabularyWordList({
     // the filter is broken.
     if (column.kind === "presence") return [HAS_VALUE, NO_VALUE];
     return Array.from(
-      new Set(visibleEntries.map((entry) => columnValue(entry, column))),
+      new Set(visibleEntries.flatMap((entry) => columnValues(entry, column))),
     ).sort((a, b) =>
       a === NO_VALUE ? 1 : b === NO_VALUE ? -1 : a.localeCompare(b),
     );
