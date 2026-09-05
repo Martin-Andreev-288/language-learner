@@ -53,6 +53,10 @@ interface VocabularyEntryData {
   usedIn: string | null;
   category: string | null;
   ownExample: string | null;
+  // One row per target language (Question 326). Separate from
+  // `translation` above, which stays what it always was: a translation with
+  // no language recorded, carried in from wherever the word was saved.
+  translations: { id: string; language: string; text: string }[];
 }
 
 // One description per generated field, covering both how it's displayed and
@@ -136,7 +140,21 @@ function populatedEnrichment(entry: VocabularyEntryData) {
 // to it just as much as one with synonyms, and filtering it into the
 // "not yet" bucket would send you to re-generate something it already has.
 function hasEnrichment(entry: VocabularyEntryData) {
-  return ENRICHMENT_FIELDS.some(({ field }) => entry[field]?.trim());
+  return (
+    ENRICHMENT_FIELDS.some(({ field }) => entry[field]?.trim()) ||
+    // A word translated into three languages has had information added to
+    // it whatever else is empty, so the "not yet enriched" filter mustn't
+    // keep offering it up as untouched (Question 326).
+    entry.translations.length > 0
+  );
+}
+
+// What the Details panel has to show. Wider than populatedEnrichment,
+// because translations live in their own table rather than in one of the
+// fields that list walks — and a word whose only added information is a
+// French translation still needs the button that reveals it.
+function hasDetails(entry: VocabularyEntryData) {
+  return populatedEnrichment(entry).length > 0 || entry.translations.length > 0;
 }
 
 function emptyEnrichment(): Record<EnrichmentKey, string> {
@@ -649,7 +667,7 @@ export default function VocabularyWordList({
 
   async function handleEnrich(
     fields: EnrichableField[],
-    translateInto: string,
+    translateInto: string[],
   ) {
     setEnriching(true);
     setEnrichError(null);
@@ -1620,7 +1638,7 @@ export default function VocabularyWordList({
                           {entry.level}
                         </span>
                       )}
-                      {populatedEnrichment(entry).length > 0 && (
+                      {hasDetails(entry) && (
                         <button
                           onClick={() => toggleExpanded(entry.id)}
                           aria-expanded={expandedIds.has(entry.id)}
@@ -1631,6 +1649,33 @@ export default function VocabularyWordList({
                       )}
                       {expandedIds.has(entry.id) && (
                         <dl className="mt-2 space-y-2 rounded-lg bg-zinc-950/60 p-3 text-xs">
+                          {/* Shown here, and only here, on purpose: this is
+                              the honest minimum for Step 6a (Question 326).
+                              The mechanism — several languages asked for,
+                              one row saved per language — can be checked
+                              against real words before Step 6b builds a
+                              column, a filter and an editor on top of it.
+                              First in the panel because a translation is
+                              the thing most often being looked for. */}
+                          {entry.translations.length > 0 && (
+                            <div>
+                              <dt className="font-medium uppercase tracking-wider text-zinc-600">
+                                Translations
+                              </dt>
+                              <dd className="mt-0.5 text-zinc-300">
+                                <ul className="space-y-0.5">
+                                  {entry.translations.map((translation) => (
+                                    <li key={translation.id}>
+                                      <span className="text-zinc-500">
+                                        {translation.language}
+                                      </span>{" "}
+                                      — {translation.text}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </dd>
+                            </div>
+                          )}
                           {populatedEnrichment(entry).map(
                             ({ field, label }) => {
                               // Multi-value fields are stored one per line, so

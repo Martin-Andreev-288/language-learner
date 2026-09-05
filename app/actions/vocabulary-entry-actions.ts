@@ -89,6 +89,18 @@ export async function getVocabularyEntries() {
     return prisma.vocabularyEntry.findMany({
         where: { userId },
         orderBy: { firstSeen: "desc" },
+        // Loaded with the entries rather than fetched per word when a row
+        // is expanded (Question 326): it's one extra query for the whole
+        // page against a table with at most a handful of rows per word,
+        // where the alternative is a request every time a word is opened.
+        // Ordered by language so the same word always lists its
+        // translations in the same order, whichever order they were added.
+        include: {
+            translations: {
+                select: { id: true, language: true, text: true },
+                orderBy: { language: "asc" },
+            },
+        },
     });
 }
 

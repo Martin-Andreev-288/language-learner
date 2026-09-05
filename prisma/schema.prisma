@@ -118,13 +118,55 @@ model VocabularyEntry {
     lastSeen         DateTime @updatedAt
 
     // Relations
-    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    translations VocabularyTranslation[]
 
     // Unique constraint: one entry per word per language per user
     @@unique([userId, word, language])
     @@index([userId])
     @@index([language])
     @@index([word])
+}
+
+// VocabularyTranslation model - one row per word per target language
+// (Question 326, Step 6a of Question 302).
+//
+// A separate table rather than more columns on VocabularyEntry, and rather
+// than one delimited string, because this is the one piece of vocabulary
+// data with a genuinely open set of values: a word can have a translation
+// in any language, and which languages a person uses isn't knowable when
+// the schema is written. Every other multi-value field here (synonyms,
+// examples) is a plain newline-separated string precisely because it is
+// only ever read as text — these are different, because "has a French
+// translation" and "missing an Italian one" are questions to be asked of
+// the data, not text to be displayed.
+//
+// It replaces nothing. VocabularyEntry.translation stays exactly as it is:
+// whatever translation was on hand when the word was saved, with no
+// language recorded for it (Question 214). A word with one translation and
+// no interest in others keeps working without ever touching this table.
+model VocabularyTranslation {
+    id        String   @id @default(cuid())
+    entryId   String
+    // The language translated *into*, stored as one of the canonical names
+    // in lib/language-codes.ts — the same spelling every language field in
+    // this app writes, so "French" from here and "French" typed into the
+    // word list are the same value and group together.
+    language  String
+    text      String
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    // Relations
+    entry VocabularyEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+    // One translation per language per word: asking for French twice
+    // updates the French row rather than growing a second one. This is also
+    // what makes "fill in what's missing, never overwrite what's there" a
+    // single skipDuplicates insert rather than a read-then-write.
+    @@unique([entryId, language])
+    @@index([entryId])
+    @@index([language])
 }
 
 // ShuffleFolder model - organises shuffle lists into nested, user-created folders (unlimited depth)

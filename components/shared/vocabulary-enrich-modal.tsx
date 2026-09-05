@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import {
+  MAX_TRANSLATION_LANGUAGES,
   USED_IN_HINTS,
   USED_IN_VALUES,
   type EnrichableField,
@@ -21,7 +22,7 @@ const FIELD_LABELS: {
   {
     field: "translation",
     label: "Translation",
-    hint: "Only fills words that don't already have one — never overwrites.",
+    hint: "Into as many languages as you like. Only fills what's missing — an existing translation is never overwritten.",
   },
   { field: "level", label: "Level", hint: "CEFR: A1 to C2." },
   {
@@ -133,7 +134,7 @@ export default function VocabularyEnrichModal({
   running: boolean;
   error: string | null;
   onCancel: () => void;
-  onConfirm: (fields: EnrichableField[], translateInto: string) => void;
+  onConfirm: (fields: EnrichableField[], translateInto: string[]) => void;
   defaultTranslateLanguage: string;
 }) {
   const [fields, setFields] = useState<EnrichableField[]>(DEFAULT_FIELDS);
@@ -142,9 +143,19 @@ export default function VocabularyEnrichModal({
   const [openReference, setOpenReference] = useState<EnrichableField | null>(
     null,
   );
-  const [translateInto, setTranslateInto] = useState(
-    defaultTranslateLanguage,
+  // The chosen languages, and separately whatever is currently half-typed
+  // in the box. Two pieces of state rather than one, because a language
+  // only counts once it's been added — otherwise "Bulg" sitting unfinished
+  // in the field would be sent as a language to translate into.
+  //
+  // The account default (Question 303) starts here already chosen rather
+  // than merely prefilling the box, which is the difference multi-select
+  // makes: with one field the default was the value, with several it's the
+  // first of them, and the rest are added beside it.
+  const [translateInto, setTranslateInto] = useState<string[]>(() =>
+    defaultTranslateLanguage.trim() ? [defaultTranslateLanguage.trim()] : [],
   );
+  const [languageDraft, setLanguageDraft] = useState("");
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -162,6 +173,32 @@ export default function VocabularyEnrichModal({
     );
   }
 
+  // Committed by the Add button rather than by typing, because the
+  // combobox reports every keystroke through the same onChange it uses to
+  // report a pick from its list — there's no way to tell "chose German"
+  // from "has typed Germ" from the outside, and sending the half-typed one
+  // as a language is worse than asking for one extra click. Left as it is
+  // rather than teaching the shared combobox a new callback: four other
+  // fields depend on it, and none of them needs one.
+  function addLanguage() {
+    const language = languageDraft.trim();
+    if (!language) return;
+    setTranslateInto((prev) => {
+      if (prev.length >= MAX_TRANSLATION_LANGUAGES) return prev;
+      const alreadyChosen = prev.some(
+        (existing) => existing.toLowerCase() === language.toLowerCase(),
+      );
+      return alreadyChosen ? prev : [...prev, language];
+    });
+    setLanguageDraft("");
+  }
+
+  function removeLanguage(language: string) {
+    setTranslateInto((prev) =>
+      prev.filter((existing) => existing !== language),
+    );
+  }
+
   function selectAll() {
     setFields(ALL_FIELDS);
   }
@@ -173,8 +210,12 @@ export default function VocabularyEnrichModal({
   const allSelected = fields.length === ALL_FIELDS.length;
   const noneSelected = fields.length === 0;
   const wantsTranslation = fields.includes("translation");
-  const missingLanguage = wantsTranslation && !translateInto.trim();
+  const missingLanguage = wantsTranslation && translateInto.length === 0;
   const canConfirm = fields.length > 0 && !missingLanguage && !running;
+  const languagesFull = translateInto.length >= MAX_TRANSLATION_LANGUAGES;
+  const draftAlreadyChosen = translateInto.some(
+    (existing) => existing.toLowerCase() === languageDraft.trim().toLowerCase(),
+  );
 
   return (
     <div
@@ -314,13 +355,68 @@ export default function VocabularyEnrichModal({
             >
               Translate into
             </label>
-            <LanguageCombobox
-              id="enrich-translate-into"
-              value={translateInto}
-              onChange={setTranslateInto}
-              placeholder="e.g. Bulgarian"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
-            />
+
+            {/* The chosen languages sit above the field they were added
+                from, so the list you're building stays visible while you
+                add to it. Each is removable on its own — the whole point of
+                several is that you'll want different ones on different
+                batches. */}
+            {translateInto.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {translateInto.map((language) => (
+                  <button
+                    key={language}
+                    type="button"
+                    onClick={() => removeLanguage(language)}
+                    disabled={running}
+                    title={`Don't translate into ${language}`}
+                    className="flex items-center gap-1 rounded-full border border-indigo-800 bg-indigo-950/60 px-2 py-0.5 text-xs text-indigo-300 transition-colors hover:border-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {language} ✕
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <LanguageCombobox
+                id="enrich-translate-into"
+                value={languageDraft}
+                onChange={setLanguageDraft}
+                placeholder="e.g. Bulgarian"
+                compact
+                wrapperClassName="min-w-0 flex-1"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={addLanguage}
+                disabled={
+                  running ||
+                  !languageDraft.trim() ||
+                  languagesFull ||
+                  draftAlreadyChosen
+                }
+                title={
+                  languagesFull
+                    ? `${MAX_TRANSLATION_LANGUAGES} languages at a time is the maximum`
+                    : draftAlreadyChosen
+                      ? "Already chosen"
+                      : "Add this language"
+                }
+                className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
+
+            {/* Says what the cap is before you hit it, and why the Add
+                button has gone dead once you have. */}
+            <p className="mt-1 text-xs text-zinc-600">
+              {languagesFull
+                ? `That's the maximum of ${MAX_TRANSLATION_LANGUAGES} — remove one to add another.`
+                : `Up to ${MAX_TRANSLATION_LANGUAGES} at a time. Each gets its own translation, kept per language.`}
+            </p>
           </div>
         )}
 
@@ -331,7 +427,8 @@ export default function VocabularyEnrichModal({
         )}
         {missingLanguage && (
           <p className="mt-3 text-sm text-amber-400">
-            Choose a language to translate into, or uncheck Translation.
+            Add at least one language to translate into, or uncheck
+            Translation.
           </p>
         )}
         {error && <p className="mt-3 text-sm text-red-400">{error}</p>}

@@ -13,6 +13,7 @@ import {
     ENRICHABLE_FIELDS,
     MAX_CATEGORIES_PER_WORD,
     MAX_ENRICH_WORDS,
+    MAX_TRANSLATION_LANGUAGES,
     sanitizeGeneratedText,
     type EnrichableField,
     type EnrichOptions,
@@ -21,8 +22,14 @@ import {
 // What each field asks the model for. Kept beside the schema builder so a
 // field can't be added to one without the other.
 const FIELD_PROMPTS: Record<EnrichableField, string> = {
+    // The only field whose answer is a list rather than a value, because
+    // it's the only one asked once per target language instead of once per
+    // word (Question 326). The instruction names the languages explicitly
+    // and asks for the name copied back, for the same reason usedIn and
+    // category do: a language name that doesn't match what was asked for
+    // is a row nothing can later group by.
     translation:
-        "translation: the word's translation into {{TARGET}}. Just the translation itself — if there are two or three genuinely distinct common senses, separate them with commas.",
+        "translation: a list of the word's translations, one for EACH of these languages: {{TARGET}}. Return one object per language, with `language` copied back exactly as written above and `text` holding just the translation itself — if there are two or three genuinely distinct common senses, separate them with commas. Do not skip a language, and do not add one that isn't listed.",
     level:
         "level: the CEFR level of this word for a learner of that language — exactly one of A1, A2, B1, B2, C1, C2, and nothing else.",
     nounInfo:
@@ -81,15 +88,49 @@ const FIELD_PROMPTS: Record<EnrichableField, string> = {
 // an optional one empty: a key that isn't in the schema at all cannot come
 // back, where an optional key is only a prompt instruction it might ignore.
 function buildResultSchema(fields: EnrichableField[]) {
-    const wordShape: Record<string, z.ZodString> = {
+    const wordShape: Record<string, z.ZodType> = {
         word: z
             .string()
             .describe("The word this entry is for, copied back exactly as given."),
     };
     for (const field of fields) {
-        wordShape[field] = z.string();
+        // Translation is the one field that comes back as a list — one
+        // entry per requested language, each carrying the language it
+        // answers for. Position would have been shorter, but a model that
+        // returns two of three languages would then file the second one
+        // under the wrong name, which is worse than missing it entirely —
+        // the same reasoning that matches words by text below.
+        wordShape[field] =
+            field === "translation"
+                ? z.array(z.object({ language: z.string(), text: z.string() }))
+                : z.string();
     }
     return z.object({ results: z.array(z.object(wordShape)) });
+}
+
+// One returned translation, after the model has answered.
+interface TranslationResult {
+    language: string;
+    text: string;
+}
+
+// One returned word. Only `word` has a shape known ahead of time — which
+// of the other keys are present depends on what was checked in the modal,
+// and their values are validated where they're read.
+interface WordResult {
+    word: string;
+    [field: string]: unknown;
+}
+
+function isTranslationList(value: unknown): value is TranslationResult[] {
+    return (
+        Array.isArray(value) &&
+        value.every(
+            (item) =>
+                typeof (item as TranslationResult)?.language === "string" &&
+                typeof (item as TranslationResult)?.text === "string",
+        )
+    );
 }
 
 // The prompt asks for at most two topics; this is what happens when it
@@ -104,6 +145,35 @@ function capCategories(value: string): string {
         .filter(Boolean)
         .slice(0, MAX_CATEGORIES_PER_WORD)
         .join("; ");
+}
+
+// Pulls one word's translations out of the model's answer, in the order
+// they were asked for.
+//
+// Driven by the requested languages rather than by what came back, which
+// settles three things at once: a language the model invented is dropped,
+// the stored name is the canonical spelling this app already uses
+// everywhere else rather than whatever casing the model chose to echo, and
+// the first entry is reliably the first language asked for — which is what
+// the legacy single column gets filled from.
+function readTranslations(
+    result: Record<string, unknown>,
+    requested: string[],
+): TranslationResult[] {
+    const raw = result.translation;
+    if (!isTranslationList(raw)) return [];
+
+    const byLanguage = new Map(
+        raw.map((item) => [item.language.trim().toLowerCase(), item.text]),
+    );
+
+    const translations: TranslationResult[] = [];
+    for (const language of requested) {
+        const text = byLanguage.get(language.toLowerCase());
+        if (typeof text !== "string" || !text.trim()) continue;
+        translations.push({ language, text: sanitizeGeneratedText(text) });
+    }
+    return translations;
 }
 
 async function requireUserId(): Promise<string> {
@@ -129,9 +199,27 @@ export async function enrichVocabularyEntries(
         return actionError("Pick at least one kind of information to add.");
     }
 
-    const translateInto = options.translateInto?.trim() ?? "";
-    if (fields.includes("translation") && !translateInto) {
-        return actionError("Choose a language to translate into.");
+    // De-duplicated case-insensitively, because the same language asked for
+    // twice is one row either way — better to drop it here than to spend a
+    // slot in the prompt on it and hit the unique constraint afterwards.
+    const seenLanguages = new Set<string>();
+    const translateInto = (options.translateInto ?? [])
+        .map((language) => language.trim())
+        .filter((language) => {
+            if (!language) return false;
+            const key = language.toLowerCase();
+            if (seenLanguages.has(key)) return false;
+            seenLanguages.add(key);
+            return true;
+        });
+
+    if (fields.includes("translation") && translateInto.length === 0) {
+        return actionError("Choose at least one language to translate into.");
+    }
+    if (translateInto.length > MAX_TRANSLATION_LANGUAGES) {
+        return actionError(
+            `That's ${translateInto.length} languages — please choose ${MAX_TRANSLATION_LANGUAGES} or fewer at a time.`,
+        );
     }
 
     if (entryIds.length === 0) {
@@ -159,7 +247,7 @@ export async function enrichVocabularyEntries(
         .map(
             (field) =>
                 `- ${FIELD_PROMPTS[field]
-                    .replace("{{TARGET}}", translateInto)
+                    .replace("{{TARGET}}", translateInto.join(", "))
                     .replace(
                         "{{CATEGORIES}}",
                         WORD_CATEGORIES.map((name) => `  - ${name}`).join("\n"),
@@ -179,7 +267,13 @@ export async function enrichVocabularyEntries(
         .join("\n");
 
     const resultSchema = buildResultSchema(fields);
-    let output: z.infer<ReturnType<typeof buildResultSchema>>;
+    // Declared rather than inferred from the schema, which is built at
+    // runtime from whichever fields were checked: now that one of its keys
+    // is an array and the rest are strings, inference can only widen every
+    // value to `unknown`. Each field is checked for its own shape as it's
+    // read below anyway — by typeof for the string ones, by
+    // isTranslationList for the one that isn't.
+    let output: { results: WordResult[] };
     try {
         const response = await generateText({
             model: google("gemini-3.6-flash"),
@@ -192,7 +286,7 @@ ${requestedList}
 
 Return one object per word, in the same order, and do not skip any.`,
         });
-        output = response.output;
+        output = response.output as { results: WordResult[] };
     } catch (err) {
         console.error("enrichVocabularyEntries failed:", err);
         return actionError(describeAiError(err, "Enrichment service").message);
@@ -212,11 +306,8 @@ Return one object per word, in the same order, and do not skip any.`,
 
         const data: Record<string, string> = {};
         for (const field of fields) {
-            // Translation is fill-in-only (Answer 241) — a translation the
-            // user already has, typed or carried from Inline Translate, is
-            // never overwritten by a generated one.
-            if (field === "translation" && entry.translation) continue;
-            const raw = (result as Record<string, string | undefined>)[field];
+            if (field === "translation") continue;
+            const raw = (result as Record<string, unknown>)[field];
             if (typeof raw === "string" && raw.trim()) {
                 const cleaned = sanitizeGeneratedText(raw);
                 data[field] =
@@ -224,7 +315,54 @@ Return one object per word, in the same order, and do not skip any.`,
             }
         }
 
-        if (Object.keys(data).length === 0) continue;
+        // Translations are rows in their own table now, so they're written
+        // separately from the entry's own columns rather than being one
+        // more key in `data` (Question 326).
+        const translations = fields.includes("translation")
+            ? readTranslations(result, translateInto)
+            : [];
+
+        let addedTranslations = 0;
+        if (translations.length > 0) {
+            // skipDuplicates against the [entryId, language] unique
+            // constraint *is* the fill-in-only rule from Answer 241, only
+            // now applied per language: asking for French on a word that
+            // already has a French translation leaves the existing one
+            // alone. Hand-corrected text is never overwritten by a
+            // generated one, which is exactly what that rule promised when
+            // there was a single translation to promise it about.
+            //
+            // Its count is what gets read back, so a word whose languages
+            // were all already filled isn't counted as updated — otherwise
+            // re-running the same batch would report every word as changed
+            // while changing nothing.
+            const created = await prisma.vocabularyTranslation.createMany({
+                data: translations.map(({ language, text }) => ({
+                    entryId: entry.id,
+                    language,
+                    text,
+                })),
+                skipDuplicates: true,
+            });
+            addedTranslations = created.count;
+
+            // The old single column is still filled when it's empty, from
+            // the first language asked for. Not a second source of truth:
+            // it's what the list row and the Translation column still read
+            // (until Step 6b builds the real display), so leaving it blank
+            // would mean enrichment visibly stopped doing something it did
+            // before. Fill-in-only here too, exactly as before.
+            if (!entry.translation) {
+                data.translation = translations[0].text;
+            }
+        }
+
+        if (Object.keys(data).length === 0) {
+            // A word can now be genuinely updated without any of its own
+            // columns changing — translations went to the other table.
+            if (addedTranslations > 0) updated += 1;
+            continue;
+        }
         await prisma.vocabularyEntry.update({ where: { id: entry.id }, data });
         updated += 1;
     }

@@ -28,6 +28,16 @@ export const MAX_ENRICH_WORDS = 30;
 // tangentially animal-ish, which is the same as having no filter at all.
 export const MAX_CATEGORIES_PER_WORD = 2;
 
+// How many languages one enrichment batch may translate into at once
+// (Question 326). Unlike the category cap above, this is a cost limit
+// rather than a judgment about what's useful: the response grows with
+// words × languages, so 30 words into 3 languages is already 90 separate
+// translations in a single call — on top of whatever other fields the
+// batch asked for. Three covers the realistic case (your own language,
+// English, and the one you're currently working through) and it's one
+// constant to raise if that stops being true.
+export const MAX_TRANSLATION_LANGUAGES = 4;
+
 // The fields the user can ask for. Every one is independently selectable —
 // only what's checked is ever generated, per Question 242. Ordered as the
 // modal lists them.
@@ -72,10 +82,15 @@ export type EnrichmentDetailField = (typeof ENRICHMENT_DETAIL_FIELDS)[number];
 
 export interface EnrichOptions {
     fields: EnrichableField[];
-    // Only read when "translation" is among the fields — which language to
-    // translate into. The entry itself doesn't record a language for its
-    // translation (Question 214), so this is per-batch, not per-word.
-    translateInto?: string;
+    // Only read when "translation" is among the fields — which languages to
+    // translate into. A list rather than one language since Question 326:
+    // each one becomes its own VocabularyTranslation row, so unlike every
+    // other option here this one is per-language, not merely per-batch.
+    //
+    // The old single `translation` column is still written too, when it's
+    // empty — see the note in the action. That column remains what
+    // Question 214 made it: a translation with no language recorded.
+    translateInto?: string[];
 }
 
 
