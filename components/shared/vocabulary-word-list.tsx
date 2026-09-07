@@ -25,6 +25,7 @@ import {
   type EnrichmentDetailField,
 } from "@/lib/vocabulary-enrichment";
 import { describeClientError } from "@/lib/client-error";
+import { languageTag } from "@/lib/language-codes";
 import { VOCABULARY_MAX_WORDS } from "@/lib/limits";
 import {
   moveColumn,
@@ -124,6 +125,7 @@ const DETAIL_FIELDS = ENRICHMENT_FIELDS.filter((entry) => entry.inDetails);
 // column chooser can't end up calling the same column two different things.
 const COLUMN_LABELS: Record<ConfigurableColumn, string> = {
   translation: "Translation",
+  translations: "Translations",
   language: "Language",
   added: "Added",
   ...(Object.fromEntries(
@@ -147,14 +149,6 @@ function hasEnrichment(entry: VocabularyEntryData) {
     // keep offering it up as untouched (Question 326).
     entry.translations.length > 0
   );
-}
-
-// What the Details panel has to show. Wider than populatedEnrichment,
-// because translations live in their own table rather than in one of the
-// fields that list walks — and a word whose only added information is a
-// French translation still needs the button that reveals it.
-function hasDetails(entry: VocabularyEntryData) {
-  return populatedEnrichment(entry).length > 0 || entry.translations.length > 0;
 }
 
 function emptyEnrichment(): Record<EnrichmentKey, string> {
@@ -182,10 +176,22 @@ type ViewMode = "list" | "table";
 // Language is still deliberately absent: it's required, so its "nothing
 // here" bucket could never hold anything, and the Language dropdown above
 // the table already does the other half.
-type FilterKind = "values" | "presence";
+// A third kind since Question 327, and it earns being its own rather than
+// reusing "values": for every other column, ticking a value asks "which
+// words say this?" — one question with one answer. Translations carry the
+// other half too, and it's the half that's actually useful when you're
+// deciding what to work on next: "which words are still missing Italian?"
+// A values filter can't ask that, because a word missing Italian has no
+// Italian value to tick.
+//
+// So this kind carries a mode alongside its ticks — has, or missing — and
+// the same set of languages answers both questions depending on which way
+// the switch is thrown.
+type FilterKind = "values" | "presence" | "languages";
 
 type FilterableColumn =
   | "translation"
+  | "translations"
   | "level"
   | "nounInfo"
   | "partOfSpeech"
@@ -206,6 +212,7 @@ const FILTERABLE_COLUMNS: {
   multi?: boolean;
 }[] = [
   { field: "translation", label: "Translation", kind: "presence" },
+  { field: "translations", label: "Translations", kind: "languages" },
   { field: "level", label: "Level", kind: "values" },
   { field: "nounInfo", label: "Gender & plural", kind: "presence" },
   { field: "partOfSpeech", label: "Part of speech", kind: "values" },
@@ -261,7 +268,15 @@ function columnValues(
   entry: VocabularyEntryData,
   column: { field: FilterableColumn; kind: FilterKind; multi?: boolean },
 ): string[] {
-  const raw = entry[column.field]?.trim() || NO_VALUE;
+  // The one column whose values aren't in a column at all — they're rows in
+  // another table, so this reads the languages a word has translations in
+  // rather than splitting a string (Question 327). No "(none)" bucket:
+  // "has no translations at all" is already answerable as "missing" every
+  // language, and offering both would be two names for one question.
+  if (column.kind === "languages") {
+    return entry.translations.map((translation) => translation.language);
+  }
+  const raw = entry[column.field as EnrichmentKey | "translation"]?.trim() || NO_VALUE;
   if (column.kind === "presence") return [raw ? HAS_VALUE : NO_VALUE];
   if (!column.multi || !raw) return [raw];
   const parts = raw
@@ -298,6 +313,35 @@ function buildCardText(
     text += ` — ${entry.translation.trim()}`;
   }
   return text;
+}
+
+// One renderer for both views, which is what makes "a Translations column
+// in list and table" true rather than approximately true (Question 327):
+// the row and the cell show the same thing in the same shape, with no
+// second copy to drift out of step.
+//
+// Tagged rather than labelled — "fr confusion" instead of "French:
+// confusion" — because this has to survive being one column among fifteen
+// in the table. The full name is on the tooltip, which is where the longer
+// answer belongs when the short one is nearly always enough.
+function TranslationTags({
+  translations,
+}: {
+  translations: VocabularyEntryData["translations"];
+}) {
+  if (translations.length === 0) return null;
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+      {translations.map((translation) => (
+        <span key={translation.id} title={translation.language}>
+          <span className="mr-1 rounded bg-zinc-800 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+            {languageTag(translation.language)}
+          </span>
+          {translation.text}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function formatDate(date: string | Date) {
@@ -351,6 +395,14 @@ export default function VocabularyWordList({
         FILTERABLE_COLUMNS.map((column) => [column.field, new Set<string>()]),
       ) as Record<FilterableColumn, Set<string>>,
   );
+  // Which question the Translations filter is asking — the ticked
+  // languages mean "has one of these" or "is missing one of these"
+  // depending on it (Question 327). Its own piece of state rather than a
+  // fourth entry in each filter set, because it isn't a value you can tick:
+  // it changes what every tick beside it means.
+  const [translationsMode, setTranslationsMode] = useState<"has" | "missing">(
+    "has",
+  );
   // Language joins this same state as a literal alongside the real
   // FilterableColumns, so its header can open through the identical
   // anchored panel — without joining FILTERABLE_COLUMNS itself, which
@@ -395,6 +447,18 @@ export default function VocabularyWordList({
   const [editWord, setEditWord] = useState("");
   const [editTranslation, setEditTranslation] = useState("");
   const [editLanguage, setEditLanguage] = useState("");
+  // The word's translations while the row is open for editing. Held as a
+  // list rather than written straight through, so Cancel means Cancel for
+  // these exactly as it does for every other field beside them.
+  const [editTranslations, setEditTranslations] = useState<
+    { language: string; text: string }[]
+  >([]);
+  // The half-filled new one, kept apart from the list above for the same
+  // reason the enrich modal keeps its language draft apart: a language
+  // typed but not yet added isn't a translation, and a blank row saved by
+  // accident is a row you then have to go and delete.
+  const [newTranslationLanguage, setNewTranslationLanguage] = useState("");
+  const [newTranslationText, setNewTranslationText] = useState("");
   // All generated fields in one object rather than a useState per field —
   // seven separate ones would be pure noise, and this keeps adding a field
   // to ENRICHMENT_FIELDS enough on its own.
@@ -708,7 +772,48 @@ export default function VocabularyWordList({
         ENRICHMENT_FIELDS.map(({ field }) => [field, entry[field] ?? ""]),
       ) as Record<EnrichmentKey, string>,
     );
+    setEditTranslations(
+      entry.translations.map(({ language, text }) => ({ language, text })),
+    );
+    setNewTranslationLanguage("");
+    setNewTranslationText("");
     setEditError(null);
+  }
+
+  function updateEditTranslation(index: number, text: string) {
+    setEditTranslations((prev) =>
+      prev.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, text } : item,
+      ),
+    );
+  }
+
+  function removeEditTranslation(index: number) {
+    setEditTranslations((prev) =>
+      prev.filter((_, itemIndex) => itemIndex !== index),
+    );
+  }
+
+  // Adding replaces rather than duplicates when the language is already
+  // there, because the database's own rule is one row per language — a
+  // second French added by hand isn't a second translation, it's a
+  // correction of the first, and silently colliding at save time would be
+  // a worse way to find that out.
+  function addEditTranslation() {
+    const language = newTranslationLanguage.trim();
+    const text = newTranslationText.trim();
+    if (!language || !text) return;
+    setEditTranslations((prev) => {
+      const existing = prev.findIndex(
+        (item) => item.language.toLowerCase() === language.toLowerCase(),
+      );
+      if (existing === -1) return [...prev, { language, text }];
+      return prev.map((item, index) =>
+        index === existing ? { language: item.language, text } : item,
+      );
+    });
+    setNewTranslationLanguage("");
+    setNewTranslationText("");
   }
 
   function updateEditField(field: EnrichmentKey, value: string) {
@@ -735,6 +840,15 @@ export default function VocabularyWordList({
         translation: editTranslation,
         language: editLanguage,
         enrichment: editEnrichment,
+        // Whatever is still half-typed in the "add one" row is included
+        // rather than discarded: filling both boxes and pressing Save
+        // without pressing Add first is an obvious thing to do, and losing
+        // the translation for it would be the form punishing you for the
+        // order you did things in.
+        translations: [
+          ...editTranslations,
+          { language: newTranslationLanguage, text: newTranslationText },
+        ],
       });
       setEditingId(null);
       router.refresh();
@@ -879,12 +993,22 @@ export default function VocabularyWordList({
   const tableEntries = visibleEntries.filter((entry) =>
     FILTERABLE_COLUMNS.every((column) => {
       const chosen = columnFilters[column.field];
+      if (chosen.size === 0) return true;
+
+      const values = columnValues(entry, column);
+
+      // The languages column is the only one that can be asked a negative
+      // question, and "missing any of these" is the useful reading of
+      // several ticks rather than "missing all of them": ticking French and
+      // Italian is asking what still needs work, and a word that has French
+      // but not Italian is still work (Question 327).
+      if (column.kind === "languages" && translationsMode === "missing") {
+        return Array.from(chosen).some((language) => !values.includes(language));
+      }
+
       // `some`, not equality: a word shows up under a topic it carries,
       // whether or not it also carries another one.
-      return (
-        chosen.size === 0 ||
-        columnValues(entry, column).some((value) => chosen.has(value))
-      );
+      return values.some((value) => chosen.has(value));
     }),
   );
 
@@ -897,6 +1021,12 @@ export default function VocabularyWordList({
     // thing to be told; an option that quietly isn't there just looks like
     // the filter is broken.
     if (column.kind === "presence") return [HAS_VALUE, NO_VALUE];
+    // The languages on offer are the ones your words are actually
+    // translated into — including in "missing" mode, where that reads
+    // slightly oddly at first and is still right: a language nothing has
+    // been translated into yet isn't a gap you're tracking, it's a language
+    // you haven't started. The moment one word has it, it becomes a fair
+    // question to ask of all the others.
     return Array.from(
       new Set(visibleEntries.flatMap((entry) => columnValues(entry, column))),
     ).sort((a, b) =>
@@ -918,6 +1048,16 @@ export default function VocabularyWordList({
           className="border border-zinc-800 px-3 py-2 align-top text-zinc-400"
         >
           {entry.translation}
+        </td>
+      );
+    }
+    if (key === "translations") {
+      return (
+        <td
+          key={key}
+          className="border border-zinc-800 px-3 py-2 align-top text-zinc-300"
+        >
+          <TranslationTags translations={entry.translations} />
         </td>
       );
     }
@@ -1372,7 +1512,20 @@ export default function VocabularyWordList({
                             column.kind,
                             Array.from(columnFilters[column.field])[0],
                           )}`
-                        : `${column.label}: ${columnFilters[column.field].size}`}{" "}
+                        : // A count alone would be a lie by omission here:
+                          // "Translations: 2" reads as two translations
+                          // rather than as two languages you're missing, so
+                          // this chip names the mode and the languages
+                          // outright (Question 327).
+                          column.kind === "languages"
+                          ? `${
+                              translationsMode === "missing"
+                                ? "Missing"
+                                : "Has"
+                            }: ${Array.from(columnFilters[column.field])
+                              .sort((a, b) => a.localeCompare(b))
+                              .join(", ")}`
+                          : `${column.label}: ${columnFilters[column.field].size}`}{" "}
                       ✕
                     </button>
                   ))}
@@ -1474,6 +1627,90 @@ export default function VocabularyWordList({
                         compact
                         className="w-32 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
                       />
+                    </div>
+
+                    {/* The per-language translations, editable by hand like
+                        everything else on a word (Question 327). This was
+                        the one real gap 6a left open: information the app
+                        could write and you couldn't correct.
+
+                        Each row is language plus text, and the language is
+                        fixed once it's there — changing "French" to
+                        "Italian" in place isn't an edit, it's a different
+                        translation, so it's a remove and an add. */}
+                    <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                        Translations
+                      </p>
+                      {editTranslations.length > 0 && (
+                        <div className="mb-2 space-y-1.5">
+                          {editTranslations.map((item, index) => (
+                            <div
+                              key={item.language}
+                              className="flex items-center gap-2"
+                            >
+                              <span
+                                title={item.language}
+                                className="w-10 shrink-0 rounded bg-zinc-800 px-1 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-zinc-400"
+                              >
+                                {languageTag(item.language)}
+                              </span>
+                              <input
+                                type="text"
+                                value={item.text}
+                                onChange={(event) =>
+                                  updateEditTranslation(
+                                    index,
+                                    event.target.value,
+                                  )
+                                }
+                                placeholder={`Translation in ${item.language}`}
+                                className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                              />
+                              <button
+                                onClick={() => removeEditTranslation(index)}
+                                title={`Remove the ${item.language} translation`}
+                                className="shrink-0 rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-400"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <LanguageCombobox
+                          value={newTranslationLanguage}
+                          onChange={setNewTranslationLanguage}
+                          placeholder="Language"
+                          compact
+                          wrapperClassName="w-32 shrink-0"
+                          className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                        />
+                        <input
+                          type="text"
+                          value={newTranslationText}
+                          onChange={(event) =>
+                            setNewTranslationText(event.target.value)
+                          }
+                          placeholder="Translation"
+                          className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                        />
+                        <button
+                          onClick={addEditTranslation}
+                          disabled={
+                            !newTranslationLanguage.trim() ||
+                            !newTranslationText.trim()
+                          }
+                          className="shrink-0 rounded-md bg-zinc-800 px-3 py-1 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      <p className="mt-1.5 text-xs text-zinc-600">
+                        Emptying one and saving removes it — the same way
+                        every other field here works.
+                      </p>
                     </div>
 
                     {/* Every generated field is editable here whether or not
@@ -1638,7 +1875,7 @@ export default function VocabularyWordList({
                           {entry.level}
                         </span>
                       )}
-                      {hasDetails(entry) && (
+                      {populatedEnrichment(entry).length > 0 && (
                         <button
                           onClick={() => toggleExpanded(entry.id)}
                           aria-expanded={expandedIds.has(entry.id)}
@@ -1647,35 +1884,24 @@ export default function VocabularyWordList({
                           Details {expandedIds.has(entry.id) ? "▴" : "▾"}
                         </button>
                       )}
+                      {/* On its own line rather than inline with the word:
+                          three translations run longer than everything
+                          before them put together, and threading them into
+                          that row would push the level badge and the
+                          Details button off the end of it. */}
+                      {entry.translations.length > 0 && (
+                        <div className="mt-1 text-sm text-zinc-400">
+                          <TranslationTags translations={entry.translations} />
+                        </div>
+                      )}
                       {expandedIds.has(entry.id) && (
                         <dl className="mt-2 space-y-2 rounded-lg bg-zinc-950/60 p-3 text-xs">
-                          {/* Shown here, and only here, on purpose: this is
-                              the honest minimum for Step 6a (Question 326).
-                              The mechanism — several languages asked for,
-                              one row saved per language — can be checked
-                              against real words before Step 6b builds a
-                              column, a filter and an editor on top of it.
-                              First in the panel because a translation is
-                              the thing most often being looked for. */}
-                          {entry.translations.length > 0 && (
-                            <div>
-                              <dt className="font-medium uppercase tracking-wider text-zinc-600">
-                                Translations
-                              </dt>
-                              <dd className="mt-0.5 text-zinc-300">
-                                <ul className="space-y-0.5">
-                                  {entry.translations.map((translation) => (
-                                    <li key={translation.id}>
-                                      <span className="text-zinc-500">
-                                        {translation.language}
-                                      </span>{" "}
-                                      — {translation.text}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </dd>
-                            </div>
-                          )}
+                          {/* Step 6a's temporary Translations block lived
+                              here, and it's gone rather than kept: it was
+                              the honest minimum until the real display
+                              existed, and now that the row itself shows
+                              them, leaving it would be the same answer
+                              given twice one click apart. */}
                           {populatedEnrichment(entry).map(
                             ({ field, label }) => {
                               // Multi-value fields are stored one per line, so
@@ -1774,6 +2000,37 @@ export default function VocabularyWordList({
               </button>
             )}
           </div>
+
+          {/* The switch that decides what every tick below it means. Placed
+              above them and worded as a sentence the ticks finish — "Has
+              …" / "Missing …" — because a mode control sitting silently
+              beside a list of checkboxes is the kind of thing you discover
+              by accident three weeks later (Question 327). */}
+          {openFilter === "translations" && (
+            <div className="mx-3 mb-1 mt-1 flex overflow-hidden rounded-md border border-zinc-700">
+              {(["has", "missing"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setTranslationsMode(mode)}
+                  className={`flex-1 px-2 py-1 text-xs font-medium capitalize transition-colors ${
+                    translationsMode === mode
+                      ? "bg-indigo-600 text-white"
+                      : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {openColumn?.kind === "languages" &&
+            columnOptions(openColumn).length === 0 && (
+              <p className="px-3 py-2 text-xs text-zinc-600">
+                No translations saved yet — add some from “Add information”.
+              </p>
+            )}
+
           {openFilter === "language"
             ? // Same list the toolbar dropdown offers, in the same order —
               // opening this from the header shouldn't show a different set

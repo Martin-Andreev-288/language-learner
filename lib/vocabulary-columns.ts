@@ -19,6 +19,12 @@ const STORAGE_KEY = "vocabulary-table:columns";
 // the word itself is a table of anonymous rows.
 export const CONFIGURABLE_COLUMNS = [
     "translation",
+    // Beside the single translation it sits next to rather than at the far
+    // end, so the two readings of the same idea are compared side by side
+    // (Question 327). A layout saved before this column existed picks it up
+    // automatically — that's what reconcile() below is for, and this is the
+    // first column to actually need it.
+    "translations",
     "language",
     "level",
     "nounInfo",

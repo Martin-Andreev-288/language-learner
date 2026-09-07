@@ -122,6 +122,17 @@ export async function updateVocabularyEntry(
         // sanitizeGeneratedText: that exists to repair model output, and
         // text a person typed on purpose is theirs to keep as written.
         enrichment?: Partial<Record<string, string>>;
+        // The word's per-language translations, in full (Question 327).
+        // Omitting the key leaves them untouched; sending the list replaces
+        // it, so a language dropped from the list is a language deleted.
+        //
+        // Replace-all rather than a set of add/edit/delete actions because
+        // that's what the edit form actually produces: it opens holding
+        // every translation the word has and saves whatever is left in it,
+        // exactly like the enrichment fields beside it. Three narrower
+        // actions would each need their own error handling and their own
+        // refresh, for a form that already knows the whole answer.
+        translations?: { language: string; text: string }[];
     },
 ) {
     const userId = await requireUserId();
@@ -157,13 +168,71 @@ export async function updateVocabularyEntry(
     }
 
     try {
-        return await prisma.vocabularyEntry.update({
+        const updated = await prisma.vocabularyEntry.update({
             where: { id },
             data,
         });
+
+        if (updates.translations) {
+            await saveTranslations(id, updates.translations);
+        }
+
+        return updated;
     } catch (error) {
         throw new Error(formatError(error));
     }
+}
+
+// Writes a word's translations to match the list given, and nothing else.
+//
+// Deletes first, then upserts what's left, in one transaction: the two
+// halves are one edit, and a failure between them would leave the word
+// holding neither the old set nor the new one. The unique constraint on
+// [entryId, language] is what makes upsert the right verb here — renaming
+// a translation's language is a delete plus an insert, not an update, and
+// doing it in this order means the freed name is available again by the
+// time the insert wants it.
+async function saveTranslations(
+    entryId: string,
+    translations: { language: string; text: string }[],
+) {
+    // Blank rows are how the form says "I removed this one", and a language
+    // with no text is nothing to store. Deduplicated by language for the
+    // same reason the enrichment action does it: one row per language is
+    // the constraint, so two of the same in the form is a collision rather
+    // than two translations.
+    // A Map, and later wins: the form sends its half-typed "add one" row
+    // last, so someone who retypes a language they already have is
+    // correcting it rather than repeating it. Re-setting a key keeps the
+    // row in its original position with the new text, which is also why
+    // this isn't a filter over a Set.
+    const byLanguage = new Map<string, { language: string; text: string }>();
+    for (const { language, text } of translations) {
+        const trimmedLanguage = language.trim();
+        const trimmedText = text.trim();
+        if (!trimmedLanguage || !trimmedText) continue;
+        byLanguage.set(trimmedLanguage.toLowerCase(), {
+            language: trimmedLanguage,
+            text: trimmedText,
+        });
+    }
+    const cleaned = Array.from(byLanguage.values());
+
+    await prisma.$transaction([
+        prisma.vocabularyTranslation.deleteMany({
+            where: {
+                entryId,
+                language: { notIn: cleaned.map((item) => item.language) },
+            },
+        }),
+        ...cleaned.map(({ language, text }) =>
+            prisma.vocabularyTranslation.upsert({
+                where: { entryId_language: { entryId, language } },
+                create: { entryId, language, text },
+                update: { text },
+            }),
+        ),
+    ]);
 }
 
 export async function deleteVocabularyEntry(id: string) {

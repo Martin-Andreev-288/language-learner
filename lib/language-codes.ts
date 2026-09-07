@@ -130,6 +130,20 @@ for (const entry of LANGUAGES) {
   }
 }
 
+// A short tag for showing a language beside a value in tight space —
+// "French" becomes "fr" (Question 327). Display only: the stored value is
+// always the full canonical name, so nothing downstream ever has to turn
+// one of these back into a language.
+//
+// Falls back to the name itself rather than to an abbreviation of it. A
+// language this app doesn't list is one a user typed by hand, and inventing
+// "sw" for something the list has never heard of would be a guess shown as
+// a fact — the full name is longer but never wrong.
+export function languageTag(name: string): string {
+  const code = guessLanguageCode(name);
+  return code ? code.split("-")[0] : name.trim();
+}
+
 export function languageNameForCode(code: string): string | undefined {
   const normalized = code.trim().toLowerCase();
   if (!normalized) return undefined;
