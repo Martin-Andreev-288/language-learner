@@ -269,6 +269,10 @@ export default function InlineTranslateTool({
         word,
         sourceLanguage,
         wordPopup.translation ?? undefined,
+        // The language it was just translated into — passed since Question
+        // 333, so the translation lands as a row that knows its own
+        // language rather than in a column that never asked.
+        targetLanguage,
       );
       setWordPopup((prev) =>
         prev && prev.word === word
@@ -408,6 +412,7 @@ export default function InlineTranslateTool({
         uniqueRunTexts.join("\n"),
         sourceLanguage,
         translationLines.join("\n"),
+        targetLanguage,
       );
       setVocabSummary(
         skipped > 0

@@ -27,15 +27,21 @@ async function requireUserId(): Promise<string> {
 //
 // `translations`, if given, is the same one-per-line shape as `words`,
 // paired by line position — line 1 of translations goes with line 1 of
-// words, and so on. Entirely optional and deliberately not tied to a
-// tracked "translation language" of its own, per Question 214 — just
-// whatever translation the caller already had on hand (Inline Translate
-// always does, by the time it calls this). Omit it, or leave a line blank,
-// for a word with no translation to record.
+// words, and so on. Omit it, or leave a line blank, for a word with no
+// translation to record.
+//
+// `translationLanguage` is what changed in Question 333, and it's the whole
+// point of the step: a translation now has to say which language it's in,
+// because it becomes a VocabularyTranslation row rather than an anonymous
+// column. Callers always knew this — Inline Translate has just finished
+// translating *into* a language by the time it calls here — the old
+// signature simply never asked for it (Question 214), and that missing
+// answer is what made the column impossible to migrate later.
 export async function addVocabularyEntries(
     words: string,
     language: string,
     translations?: string,
+    translationLanguage?: string,
 ) {
     const userId = await requireUserId();
     const normalizedLanguage = language.trim();
@@ -46,6 +52,7 @@ export async function addVocabularyEntries(
 
     const wordLines = words.split("\n").map((line) => line.trim());
     const translationLines = (translations ?? "").split("\n");
+    const targetLanguage = translationLanguage?.trim() ?? "";
 
     // Keyed by word so a word repeated across lines still becomes one row,
     // same as before — a Map here (instead of a plain Set of words) is what
@@ -54,7 +61,9 @@ export async function addVocabularyEntries(
     const byWord = new Map<string, string | undefined>();
     wordLines.forEach((word, index) => {
         if (!word) return;
-        const translation = translationLines[index]?.trim();
+        const translation = targetLanguage
+            ? translationLines[index]?.trim()
+            : undefined;
         byWord.set(word, translation || undefined);
     });
 
@@ -69,14 +78,45 @@ export async function addVocabularyEntries(
     }
 
     const result = await prisma.vocabularyEntry.createMany({
-        data: parsedEntries.map(([word, translation]) => ({
+        data: parsedEntries.map(([word]) => ({
             userId,
             word,
-            translation: translation ?? null,
             language: normalizedLanguage,
         })),
         skipDuplicates: true,
     });
+
+    // Translations are written in a second pass, because createMany returns
+    // a count rather than the rows it made and a translation needs its
+    // entry's id. The ids are read back by word instead, which quietly buys
+    // something the old column never did: a word you'd already saved still
+    // gets the translation recorded, rather than having it dropped along
+    // with the duplicate word it arrived with.
+    const withTranslations = parsedEntries.filter(([, text]) => text);
+    if (targetLanguage && withTranslations.length > 0) {
+        const saved = await prisma.vocabularyEntry.findMany({
+            where: {
+                userId,
+                language: normalizedLanguage,
+                word: { in: withTranslations.map(([word]) => word) },
+            },
+            select: { id: true, word: true },
+        });
+        const idByWord = new Map(saved.map((entry) => [entry.word, entry.id]));
+
+        await prisma.vocabularyTranslation.createMany({
+            data: withTranslations.flatMap(([word, text]) => {
+                const entryId = idByWord.get(word);
+                return entryId
+                    ? [{ entryId, language: targetLanguage, text: text! }]
+                    : [];
+            }),
+            // Same fill-in-only rule enrichment follows: a translation you
+            // already have in that language is never replaced by one
+            // arriving from somewhere else.
+            skipDuplicates: true,
+        });
+    }
 
     return {
         added: result.count,
@@ -104,8 +144,10 @@ export async function getVocabularyEntries() {
     });
 }
 
-// Word, translation, and language are all directly editable — same
-// principle as Vocab Shuffle's own edit. Changing word or language into a
+// Word and language are directly editable — same principle as Vocab
+// Shuffle's own edit. Translations are edited through `translations` below
+// rather than as a field here, since Question 333 removed the single
+// language-less one they used to sit beside. Changing word or language into a
 // combination you already have saved would collide with the unique
 // constraint; formatError turns that into a plain "already exists" message
 // instead of a raw database error reaching the page.
@@ -113,7 +155,6 @@ export async function updateVocabularyEntry(
     id: string,
     updates: {
         word: string;
-        translation: string;
         language: string;
         // Any generated field the caller chose to send. Omitting one leaves
         // it untouched; sending it empty clears it — which is what makes
@@ -146,7 +187,6 @@ export async function updateVocabularyEntry(
 
     const word = updates.word.trim();
     const language = updates.language.trim();
-    const translation = updates.translation.trim();
 
     if (!word) {
         throw new Error("Word can't be empty.");
@@ -158,7 +198,6 @@ export async function updateVocabularyEntry(
     const data: Record<string, string | null> = {
         word,
         language,
-        translation: translation || null,
     };
 
     for (const field of ENRICHMENT_DETAIL_FIELDS) {

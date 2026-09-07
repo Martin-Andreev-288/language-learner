@@ -18,12 +18,11 @@ const STORAGE_KEY = "vocabulary-table:columns";
 // makes a row identifiable and selectable, and a table where you can hide
 // the word itself is a table of anonymous rows.
 export const CONFIGURABLE_COLUMNS = [
-    "translation",
-    // Beside the single translation it sits next to rather than at the far
-    // end, so the two readings of the same idea are compared side by side
-    // (Question 327). A layout saved before this column existed picks it up
-    // automatically — that's what reconcile() below is for, and this is the
-    // first column to actually need it.
+    // "translation" — the single, language-less one — stood here until
+    // Question 333 removed it. A stored layout still naming it drops it on
+    // the next read, which is the other half of what reconcile() below is
+    // for: it appends columns that have appeared and forgets ones that
+    // have left, so neither direction needs anyone to remember anything.
     "translations",
     "language",
     "level",

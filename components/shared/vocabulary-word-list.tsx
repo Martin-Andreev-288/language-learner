@@ -41,7 +41,6 @@ import {
 interface VocabularyEntryData {
   id: string;
   word: string;
-  translation: string | null;
   language: string;
   firstSeen: string | Date;
   level: string | null;
@@ -124,7 +123,6 @@ const DETAIL_FIELDS = ENRICHMENT_FIELDS.filter((entry) => entry.inDetails);
 // Every configurable column's label in one place, so the header and the
 // column chooser can't end up calling the same column two different things.
 const COLUMN_LABELS: Record<ConfigurableColumn, string> = {
-  translation: "Translation",
   translations: "Translations",
   language: "Language",
   added: "Added",
@@ -190,7 +188,6 @@ type ViewMode = "list" | "table";
 type FilterKind = "values" | "presence" | "languages";
 
 type FilterableColumn =
-  | "translation"
   | "translations"
   | "level"
   | "nounInfo"
@@ -211,7 +208,6 @@ const FILTERABLE_COLUMNS: {
   // see columnValues below.
   multi?: boolean;
 }[] = [
-  { field: "translation", label: "Translation", kind: "presence" },
   { field: "translations", label: "Translations", kind: "languages" },
   { field: "level", label: "Level", kind: "values" },
   { field: "nounInfo", label: "Gender & plural", kind: "presence" },
@@ -276,7 +272,7 @@ function columnValues(
   if (column.kind === "languages") {
     return entry.translations.map((translation) => translation.language);
   }
-  const raw = entry[column.field as EnrichmentKey | "translation"]?.trim() || NO_VALUE;
+  const raw = entry[column.field as EnrichmentKey]?.trim() || NO_VALUE;
   if (column.kind === "presence") return [raw ? HAS_VALUE : NO_VALUE];
   if (!column.multi || !raw) return [raw];
   const parts = raw
@@ -301,16 +297,32 @@ function optionLabel(kind: FilterKind, value: string) {
 // A word missing whichever part you asked for is added on its own rather
 // than skipped or padded with an empty gap: you asked for the translation
 // where there is one, not for only the words that have one.
+//
+// Several languages print tagged and separated the way the Translations
+// column shows them (`fr premier · it primo`), rather than run together —
+// a card carrying three translations should still read as three answers
+// (Question 333). One language prints bare, since a tag beside a single
+// answer labels something nothing else is competing with.
 function buildCardText(
   entry: VocabularyEntryData,
-  content: { nounInfo: boolean; translation: boolean },
+  content: { nounInfo: boolean; languages: string[] },
 ) {
   let text = entry.word;
   if (content.nounInfo && entry.nounInfo?.trim()) {
     text += ` ${entry.nounInfo.trim()}`;
   }
-  if (content.translation && entry.translation?.trim()) {
-    text += ` — ${entry.translation.trim()}`;
+  const chosen = entry.translations.filter((translation) =>
+    content.languages.includes(translation.language),
+  );
+  if (chosen.length === 1) {
+    text += ` — ${chosen[0].text.trim()}`;
+  } else if (chosen.length > 1) {
+    text += ` — ${chosen
+      .map(
+        (translation) =>
+          `${languageTag(translation.language)} ${translation.text.trim()}`,
+      )
+      .join(" · ")}`;
   }
   return text;
 }
@@ -445,7 +457,6 @@ export default function VocabularyWordList({
   // of a single card.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editWord, setEditWord] = useState("");
-  const [editTranslation, setEditTranslation] = useState("");
   const [editLanguage, setEditLanguage] = useState("");
   // The word's translations while the row is open for editing. Held as a
   // list rather than written straight through, so Cancel means Cancel for
@@ -765,7 +776,6 @@ export default function VocabularyWordList({
   function handleStartEdit(entry: VocabularyEntryData) {
     setEditingId(entry.id);
     setEditWord(entry.word);
-    setEditTranslation(entry.translation ?? "");
     setEditLanguage(entry.language);
     setEditEnrichment(
       Object.fromEntries(
@@ -837,7 +847,6 @@ export default function VocabularyWordList({
     try {
       await updateVocabularyEntry(editingId, {
         word: editWord,
-        translation: editTranslation,
         language: editLanguage,
         enrichment: editEnrichment,
         // Whatever is still half-typed in the "add one" row is included
@@ -962,6 +971,34 @@ export default function VocabularyWordList({
   const suggestedListTitle =
     selectedLanguages.size === 1 ? Array.from(selectedLanguages)[0] : "";
 
+  // Which translation languages the send-to-shuffle modal can offer, and
+  // which one it should tick first (Questions 330 and 333).
+  //
+  // Counted rather than merely collected, because the fallback needs the
+  // counts: your account default wins when the selected words actually
+  // have it, and the most common language among them wins when they don't.
+  // Preselecting a language none of these words carries would produce
+  // cards with a silently missing half.
+  const shuffleLanguageCounts = new Map<string, number>();
+  for (const entry of entries) {
+    if (!selectedIds.has(entry.id)) continue;
+    for (const translation of entry.translations) {
+      shuffleLanguageCounts.set(
+        translation.language,
+        (shuffleLanguageCounts.get(translation.language) ?? 0) + 1,
+      );
+    }
+  }
+  const shuffleLanguages = Array.from(shuffleLanguageCounts.keys()).sort(
+    (a, b) => a.localeCompare(b),
+  );
+  const suggestedShuffleLanguage =
+    defaultTranslateLanguage && shuffleLanguageCounts.has(defaultTranslateLanguage)
+      ? defaultTranslateLanguage
+      : (Array.from(shuffleLanguageCounts.entries()).sort(
+          (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+        )[0]?.[0] ?? "");
+
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const visibleEntries = entries
     .filter(
@@ -975,10 +1012,15 @@ export default function VocabularyWordList({
           (enrichmentFilter === "enriched"
             ? hasEnrichment(entry)
             : !hasEnrichment(entry))) &&
+        // Searches every translation rather than the single one it used
+        // to, which keeps this working the way it always felt like it did
+        // — typing a word in your own language finds the word it belongs
+        // to, whichever language you happened to save that in.
         (!normalizedSearch ||
           entry.word.toLowerCase().includes(normalizedSearch) ||
-          (entry.translation?.toLowerCase().includes(normalizedSearch) ??
-            false)),
+          entry.translations.some((translation) =>
+            translation.text.toLowerCase().includes(normalizedSearch),
+          )),
     )
     .sort((a, b) =>
       sortBy === "alphabetical"
@@ -1041,16 +1083,6 @@ export default function VocabularyWordList({
   // Kept in one place so the header order and the body order can't drift:
   // both walk the same list.
   function renderCell(entry: VocabularyEntryData, key: ConfigurableColumn) {
-    if (key === "translation") {
-      return (
-        <td
-          key={key}
-          className="border border-zinc-800 px-3 py-2 align-top text-zinc-400"
-        >
-          {entry.translation}
-        </td>
-      );
-    }
     if (key === "translations") {
       return (
         <td
@@ -1611,15 +1643,6 @@ export default function VocabularyWordList({
                         placeholder="Word"
                         className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
                       />
-                      <input
-                        type="text"
-                        value={editTranslation}
-                        onChange={(event) =>
-                          setEditTranslation(event.target.value)
-                        }
-                        placeholder="Translation (optional)"
-                        className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
-                      />
                       <LanguageCombobox
                         value={editLanguage}
                         onChange={setEditLanguage}
@@ -1859,11 +1882,6 @@ export default function VocabularyWordList({
                           {entry.nounInfo}
                         </span>
                       )}
-                      {entry.translation && (
-                        <span className="ml-2 text-zinc-400">
-                          — {entry.translation}
-                        </span>
-                      )}
                       <span className="ml-2 text-sm text-zinc-500">
                         {entry.language}
                       </span>
@@ -2092,6 +2110,8 @@ export default function VocabularyWordList({
           running={sendingToShuffle}
           error={shuffleError}
           suggestedTitle={suggestedListTitle}
+          availableLanguages={shuffleLanguages}
+          suggestedLanguage={suggestedShuffleLanguage}
           onCancel={() => setShuffleModalOpen(false)}
           onConfirm={handleSendToShuffle}
         />

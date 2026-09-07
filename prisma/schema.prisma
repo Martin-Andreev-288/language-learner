@@ -60,14 +60,10 @@ enum TextType {
 
 // VocabularyEntry model - tracks words encountered
 model VocabularyEntry {
-    id               String   @id @default(cuid())
-    userId           String
-    word             String
-    // Optional, deliberately not tied to a tracked language of its own —
-    // just whatever translation was on hand when the word was saved (from
-    // Inline Translate), shown alongside the word in the list.
-    translation      String?
-    language         String
+    id       String @id @default(cuid())
+    userId   String
+    word     String
+    language String
 
     // AI-generated enrichment (Question 243). All nullable and all
     // independent — a word can have any subset of these, since the user
@@ -77,19 +73,19 @@ model VocabularyEntry {
     // Multi-value fields (synonyms, examples, collocations) are stored
     // newline-separated, the same one-per-line convention this page's own
     // bulk word input already uses.
-    level            String?
+    level        String?
     // A noun's gender and plural, as one short inline chunk ("m, -e"), kept
     // out of `word` on purpose (Question 246): `word` is this row's
     // identity — it carries the unique constraint, it's what enrichment
     // matches AI results back onto, and it's what gets spoken aloud — so
     // decorating it would break dedup and pronunciation at once. Empty for
     // anything that isn't a noun.
-    nounInfo         String?
-    partOfSpeech     String?
-    wordFamily       String?
-    synonyms         String?
-    aiExamples       String?
-    collocations     String?
+    nounInfo     String?
+    partOfSpeech String?
+    wordFamily   String?
+    synonyms     String?
+    aiExamples   String?
+    collocations String?
 
     // Added in Question 310.
     //
@@ -102,15 +98,15 @@ model VocabularyEntry {
     // Renamed from `worthLearning` in Question 316, when the values stopped
     // being a ranking and became contexts — nothing here outranks anything
     // else, so a name promising a verdict was a name that lied.
-    usedIn           String?
+    usedIn     String?
     // The topic it belongs to, suggested from lib/word-categories.ts but
     // stored as plain text, so a category invented by hand is as valid as
     // one from the list.
-    category         String?
+    category   String?
     // A sentence the user wrote themselves, unlike `aiExamples`. The one
     // field here that never comes from the model — it can be checked by
     // one on request, but it is never generated.
-    ownExample       String?
+    ownExample String?
 
     timesSeenReading Int      @default(0)
     timesSeenWriting Int      @default(0)
@@ -265,15 +261,15 @@ model NoteFolder {
 // Note model - stores user notes; a note is a single document (no separate
 // card/list sub-model the way ShuffleList/ShuffleCard has one)
 model Note {
-    id        String      @id @default(cuid())
+    id        String   @id @default(cuid())
     userId    String
     page      NotePage
     title     String
-    content   String      @db.Text
+    content   String   @db.Text
     language  String?
     folderId  String?
-    createdAt DateTime    @default(now())
-    updatedAt DateTime    @updatedAt
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
 
     // Structured data a tool needs to reopen what it saved — kept out of
     // `content` on purpose (Question 266): `content` is what the user reads
@@ -333,8 +329,8 @@ model User {
     // "translate into" field — never to a "what language is this" one, and
     // never as something the field can't be changed away from.
     defaultTranslateLanguage String?
-    createdAt     DateTime  @default(now())
-    updatedAt     DateTime  @updatedAt
+    createdAt                DateTime @default(now())
+    updatedAt                DateTime @updatedAt
 
     // NextAuth adapter fields
     accounts Account[]

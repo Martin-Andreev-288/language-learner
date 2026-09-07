@@ -345,16 +345,12 @@ Return one object per word, in the same order, and do not skip any.`,
                 skipDuplicates: true,
             });
             addedTranslations = created.count;
-
-            // The old single column is still filled when it's empty, from
-            // the first language asked for. Not a second source of truth:
-            // it's what the list row and the Translation column still read
-            // (until Step 6b builds the real display), so leaving it blank
-            // would mean enrichment visibly stopped doing something it did
-            // before. Fill-in-only here too, exactly as before.
-            if (!entry.translation) {
-                data.translation = translations[0].text;
-            }
+            // Step 6a also copied the first translation into the old single
+            // column here, to keep the list row and the Translation column
+            // showing something until the real display existed. Both of
+            // those are gone as of Question 333, and so is the copy — a
+            // translation is now stored once, in the one place that knows
+            // which language it's in.
         }
 
         if (Object.keys(data).length === 0) {

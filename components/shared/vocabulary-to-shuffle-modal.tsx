@@ -14,11 +14,14 @@ import { describeClientError } from "@/lib/client-error";
 
 type Destination = { kind: "new"; title: string } | { kind: "existing"; listId: string };
 
-// What goes on the card besides the word itself (Question 307). Two
-// switches rather than a four-way choice: they produce exactly the same
-// four combinations, but read as "what to include" instead of making you
-// find your combination in a list of named modes.
-export type CardContent = { nounInfo: boolean; translation: boolean };
+// What goes on the card besides the word itself (Question 307).
+//
+// `translation` was a single switch until Question 333, when there stopped
+// being one translation for it to mean. It's now the list of languages to
+// print — empty for none, which is the same "off" the boolean used to
+// express, so the recall-first default from Answer 306 survives the change
+// intact.
+export type CardContent = { nounInfo: boolean; languages: string[] };
 
 type ExistingList = { id: string; title: string };
 
@@ -27,6 +30,8 @@ export default function VocabularyToShuffleModal({
   running,
   error,
   suggestedTitle,
+  availableLanguages,
+  suggestedLanguage,
   onCancel,
   onConfirm,
 }: {
@@ -37,6 +42,14 @@ export default function VocabularyToShuffleModal({
   // German words is almost always going to be called something with
   // "German" in it, so offering that beats an empty box.
   suggestedTitle: string;
+  // Only the languages the selected words are actually translated into,
+  // built from their real data the same way the enrich modal and the
+  // language filter build theirs — offering a language that would print
+  // nothing on every card is worse than not offering it.
+  availableLanguages: string[];
+  // Which one to tick first when translations are switched on. Empty when
+  // there's nothing sensible to suggest.
+  suggestedLanguage: string;
   onCancel: () => void;
   onConfirm: (destination: Destination, content: CardContent) => void;
 }) {
@@ -50,8 +63,36 @@ export default function VocabularyToShuffleModal({
   // deliberate act, not something that happens to you.
   const [content, setContent] = useState<CardContent>({
     nounInfo: false,
-    translation: false,
+    languages: [],
   });
+
+  // Two decisions met here and looked like they contradicted each other:
+  // Answer 306 says a card starts as the word alone, and Question 330 asks
+  // for the account's default language to be chosen for you. They only
+  // conflict if "chosen" means "on" — so translations stay off until you
+  // ask for them, and *then* your default is already ticked. Off by
+  // default, right by default the moment it isn't.
+  function toggleTranslations(on: boolean) {
+    setContent((prev) => ({
+      ...prev,
+      languages: on
+        ? suggestedLanguage
+          ? [suggestedLanguage]
+          : availableLanguages.slice(0, 1)
+        : [],
+    }));
+  }
+
+  function toggleLanguage(language: string) {
+    setContent((prev) => ({
+      ...prev,
+      languages: prev.languages.includes(language)
+        ? prev.languages.filter((existing) => existing !== language)
+        : [...prev.languages, language],
+    }));
+  }
+
+  const wantsTranslations = content.languages.length > 0;
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -183,23 +224,53 @@ export default function VocabularyToShuffleModal({
               />
               Gender &amp; plural
             </label>
-            <label className="flex items-center gap-2 text-sm text-zinc-300">
+            <label
+              className={`flex items-center gap-2 text-sm ${
+                availableLanguages.length > 0
+                  ? "text-zinc-300"
+                  : "cursor-not-allowed text-zinc-600"
+              }`}
+            >
               <input
                 type="checkbox"
-                checked={content.translation}
-                onChange={(event) =>
-                  setContent((prev) => ({
-                    ...prev,
-                    translation: event.target.checked,
-                  }))
-                }
+                checked={wantsTranslations}
+                onChange={(event) => toggleTranslations(event.target.checked)}
+                disabled={availableLanguages.length === 0}
                 className="accent-indigo-500"
               />
               Translation
+              {availableLanguages.length === 0 && (
+                <span className="text-xs text-zinc-600">
+                  — none of these words has one yet
+                </span>
+              )}
             </label>
+
+            {/* Only once translations are on, and only when there's a real
+                choice to make: one language is answered by the switch
+                above, so a list of exactly one checkbox would be asking a
+                question that has already been answered. */}
+            {wantsTranslations && availableLanguages.length > 1 && (
+              <div className="ml-6 flex flex-wrap gap-x-4 gap-y-1">
+                {availableLanguages.map((language) => (
+                  <label
+                    key={language}
+                    className="flex items-center gap-1.5 text-sm text-zinc-400"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={content.languages.includes(language)}
+                      onChange={() => toggleLanguage(language)}
+                      className="accent-indigo-500"
+                    />
+                    {language}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
           <p className="mt-2 text-xs text-zinc-600">
-            {content.translation
+            {wantsTranslations
               ? "The word alone is better for testing recall — a card showing the translation gives its own answer away."
               : "Words missing either are added on their own, not skipped."}
           </p>
