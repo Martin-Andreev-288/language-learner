@@ -137,10 +137,12 @@ model VocabularyEntry {
 // translation" and "missing an Italian one" are questions to be asked of
 // the data, not text to be displayed.
 //
-// It replaces nothing. VocabularyEntry.translation stays exactly as it is:
-// whatever translation was on hand when the word was saved, with no
-// language recorded for it (Question 214). A word with one translation and
-// no interest in others keeps working without ever touching this table.
+// It began as translation text alone. Since Question 335 it also carries
+// that word's *own* enrichment, which is the point of the table growing
+// rather than a second one appearing: "confusion" in French is a word in
+// its own right, with its own CEFR level, its own gender and plural, its
+// own synonyms. A row here is a word in a language, and everything true of
+// a word in a language belongs on it.
 model VocabularyTranslation {
     id        String   @id @default(cuid())
     entryId   String
@@ -150,6 +152,38 @@ model VocabularyTranslation {
     // word list are the same value and group together.
     language  String
     text      String
+
+    // The same seven fields VocabularyEntry carries for the source word,
+    // because they are facts about a word rather than about a meaning
+    // (Question 333). Gender and plural are the obvious case — they don't
+    // survive translation at all — and level is the one worth naming:
+    // "Verwirrung" is an advanced German noun while "confusion" is an
+    // ordinary early English one, so a single level for both would be
+    // wrong about one of them.
+    //
+    // Category and used-in are deliberately NOT here. Those describe the
+    // meaning, and meaning is what translation preserves — storing them
+    // per language would be storing the same answer three times.
+    level        String?
+    nounInfo     String?
+    partOfSpeech String?
+    wordFamily   String?
+    synonyms     String?
+    aiExamples   String?
+    collocations String?
+
+    // Your own sentence using this form's word, added in Question 338.
+    //
+    // It arrived a step later than the seven above, and the reason is worth
+    // recording because it wasn't a decision: Question 335 split the fields
+    // by asking which ones the model *generates* differently per language,
+    // and this one is never generated at all, so it fell outside the
+    // question rather than being weighed and kept. It belongs here on the
+    // same grounds as the rest — writing your own sentence with the French
+    // word is a different exercise from writing one with the German word,
+    // not the same answer stored twice.
+    ownExample   String?
+
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
 

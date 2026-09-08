@@ -21,8 +21,11 @@ import { enrichVocabularyEntries } from "@/app/actions/vocabulary-enrich-actions
 import { checkWriting } from "@/app/actions/writing-check-actions";
 import {
   MAX_ENRICH_WORDS,
+  PER_LANGUAGE_FIELDS,
   type EnrichableField,
   type EnrichmentDetailField,
+  type EnrichmentScope,
+  type PerLanguageField,
 } from "@/lib/vocabulary-enrichment";
 import { describeClientError } from "@/lib/client-error";
 import { languageTag } from "@/lib/language-codes";
@@ -37,6 +40,20 @@ import {
   writeColumnLayout,
   type ConfigurableColumn,
 } from "@/lib/vocabulary-columns";
+
+interface TranslationData {
+  id: string;
+  language: string;
+  text: string;
+  level: string | null;
+  nounInfo: string | null;
+  partOfSpeech: string | null;
+  wordFamily: string | null;
+  synonyms: string | null;
+  aiExamples: string | null;
+  collocations: string | null;
+  ownExample: string | null;
+}
 
 interface VocabularyEntryData {
   id: string;
@@ -53,10 +70,10 @@ interface VocabularyEntryData {
   usedIn: string | null;
   category: string | null;
   ownExample: string | null;
-  // One row per target language (Question 326). Separate from
-  // `translation` above, which stays what it always was: a translation with
-  // no language recorded, carried in from wherever the word was saved.
-  translations: { id: string; language: string; text: string }[];
+  // One row per target language (Question 326), each carrying its own
+  // generated fields since Question 335 — a translation is a word in a
+  // language, so it has its own level, gender, synonyms and examples.
+  translations: TranslationData[];
 }
 
 // One description per generated field, covering both how it's displayed and
@@ -119,6 +136,24 @@ const ENRICHMENT_FIELDS: {
 ];
 
 const DETAIL_FIELDS = ENRICHMENT_FIELDS.filter((entry) => entry.inDetails);
+
+// The same descriptors, narrowed to the fields a translation carries too
+// (Question 335). Derived from the one list rather than written out again,
+// so a label can't say one thing under the word and another under its
+// French form — they're the same field asked in a different language.
+const TRANSLATION_FIELDS = ENRICHMENT_FIELDS.filter((entry) =>
+  (PER_LANGUAGE_FIELDS as readonly string[]).includes(entry.field),
+) as {
+  field: PerLanguageField;
+  label: string;
+  multiline?: boolean;
+  placeholder?: string;
+}[];
+
+// Whether a translation has anything beyond its text worth showing.
+function populatedTranslationFields(translation: TranslationData) {
+  return TRANSLATION_FIELDS.filter(({ field }) => translation[field]?.trim());
+}
 
 // Every configurable column's label in one place, so the header and the
 // column chooser can't end up calling the same column two different things.
@@ -356,6 +391,49 @@ function TranslationTags({
   );
 }
 
+// One <dl> of generated fields, used for the word itself and for each of
+// its translations (Question 335). Extracted rather than written twice
+// because they are the same fields — a French word's synonyms should look
+// exactly like a German word's, since that is what they are.
+function DetailFields({
+  items,
+}: {
+  items: { field: string; label: string; value: string }[];
+}) {
+  return (
+    <>
+      {items.map(({ field, label, value }) => {
+        // Multi-value fields are stored one per line, so anything with line
+        // breaks renders as a list rather than a wall of text. Single-line
+        // values (level, part of speech, and the comma-separated ones) stay
+        // as they are.
+        const lines = value
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
+        return (
+          <div key={field}>
+            <dt className="font-medium uppercase tracking-wider text-zinc-600">
+              {label}
+            </dt>
+            <dd className="mt-0.5 text-zinc-300">
+              {lines.length > 1 ? (
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {lines.map((line, lineIndex) => (
+                    <li key={lineIndex}>{line}</li>
+                  ))}
+                </ul>
+              ) : (
+                lines[0]
+              )}
+            </dd>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 function formatDate(date: string | Date) {
   const parsed = new Date(date);
   const day = String(parsed.getDate()).padStart(2, "0");
@@ -462,8 +540,19 @@ export default function VocabularyWordList({
   // list rather than written straight through, so Cancel means Cancel for
   // these exactly as it does for every other field beside them.
   const [editTranslations, setEditTranslations] = useState<
-    { language: string; text: string }[]
+    {
+      language: string;
+      text: string;
+      enrichment: Record<PerLanguageField, string>;
+    }[]
   >([]);
+  // Which translation has its fields open in the edit form. One at a time,
+  // and closed to begin with: seven fields times three languages is a form
+  // nobody can see the Save button on, and the common edit is still the
+  // translation text itself (Question 335).
+  const [openTranslationFields, setOpenTranslationFields] = useState<
+    string | null
+  >(null);
   // The half-filled new one, kept apart from the list above for the same
   // reason the enrich modal keeps its language draft apart: a language
   // typed but not yet added isn't a translation, and a blank row saved by
@@ -475,7 +564,11 @@ export default function VocabularyWordList({
   // to ENRICHMENT_FIELDS enough on its own.
   const [editEnrichment, setEditEnrichment] =
     useState<Record<EnrichmentKey, string>>(emptyEnrichment);
-  const [fixingSentence, setFixingSentence] = useState(false);
+  // Which sentence is being checked, not merely whether one is — the word
+  // has its own and so does every translation now (Question 338), and a
+  // single boolean would put "Checking…" on all of them at once. The value
+  // is the entry's language for its own sentence, or the translation's.
+  const [fixingSentence, setFixingSentence] = useState<string | null>(null);
   const [fixSentenceError, setFixSentenceError] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -660,11 +753,24 @@ export default function VocabularyWordList({
   // (Question 310). The corrected text replaces what's in the box, but only
   // in the box: nothing is saved until you save the word, so a correction
   // you disagree with costs you a Cancel, not an undo.
-  async function handleFixOwnSentence(language: string) {
-    const sentence = editEnrichment.ownExample.trim();
+  // `translationIndex` picks which sentence is being checked: leave it out
+  // for the word's own, give it for one of its translations. One function
+  // rather than two, because the only thing that differs between them is
+  // where the sentence comes from and where the correction goes back —
+  // and checkWriting is told the right language either way, which is the
+  // entire point of the field being per-language (Question 338).
+  async function handleFixOwnSentence(
+    language: string,
+    translationIndex?: number,
+  ) {
+    const sentence = (
+      translationIndex === undefined
+        ? editEnrichment.ownExample
+        : (editTranslations[translationIndex]?.enrichment.ownExample ?? "")
+    ).trim();
     if (!sentence) return;
 
-    setFixingSentence(true);
+    setFixingSentence(language);
     setFixSentenceError(null);
     try {
       const result = await checkWriting(sentence, language);
@@ -678,13 +784,21 @@ export default function VocabularyWordList({
         setFixSentenceError("That already looks right.");
         return;
       }
-      updateEditField("ownExample", result.data.correctedText);
+      if (translationIndex === undefined) {
+        updateEditField("ownExample", result.data.correctedText);
+      } else {
+        updateEditTranslationField(
+          translationIndex,
+          "ownExample",
+          result.data.correctedText,
+        );
+      }
     } catch (err) {
       setFixSentenceError(
         describeClientError(err, "Couldn't check that sentence."),
       );
     } finally {
-      setFixingSentence(false);
+      setFixingSentence(null);
     }
   }
 
@@ -743,6 +857,7 @@ export default function VocabularyWordList({
   async function handleEnrich(
     fields: EnrichableField[],
     translateInto: string[],
+    scope: EnrichmentScope,
   ) {
     setEnriching(true);
     setEnrichError(null);
@@ -750,6 +865,7 @@ export default function VocabularyWordList({
       const result = await enrichVocabularyEntries(Array.from(selectedIds), {
         fields,
         translateInto,
+        scope,
       });
       if (!result.ok) {
         setEnrichError(result.error);
@@ -783,8 +899,18 @@ export default function VocabularyWordList({
       ) as Record<EnrichmentKey, string>,
     );
     setEditTranslations(
-      entry.translations.map(({ language, text }) => ({ language, text })),
+      entry.translations.map((translation) => ({
+        language: translation.language,
+        text: translation.text,
+        enrichment: Object.fromEntries(
+          TRANSLATION_FIELDS.map(({ field }) => [
+            field,
+            translation[field] ?? "",
+          ]),
+        ) as Record<PerLanguageField, string>,
+      })),
     );
+    setOpenTranslationFields(null);
     setNewTranslationLanguage("");
     setNewTranslationText("");
     setEditError(null);
@@ -794,6 +920,20 @@ export default function VocabularyWordList({
     setEditTranslations((prev) =>
       prev.map((item, itemIndex) =>
         itemIndex === index ? { ...item, text } : item,
+      ),
+    );
+  }
+
+  function updateEditTranslationField(
+    index: number,
+    field: PerLanguageField,
+    value: string,
+  ) {
+    setEditTranslations((prev) =>
+      prev.map((item, itemIndex) =>
+        itemIndex === index
+          ? { ...item, enrichment: { ...item.enrichment, [field]: value } }
+          : item,
       ),
     );
   }
@@ -817,9 +957,23 @@ export default function VocabularyWordList({
       const existing = prev.findIndex(
         (item) => item.language.toLowerCase() === language.toLowerCase(),
       );
-      if (existing === -1) return [...prev, { language, text }];
+      if (existing === -1) {
+        return [
+          ...prev,
+          {
+            language,
+            text,
+            enrichment: Object.fromEntries(
+              TRANSLATION_FIELDS.map(({ field }) => [field, ""]),
+            ) as Record<PerLanguageField, string>,
+          },
+        ];
+      }
+      // Only the text is replaced — retyping a language you already have is
+      // correcting its translation, not asking for its level and synonyms
+      // to be thrown away.
       return prev.map((item, index) =>
-        index === existing ? { language: item.language, text } : item,
+        index === existing ? { ...item, text } : item,
       );
     });
     setNewTranslationLanguage("");
@@ -856,7 +1010,11 @@ export default function VocabularyWordList({
         // order you did things in.
         translations: [
           ...editTranslations,
-          { language: newTranslationLanguage, text: newTranslationText },
+          {
+            language: newTranslationLanguage,
+            text: newTranslationText,
+            enrichment: {},
+          },
         ],
       });
       setEditingId(null);
@@ -1667,38 +1825,156 @@ export default function VocabularyWordList({
                       </p>
                       {editTranslations.length > 0 && (
                         <div className="mb-2 space-y-1.5">
-                          {editTranslations.map((item, index) => (
-                            <div
-                              key={item.language}
-                              className="flex items-center gap-2"
-                            >
-                              <span
-                                title={item.language}
-                                className="w-10 shrink-0 rounded bg-zinc-800 px-1 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-zinc-400"
-                              >
-                                {languageTag(item.language)}
-                              </span>
-                              <input
-                                type="text"
-                                value={item.text}
-                                onChange={(event) =>
-                                  updateEditTranslation(
-                                    index,
-                                    event.target.value,
-                                  )
-                                }
-                                placeholder={`Translation in ${item.language}`}
-                                className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
-                              />
-                              <button
-                                onClick={() => removeEditTranslation(index)}
-                                title={`Remove the ${item.language} translation`}
-                                className="shrink-0 rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-400"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ))}
+                          {editTranslations.map((item, index) => {
+                            const filled = TRANSLATION_FIELDS.filter(
+                              ({ field }) => item.enrichment[field]?.trim(),
+                            ).length;
+                            const open =
+                              openTranslationFields === item.language;
+                            return (
+                              <div key={item.language}>
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    title={item.language}
+                                    className="w-10 shrink-0 rounded bg-zinc-800 px-1 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-zinc-400"
+                                  >
+                                    {languageTag(item.language)}
+                                  </span>
+                                  <input
+                                    type="text"
+                                    value={item.text}
+                                    onChange={(event) =>
+                                      updateEditTranslation(
+                                        index,
+                                        event.target.value,
+                                      )
+                                    }
+                                    placeholder={`Translation in ${item.language}`}
+                                    className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                                  />
+                                  {/* Collapsed by default, and the count is
+                                      why that works: seven fields per
+                                      language would bury the Save button,
+                                      but you can still see at a glance
+                                      whether there is anything under this
+                                      one before opening it. */}
+                                  <button
+                                    onClick={() =>
+                                      setOpenTranslationFields((prev) =>
+                                        prev === item.language
+                                          ? null
+                                          : item.language,
+                                      )
+                                    }
+                                    aria-expanded={open}
+                                    title={`Level, gender, synonyms and examples for the ${item.language} word`}
+                                    className="shrink-0 rounded-md px-1.5 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-indigo-300"
+                                  >
+                                    {filled > 0 ? `${filled} fields` : "Fields"}{" "}
+                                    {open ? "▴" : "▾"}
+                                  </button>
+                                  <button
+                                    onClick={() => removeEditTranslation(index)}
+                                    title={`Remove the ${item.language} translation`}
+                                    className="shrink-0 rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-400"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+
+                                {open && (
+                                  <div className="ml-12 mt-1.5 grid gap-2 sm:grid-cols-2">
+                                    {TRANSLATION_FIELDS.map(
+                                      ({
+                                        field,
+                                        label,
+                                        multiline,
+                                        placeholder,
+                                      }) => (
+                                        <div
+                                          key={field}
+                                          className={
+                                            multiline
+                                              ? "sm:col-span-2"
+                                              : undefined
+                                          }
+                                        >
+                                          <div className="mb-0.5 flex items-center justify-between gap-2">
+                                            <label
+                                              htmlFor={`${entry.id}-${item.language}-${field}`}
+                                              className="block text-[11px] uppercase tracking-wider text-zinc-600"
+                                            >
+                                              {label}
+                                            </label>
+                                            {/* Checked in this form's own
+                                                language, which is the
+                                                whole reason the sentence
+                                                is stored per language:
+                                                a French sentence checked
+                                                against German would be
+                                                corrected into nonsense. */}
+                                            {field === "ownExample" &&
+                                              item.enrichment.ownExample?.trim() && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    handleFixOwnSentence(
+                                                      item.language,
+                                                      index,
+                                                    )
+                                                  }
+                                                  disabled={
+                                                    fixingSentence !== null
+                                                  }
+                                                  title={`Check this sentence against ${item.language} and correct it`}
+                                                  className="text-[11px] text-indigo-400 transition-colors hover:text-indigo-300 disabled:cursor-not-allowed disabled:text-zinc-600"
+                                                >
+                                                  {fixingSentence ===
+                                                  item.language
+                                                    ? "Checking…"
+                                                    : "Fix with AI"}
+                                                </button>
+                                              )}
+                                          </div>
+                                          {multiline ? (
+                                            <textarea
+                                              id={`${entry.id}-${item.language}-${field}`}
+                                              value={item.enrichment[field]}
+                                              onChange={(event) =>
+                                                updateEditTranslationField(
+                                                  index,
+                                                  field,
+                                                  event.target.value,
+                                                )
+                                              }
+                                              rows={2}
+                                              placeholder={placeholder}
+                                              className="w-full resize-y rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                                            />
+                                          ) : (
+                                            <input
+                                              id={`${entry.id}-${item.language}-${field}`}
+                                              type="text"
+                                              value={item.enrichment[field]}
+                                              onChange={(event) =>
+                                                updateEditTranslationField(
+                                                  index,
+                                                  field,
+                                                  event.target.value,
+                                                )
+                                              }
+                                              placeholder={placeholder}
+                                              className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                                            />
+                                          )}
+                                        </div>
+                                      ),
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                       <div className="flex items-center gap-2">
@@ -1770,11 +2046,13 @@ export default function VocabularyWordList({
                                       onClick={() =>
                                         handleFixOwnSentence(entry.language)
                                       }
-                                      disabled={fixingSentence}
+                                      disabled={fixingSentence !== null}
                                       title="Check this sentence and correct it"
                                       className="text-xs text-indigo-400 transition-colors hover:text-indigo-300 disabled:cursor-not-allowed disabled:text-zinc-600"
                                     >
-                                      {fixingSentence ? "Checking…" : "Fix with AI"}
+                                      {fixingSentence === entry.language
+                                        ? "Checking…"
+                                        : "Fix with AI"}
                                     </button>
                                   )}
                                   {value.trim() && (
@@ -1893,7 +2171,11 @@ export default function VocabularyWordList({
                           {entry.level}
                         </span>
                       )}
-                      {populatedEnrichment(entry).length > 0 && (
+                      {(populatedEnrichment(entry).length > 0 ||
+                        entry.translations.some(
+                          (translation) =>
+                            populatedTranslationFields(translation).length > 0,
+                        )) && (
                         <button
                           onClick={() => toggleExpanded(entry.id)}
                           aria-expanded={expandedIds.has(entry.id)}
@@ -1912,47 +2194,63 @@ export default function VocabularyWordList({
                           <TranslationTags translations={entry.translations} />
                         </div>
                       )}
-                      {expandedIds.has(entry.id) && (
-                        <dl className="mt-2 space-y-2 rounded-lg bg-zinc-950/60 p-3 text-xs">
-                          {/* Step 6a's temporary Translations block lived
-                              here, and it's gone rather than kept: it was
-                              the honest minimum until the real display
-                              existed, and now that the row itself shows
-                              them, leaving it would be the same answer
-                              given twice one click apart. */}
-                          {populatedEnrichment(entry).map(
-                            ({ field, label }) => {
-                              // Multi-value fields are stored one per line, so
-                              // anything with line breaks renders as a list
-                              // rather than a wall of text. Single-line values
-                              // (level, part of speech, and the comma-separated
-                              // ones) stay as they are.
-                              const lines = (entry[field] ?? "")
-                                .split("\n")
-                                .map((line) => line.trim())
-                                .filter(Boolean);
-                              return (
-                                <div key={field}>
-                                  <dt className="font-medium uppercase tracking-wider text-zinc-600">
-                                    {label}
-                                  </dt>
-                                  <dd className="mt-0.5 text-zinc-300">
-                                    {lines.length > 1 ? (
-                                      <ul className="list-disc space-y-0.5 pl-4">
-                                        {lines.map((line, lineIndex) => (
-                                          <li key={lineIndex}>{line}</li>
-                                        ))}
-                                      </ul>
-                                    ) : (
-                                      lines[0]
-                                    )}
-                                  </dd>
+                      {expandedIds.has(entry.id) &&
+                        (() => {
+                          // Only the translations that actually carry
+                          // generated fields — one that is just text is
+                          // already fully shown by the tags above, and a
+                          // heading over nothing reads as something missing
+                          // rather than as something absent.
+                          const enrichedTranslations = entry.translations.filter(
+                            (translation) =>
+                              populatedTranslationFields(translation).length > 0,
+                          );
+                          // Headings appear only once there is more than one
+                          // language to tell apart. A word enriched in its own
+                          // language alone looks exactly as it did before this
+                          // step existed.
+                          const grouped = enrichedTranslations.length > 0;
+                          return (
+                            <dl className="mt-2 space-y-2 rounded-lg bg-zinc-950/60 p-3 text-xs">
+                              {grouped && (
+                                <p className="font-semibold uppercase tracking-wider text-indigo-400/80">
+                                  {entry.language}
+                                </p>
+                              )}
+                              <DetailFields
+                                items={populatedEnrichment(entry).map(
+                                  ({ field, label }) => ({
+                                    field,
+                                    label,
+                                    value: entry[field] ?? "",
+                                  }),
+                                )}
+                              />
+                              {enrichedTranslations.map((translation) => (
+                                <div
+                                  key={translation.id}
+                                  className="space-y-2 border-t border-zinc-800 pt-2"
+                                >
+                                  <p className="font-semibold uppercase tracking-wider text-indigo-400/80">
+                                    {translation.language}
+                                    <span className="ml-1.5 font-normal normal-case tracking-normal text-zinc-500">
+                                      {translation.text}
+                                    </span>
+                                  </p>
+                                  <DetailFields
+                                    items={populatedTranslationFields(
+                                      translation,
+                                    ).map(({ field, label }) => ({
+                                      field,
+                                      label,
+                                      value: translation[field] ?? "",
+                                    }))}
+                                  />
                                 </div>
-                              );
-                            },
-                          )}
-                        </dl>
-                      )}
+                              ))}
+                            </dl>
+                          );
+                        })()}
                     </div>
                     {/* Grouped and centered against each other, not
                         against the row as a whole — the row itself stays

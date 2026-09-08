@@ -1,13 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import {
+  isPerLanguageField,
   MAX_TRANSLATION_LANGUAGES,
+  maxWordsForLanguageCount,
   USED_IN_HINTS,
   USED_IN_VALUES,
   type EnrichableField,
+  type EnrichmentScope,
 } from "@/lib/vocabulary-enrichment";
+import {
+  readDefaultEnrichmentScope,
+  readEnrichmentScope,
+  subscribeToEnrichmentScope,
+  writeEnrichmentScope,
+} from "@/lib/enrichment-scope";
 import { WORD_CATEGORIES } from "@/lib/word-categories";
 
 // Label and one-line explanation per field. Kept here rather than in the
@@ -134,7 +143,11 @@ export default function VocabularyEnrichModal({
   running: boolean;
   error: string | null;
   onCancel: () => void;
-  onConfirm: (fields: EnrichableField[], translateInto: string[]) => void;
+  onConfirm: (
+    fields: EnrichableField[],
+    translateInto: string[],
+    scope: EnrichmentScope,
+  ) => void;
   defaultTranslateLanguage: string;
 }) {
   const [fields, setFields] = useState<EnrichableField[]>(DEFAULT_FIELDS);
@@ -156,6 +169,16 @@ export default function VocabularyEnrichModal({
     defaultTranslateLanguage.trim() ? [defaultTranslateLanguage.trim()] : [],
   );
   const [languageDraft, setLanguageDraft] = useState("");
+  // Read from storage rather than held in useState, so the choice you made
+  // last time is already selected when the modal opens (Question 333). The
+  // same useSyncExternalStore pattern the table's column layout uses, and
+  // for the same reason: the value lives outside React and the server has
+  // to render an honest default rather than guess at localStorage.
+  const scope = useSyncExternalStore(
+    subscribeToEnrichmentScope,
+    readEnrichmentScope,
+    readDefaultEnrichmentScope,
+  );
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -207,11 +230,34 @@ export default function VocabularyEnrichModal({
     setFields([]);
   }
 
+  // Which of the checked fields are the per-language kind — the scope
+  // control only governs those, since category and used-in describe the
+  // meaning and are written once whatever it says.
+  const perLanguageFields = fields.filter(isPerLanguageField);
+  const showsScope = perLanguageFields.length > 0;
+  const hasLanguages = translateInto.length > 0;
+  // "Both" and "translated" need somewhere to translate into. Rather than
+  // letting them be picked and then failing at Generate, they're disabled
+  // with the reason said beside them.
+  const scopeReachesTargets = scope !== "own" && hasLanguages;
+  const enrichedLanguageCount = !showsScope
+    ? 1
+    : (scope === "translated" ? 0 : 1) +
+      (scopeReachesTargets ? translateInto.length : 0);
+  const maxWords = maxWordsForLanguageCount(enrichedLanguageCount);
+  const tooManyWords = wordCount > maxWords;
+
   const allSelected = fields.length === ALL_FIELDS.length;
   const noneSelected = fields.length === 0;
   const wantsTranslation = fields.includes("translation");
   const missingLanguage = wantsTranslation && translateInto.length === 0;
-  const canConfirm = fields.length > 0 && !missingLanguage && !running;
+  const scopeNeedsLanguage = showsScope && scope === "translated" && !hasLanguages;
+  const canConfirm =
+    fields.length > 0 &&
+    !missingLanguage &&
+    !scopeNeedsLanguage &&
+    !tooManyWords &&
+    !running;
   const languagesFull = translateInto.length >= MAX_TRANSLATION_LANGUAGES;
   const draftAlreadyChosen = translateInto.some(
     (existing) => existing.toLowerCase() === languageDraft.trim().toLowerCase(),
@@ -420,6 +466,76 @@ export default function VocabularyEnrichModal({
           </div>
         )}
 
+        {/* Which languages the checked fields get generated in (Question
+            328). Shown only when something it governs is actually checked
+            — asking "in which languages?" about a batch that only wants a
+            category is a question with no meaning.
+
+            Category and used-in are named as staying put, because their
+            absence from this choice is a deliberate answer rather than an
+            oversight: they describe the meaning, and meaning is what
+            translation preserves. */}
+        {showsScope && (
+          <div className="mt-4 border-t border-zinc-800 pt-3">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+              Generate for
+            </p>
+            <div className="flex overflow-hidden rounded-lg border border-zinc-700">
+              {(
+                [
+                  { value: "own", label: "The word itself" },
+                  { value: "translated", label: "Its translations" },
+                  { value: "both", label: "Both" },
+                ] as const
+              ).map(({ value, label }) => {
+                const needsLanguages = value !== "own" && !hasLanguages;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => writeEnrichmentScope(value)}
+                    disabled={running || needsLanguages}
+                    title={
+                      needsLanguages
+                        ? "Add a language to translate into first"
+                        : undefined
+                    }
+                    className={`flex-1 px-2 py-1.5 text-xs font-medium transition-colors ${
+                      scope === value
+                        ? "bg-indigo-600 text-white"
+                        : "bg-zinc-800 text-zinc-400 hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-zinc-700 disabled:hover:text-zinc-700"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-xs text-zinc-600">
+              {scope === "own"
+                ? "Level, gender, synonyms and examples describe the word as you saved it."
+                : `Each translation gets its own level, gender, synonyms and examples — “confusion” is a different word from “Verwirrung”${
+                    scope === "both" ? ", and both are described" : ""
+                  }.`}
+              {" Category and used-in are written once either way — they describe the meaning, which every translation shares."}
+            </p>
+            {/* The word limit moves with how many languages each word is
+                described in, so it's said here rather than discovered at
+                Generate. */}
+            {enrichedLanguageCount > 1 && (
+              <p
+                className={`mt-1 text-xs ${
+                  tooManyWords ? "text-amber-400" : "text-zinc-600"
+                }`}
+              >
+                {tooManyWords
+                  ? `That's ${wordCount} words across ${enrichedLanguageCount} languages — ${maxWords} or fewer at a time, or choose fewer languages.`
+                  : `${enrichedLanguageCount} languages per word, so up to ${maxWords} words in one go.`}
+              </p>
+            )}
+          </div>
+        )}
+
         {fields.length === 0 && (
           <p className="mt-3 text-sm text-amber-400">
             Check at least one kind of information.
@@ -442,7 +558,7 @@ export default function VocabularyEnrichModal({
             Cancel
           </button>
           <button
-            onClick={() => onConfirm(fields, translateInto)}
+            onClick={() => onConfirm(fields, translateInto, scope)}
             disabled={!canConfirm}
             className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
           >

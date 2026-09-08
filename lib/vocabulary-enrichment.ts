@@ -56,6 +56,76 @@ export const ENRICHABLE_FIELDS = [
 
 export type EnrichableField = (typeof ENRICHABLE_FIELDS)[number];
 
+// Which of those describe a *word in a language*, and which describe the
+// *meaning* the word carries (Question 335).
+//
+// The split is the whole idea behind per-language enrichment: translate
+// "Verwirrung" into French and you get "confusion", which is its own word
+// with its own level, its own gender, its own synonyms — none of which the
+// German ones tell you. But its topic is still Feelings and its register is
+// still everyday, because those belong to what the word means, and meaning
+// is exactly what translation preserves.
+//
+// `translation` is in neither list: it isn't a description of a word, it's
+// the word itself in another language, and it's what a per-language row is
+// keyed by in the first place.
+export const PER_LANGUAGE_FIELDS = [
+    "level",
+    "nounInfo",
+    "partOfSpeech",
+    "wordFamily",
+    "synonyms",
+    "aiExamples",
+    "collocations",
+    // Added in Question 338, a step after the rest, and the gap it fell
+    // through is worth naming: the split above was drawn by asking which
+    // fields the *model* answers differently per language, and this one the
+    // model never answers at all. So it was never weighed and kept the way
+    // category and used-in were — it simply wasn't in the question. It
+    // belongs here for the same reason level does: a sentence you wrote
+    // with the French word is not the German sentence again.
+    "ownExample",
+] as const;
+
+export type PerLanguageField = (typeof PER_LANGUAGE_FIELDS)[number];
+
+// The generated subset — everything stored per language except the
+// sentence you write yourself. Enrichment only ever asks for these; the
+// wider list above is what gets stored, shown and edited.
+export type PerLanguageEnrichableField = Exclude<PerLanguageField, "ownExample">;
+
+export const SHARED_FIELDS = ["usedIn", "category"] as const;
+
+// Takes an enrichable field, so `ownExample` can't reach it — which is
+// what keeps the two lists from having to be checked against each other by
+// hand every time one of them changes.
+export function isPerLanguageField(
+    field: EnrichableField,
+): field is PerLanguageEnrichableField {
+    return (PER_LANGUAGE_FIELDS as readonly string[]).includes(field);
+}
+
+// Which languages the checked fields get generated in (Question 328).
+//
+// "own" is what enrichment has always done and stays the starting point,
+// so an unchanged habit produces an unchanged result. The other two only
+// became askable once a word could hold several translations.
+export type EnrichmentScope = "own" | "translated" | "both";
+
+// How many words one batch may cover, given how many languages each word
+// will be described in.
+//
+// The cap exists because the response grows with words × languages, and
+// this keeps that product roughly where it already was rather than letting
+// it multiply. Deliberately *not* applied when no per-language field is
+// checked: asking for translations into four languages is cheap — four
+// short strings per word — so a batch that only translates keeps the full
+// thirty it has always had.
+export function maxWordsForLanguageCount(languageCount: number): number {
+    if (languageCount <= 1) return MAX_ENRICH_WORDS;
+    return Math.max(1, Math.floor(MAX_ENRICH_WORDS / languageCount));
+}
+
 // The generated fields that live in their own columns and are hand-editable
 // (Question 250). Deliberately not the same list as ENRICHABLE_FIELDS:
 // `translation` is excluded because it predates enrichment and is already
@@ -87,10 +157,12 @@ export interface EnrichOptions {
     // each one becomes its own VocabularyTranslation row, so unlike every
     // other option here this one is per-language, not merely per-batch.
     //
-    // The old single `translation` column is still written too, when it's
-    // empty — see the note in the action. That column remains what
-    // Question 214 made it: a translation with no language recorded.
     translateInto?: string[];
+    // Which languages the checked fields are generated in (Question 335).
+    // Only meaningful for the per-language ones — category and used-in are
+    // written once whatever this says, because they describe the meaning
+    // rather than any one word.
+    scope?: EnrichmentScope;
 }
 
 

@@ -3,7 +3,21 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { formatError } from "@/lib/utils";
-import { ENRICHMENT_DETAIL_FIELDS } from "@/lib/vocabulary-enrichment";
+import {
+    ENRICHMENT_DETAIL_FIELDS,
+    PER_LANGUAGE_FIELDS,
+} from "@/lib/vocabulary-enrichment";
+
+// One translation as the edit form sends it: the language it's in, the
+// word in that language, and whichever of its own generated fields were
+// edited alongside (Question 335). The fields are a loose record for the
+// same reason the entry's `enrichment` is — the form sends what it has,
+// and the list of what that can be lives in one place, not two.
+type TranslationInput = {
+    language: string;
+    text: string;
+    enrichment?: Partial<Record<string, string>>;
+};
 
 const MAX_WORDS = 100;
 
@@ -136,8 +150,12 @@ export async function getVocabularyEntries() {
         // Ordered by language so the same word always lists its
         // translations in the same order, whichever order they were added.
         include: {
+            // Everything a translation carries, not just its text — since
+            // Question 335 a translation holds its own level, gender,
+            // synonyms and the rest, and the Details panel shows them
+            // grouped by language.
             translations: {
-                select: { id: true, language: true, text: true },
+                omit: { entryId: true, createdAt: true, updatedAt: true },
                 orderBy: { language: "asc" },
             },
         },
@@ -173,7 +191,10 @@ export async function updateVocabularyEntry(
         // exactly like the enrichment fields beside it. Three narrower
         // actions would each need their own error handling and their own
         // refresh, for a form that already knows the whole answer.
-        translations?: { language: string; text: string }[];
+        // Each carries its own generated fields too since Question 335 —
+        // a translation is a word in a language, so it is edited the same
+        // way the source word is, field for field.
+        translations?: TranslationInput[];
     },
 ) {
     const userId = await requireUserId();
@@ -233,7 +254,7 @@ export async function updateVocabularyEntry(
 // time the insert wants it.
 async function saveTranslations(
     entryId: string,
-    translations: { language: string; text: string }[],
+    translations: TranslationInput[],
 ) {
     // Blank rows are how the form says "I removed this one", and a language
     // with no text is nothing to store. Deduplicated by language for the
@@ -245,14 +266,29 @@ async function saveTranslations(
     // correcting it rather than repeating it. Re-setting a key keeps the
     // row in its original position with the new text, which is also why
     // this isn't a filter over a Set.
-    const byLanguage = new Map<string, { language: string; text: string }>();
-    for (const { language, text } of translations) {
+    const byLanguage = new Map<
+        string,
+        { language: string; text: string; fields: Record<string, string | null> }
+    >();
+    for (const { language, text, enrichment } of translations) {
         const trimmedLanguage = language.trim();
         const trimmedText = text.trim();
         if (!trimmedLanguage || !trimmedText) continue;
+
+        // Same rule the entry's own fields follow: a key that isn't sent is
+        // left alone, and one sent empty clears the field. That's what lets
+        // "delete this piece of information" need no action of its own.
+        const fields: Record<string, string | null> = {};
+        for (const field of PER_LANGUAGE_FIELDS) {
+            const value = enrichment?.[field];
+            if (value === undefined) continue;
+            fields[field] = value.trim() || null;
+        }
+
         byLanguage.set(trimmedLanguage.toLowerCase(), {
             language: trimmedLanguage,
             text: trimmedText,
+            fields,
         });
     }
     const cleaned = Array.from(byLanguage.values());
@@ -264,11 +300,11 @@ async function saveTranslations(
                 language: { notIn: cleaned.map((item) => item.language) },
             },
         }),
-        ...cleaned.map(({ language, text }) =>
+        ...cleaned.map(({ language, text, fields }) =>
             prisma.vocabularyTranslation.upsert({
                 where: { entryId_language: { entryId, language } },
-                create: { entryId, language, text },
-                update: { text },
+                create: { entryId, language, text, ...fields },
+                update: { text, ...fields },
             }),
         ),
     ]);

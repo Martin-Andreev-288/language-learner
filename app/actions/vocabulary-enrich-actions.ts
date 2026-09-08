@@ -11,39 +11,43 @@ import { USED_IN_VALUES } from "@/lib/vocabulary-enrichment";
 import { actionError, actionOk } from "@/lib/action-result";
 import {
     ENRICHABLE_FIELDS,
+    isPerLanguageField,
     MAX_CATEGORIES_PER_WORD,
-    MAX_ENRICH_WORDS,
     MAX_TRANSLATION_LANGUAGES,
+    maxWordsForLanguageCount,
     sanitizeGeneratedText,
     type EnrichableField,
     type EnrichOptions,
+    type PerLanguageEnrichableField,
 } from "@/lib/vocabulary-enrichment";
 
 // What each field asks the model for. Kept beside the schema builder so a
 // field can't be added to one without the other.
 const FIELD_PROMPTS: Record<EnrichableField, string> = {
-    // The only field whose answer is a list rather than a value, because
-    // it's the only one asked once per target language instead of once per
-    // word (Question 326). The instruction names the languages explicitly
-    // and asks for the name copied back, for the same reason usedIn and
-    // category do: a language name that doesn't match what was asked for
-    // is a row nothing can later group by.
+    // Describes `text` inside a form rather than a key of its own since
+    // Question 335 — see buildResultSchema. Still listed here so the modal
+    // and the prompt stay driven by one list of fields.
     translation:
-        "translation: a list of the word's translations, one for EACH of these languages: {{TARGET}}. Return one object per language, with `language` copied back exactly as written above and `text` holding just the translation itself — if there are two or three genuinely distinct common senses, separate them with commas. Do not skip a language, and do not add one that isn't listed.",
+        "text: the word written in that form's language. For the word's own language this is simply the word itself, copied back. For any other language it's the translation — just the translation itself, and if there are two or three genuinely distinct common senses, separate them with commas.",
+    // Every per-language prompt below says "this form's word" rather than
+    // "the word", because since Question 335 the same field is answered
+    // once per language and the answers genuinely differ. Judging the
+    // German level of a French word is the exact mistake this wording
+    // exists to prevent.
     level:
-        "level: the CEFR level of this word for a learner of that language — exactly one of A1, A2, B1, B2, C1, C2, and nothing else.",
+        "level: the CEFR level of THIS FORM'S word, for a learner of this form's language — exactly one of A1, A2, B1, B2, C1, C2, and nothing else. Judge the word as written in this form's language, not the original.",
     nounInfo:
-        'nounInfo: ONLY if the word is a noun — its grammatical gender and plural, as one very short inline chunk. Use a single letter for gender where the language has grammatical gender (German: m, f, n), then a comma, then the plural in the abbreviated form that language conventionally uses — e.g. for German "m, ¨-e" (Zug), "f, -n" (Treppe), "m, -" (Wäscheständer). Write the plural out in full instead when an abbreviation would be unclear. If the language has no grammatical gender, give only the plural. If the word is NOT a noun, return an empty string and nothing else. Use a plain ASCII hyphen (-) for the dash, never an en dash or em dash.',
+        'nounInfo: ONLY if THIS FORM\'S word is a noun — its grammatical gender and plural, as one very short inline chunk. Use a single letter for gender where the language has grammatical gender (German: m, f, n), then a comma, then the plural in the abbreviated form that language conventionally uses — e.g. for German "m, ¨-e" (Zug), "f, -n" (Treppe), "m, -" (Wäscheständer). Write the plural out in full instead when an abbreviation would be unclear. If the language has no grammatical gender, give only the plural. If the word is NOT a noun, return an empty string and nothing else. Use a plain ASCII hyphen (-) for the dash, never an en dash or em dash.',
     wordFamily:
-        "wordFamily: other words built from the same root (e.g. for \"substantial\": substance, substantially, insubstantial). Comma-separated, 2-5 of them, in the word's own language.",
+        "wordFamily: other words built from the same root as THIS FORM'S word (e.g. for \"substantial\": substance, substantially, insubstantial). Comma-separated, 2-5 of them, in this form's language.",
     synonyms:
-        "synonyms: words with a close meaning, in the word's own language. Comma-separated, 2-5 of them.",
+        "synonyms: words with a close meaning to THIS FORM'S word, in this form's language. Comma-separated, 2-5 of them.",
     aiExamples:
-        "aiExamples: 2-3 short example sentences using the word naturally, in the word's own language. One sentence per line, no numbering or bullets.",
+        "aiExamples: 2-3 short example sentences using THIS FORM'S word naturally, written in this form's language. One sentence per line, no numbering or bullets.",
     collocations:
-        "collocations: 3-5 very short, natural word pairings this word commonly appears in (e.g. \"make a decision\", \"heavy rain\") — short reusable chunks, not full sentences. One per line, no numbering or bullets.",
+        "collocations: 3-5 very short, natural word pairings THIS FORM'S word commonly appears in, in this form's language (e.g. \"make a decision\", \"heavy rain\") — short reusable chunks, not full sentences. One per line, no numbering or bullets.",
     partOfSpeech:
-        "partOfSpeech: the word's most common part of speech (noun, verb, adjective, adverb, etc.) — a single word.",
+        "partOfSpeech: the most common part of speech of THIS FORM'S word (noun, verb, adjective, adverb, etc.) — a single word.",
     // Unlike every other field here, this one can't be judged from the word
     // alone — it's a claim about how the word sits in the language as a
     // whole. The prompt says so plainly rather than asking for it in the
@@ -87,31 +91,52 @@ const FIELD_PROMPTS: Record<EnrichableField, string> = {
 // Structurally excluding a field is stronger than asking the model to leave
 // an optional one empty: a key that isn't in the schema at all cannot come
 // back, where an optional key is only a prompt instruction it might ignore.
-function buildResultSchema(fields: EnrichableField[]) {
+// The result is two-tiered since Question 335, mirroring the two kinds of
+// thing being asked for: what's true of the *meaning* sits on the word,
+// what's true of a *word in a language* sits in `forms`, one entry per
+// language. `translation` stopped being its own key and became the `text`
+// of a form, because a translation and that translation's own level and
+// synonyms are answers about the same thing and splitting them across two
+// shapes would only invite them to disagree.
+function buildResultSchema(
+    sharedFields: EnrichableField[],
+    formFields: PerLanguageEnrichableField[],
+    wantsForms: boolean,
+) {
     const wordShape: Record<string, z.ZodType> = {
         word: z
             .string()
             .describe("The word this entry is for, copied back exactly as given."),
     };
-    for (const field of fields) {
-        // Translation is the one field that comes back as a list — one
-        // entry per requested language, each carrying the language it
-        // answers for. Position would have been shorter, but a model that
-        // returns two of three languages would then file the second one
-        // under the wrong name, which is worse than missing it entirely —
-        // the same reasoning that matches words by text below.
-        wordShape[field] =
-            field === "translation"
-                ? z.array(z.object({ language: z.string(), text: z.string() }))
-                : z.string();
+    for (const field of sharedFields) {
+        wordShape[field] = z.string();
     }
+
+    if (wantsForms) {
+        const formShape: Record<string, z.ZodType> = {
+            language: z.string(),
+            text: z.string(),
+        };
+        for (const field of formFields) {
+            formShape[field] = z.string();
+        }
+        // A list rather than a key per language, and matched by name when
+        // it's read back: a model that returns two of three languages would
+        // otherwise file the second one under the wrong name, which is
+        // worse than missing it — the same reasoning that matches words by
+        // text rather than by position.
+        wordShape.forms = z.array(z.object(formShape));
+    }
+
     return z.object({ results: z.array(z.object(wordShape)) });
 }
 
-// One returned translation, after the model has answered.
-interface TranslationResult {
+// One returned word-in-a-language: the word itself in that language, plus
+// whichever per-language fields were checked.
+interface FormResult {
     language: string;
     text: string;
+    [field: string]: unknown;
 }
 
 // One returned word. Only `word` has a shape known ahead of time — which
@@ -122,13 +147,13 @@ interface WordResult {
     [field: string]: unknown;
 }
 
-function isTranslationList(value: unknown): value is TranslationResult[] {
+function isFormList(value: unknown): value is FormResult[] {
     return (
         Array.isArray(value) &&
         value.every(
             (item) =>
-                typeof (item as TranslationResult)?.language === "string" &&
-                typeof (item as TranslationResult)?.text === "string",
+                typeof (item as FormResult)?.language === "string" &&
+                typeof (item as FormResult)?.text === "string",
         )
     );
 }
@@ -147,33 +172,49 @@ function capCategories(value: string): string {
         .join("; ");
 }
 
-// Pulls one word's translations out of the model's answer, in the order
-// they were asked for.
+// Pulls one word's language forms out of the model's answer, keyed by the
+// languages that were actually asked for.
 //
 // Driven by the requested languages rather than by what came back, which
-// settles three things at once: a language the model invented is dropped,
-// the stored name is the canonical spelling this app already uses
-// everywhere else rather than whatever casing the model chose to echo, and
-// the first entry is reliably the first language asked for — which is what
-// the legacy single column gets filled from.
-function readTranslations(
+// settles two things at once: a language the model invented is dropped,
+// and the stored name is the canonical spelling this app uses everywhere
+// else rather than whatever casing the model chose to echo — which matters
+// because that name is what a per-language row is keyed by.
+function readForms(
     result: Record<string, unknown>,
     requested: string[],
-): TranslationResult[] {
-    const raw = result.translation;
-    if (!isTranslationList(raw)) return [];
+): Map<string, FormResult> {
+    const raw = result.forms;
+    if (!isFormList(raw)) return new Map();
 
-    const byLanguage = new Map(
-        raw.map((item) => [item.language.trim().toLowerCase(), item.text]),
+    const returned = new Map(
+        raw.map((form) => [form.language.trim().toLowerCase(), form]),
     );
 
-    const translations: TranslationResult[] = [];
+    const forms = new Map<string, FormResult>();
     for (const language of requested) {
-        const text = byLanguage.get(language.toLowerCase());
-        if (typeof text !== "string" || !text.trim()) continue;
-        translations.push({ language, text: sanitizeGeneratedText(text) });
+        const form = returned.get(language.toLowerCase());
+        if (form) forms.set(language, form);
     }
-    return translations;
+    return forms;
+}
+
+// The generated string fields of one form, cleaned and ready to store.
+// Empty answers are dropped rather than written as blanks: a model that
+// has nothing to say about a word's gender should leave the field as it
+// was, not erase what's there.
+function readFormFields(
+    form: FormResult,
+    fields: PerLanguageEnrichableField[],
+): Record<string, string> {
+    const data: Record<string, string> = {};
+    for (const field of fields) {
+        const raw = form[field];
+        if (typeof raw === "string" && raw.trim()) {
+            data[field] = sanitizeGeneratedText(raw);
+        }
+    }
+    return data;
 }
 
 async function requireUserId(): Promise<string> {
@@ -222,12 +263,49 @@ export async function enrichVocabularyEntries(
         );
     }
 
+    // Which of the checked fields describe a word rather than a meaning,
+    // and therefore get asked once per language (Question 335).
+    const formFields = fields.filter(isPerLanguageField);
+    const sharedFields = fields.filter(
+        (field) => field !== "translation" && !isPerLanguageField(field),
+    );
+    const scope = options.scope ?? "own";
+
+    // Translations are requested whenever the target languages are being
+    // enriched, whether or not "Translation" itself was checked: the model
+    // cannot describe the French word without naming it, and having named
+    // it there's no reason to throw it away. Checking Translation on its
+    // own still works exactly as before — it simply asks for forms with
+    // nothing but their text.
+    const enrichTargets =
+        scope !== "own" && formFields.length > 0 && translateInto.length > 0;
+    const wantsTranslations = fields.includes("translation") || enrichTargets;
+    const enrichOwn = scope !== "translated" && formFields.length > 0;
+
+    if (formFields.length > 0 && scope === "translated" && translateInto.length === 0) {
+        return actionError(
+            "Choose at least one language to translate into, or generate for the word's own language instead.",
+        );
+    }
+
+    // The cap moves with how many languages each word is described in, so
+    // one batch stays roughly the size it always was rather than
+    // multiplying. Only per-language *enrichment* counts: translations
+    // alone are four short strings, not four descriptions.
+    const enrichedLanguageCount =
+        formFields.length === 0
+            ? 1
+            : (enrichOwn ? 1 : 0) + (enrichTargets ? translateInto.length : 0);
+    const maxWords = maxWordsForLanguageCount(enrichedLanguageCount);
+
     if (entryIds.length === 0) {
         return actionError("Select at least one word first.");
     }
-    if (entryIds.length > MAX_ENRICH_WORDS) {
+    if (entryIds.length > maxWords) {
         return actionError(
-            `That's ${entryIds.length} words — please select ${MAX_ENRICH_WORDS} or fewer at a time.`,
+            enrichedLanguageCount > 1
+                ? `That's ${entryIds.length} words across ${enrichedLanguageCount} languages — please select ${maxWords} or fewer at a time, or generate for fewer languages.`
+                : `That's ${entryIds.length} words — please select ${maxWords} or fewer at a time.`,
         );
     }
 
@@ -266,7 +344,35 @@ export async function enrichVocabularyEntries(
         .map((entry) => `- "${entry.word}" (${entry.language})`)
         .join("\n");
 
-    const resultSchema = buildResultSchema(fields);
+    // What `forms` should contain, said in words rather than left to the
+    // schema — the schema can only say "a list of forms", since which
+    // languages belong to a word depends on that word's own language.
+    const wantsForms = wantsTranslations || enrichOwn;
+    const formInstruction = wantsForms
+        ? `\nEach word also gets a "forms" list. Return one form for ${[
+            enrichOwn || !wantsTranslations
+                ? "the word's own language (the one shown in brackets beside it)"
+                : null,
+            wantsTranslations && translateInto.length > 0
+                ? `each of these languages: ${translateInto.join(", ")}`
+                : null,
+        ]
+            .filter(Boolean)
+            .join(", and one for ")}. Copy each language name exactly as written above. Do not add a form for any other language.${enrichedLanguageCount > 1
+            ? " Keep every list short — two examples and three collocations per form is plenty, since you are answering for several languages at once."
+            : ""
+        }`
+        : "";
+
+    const resultSchema = buildResultSchema(
+        sharedFields,
+        // A form carries only the per-language fields when they were asked
+        // for in a scope that reaches it. Asking for translations alone
+        // gives forms holding nothing but their text, which is exactly what
+        // a translation was before this step.
+        formFields,
+        wantsForms,
+    );
     // Declared rather than inferred from the schema, which is built at
     // runtime from whichever fields were checked: now that one of its keys
     // is an array and the rest are strings, inference can only widen every
@@ -283,6 +389,7 @@ ${wordList}
 
 For every word above, return an object with the word copied back exactly as given, plus:
 ${requestedList}
+${formInstruction}
 
 Return one object per word, in the same order, and do not skip any.`,
         });
@@ -304,9 +411,10 @@ Return one object per word, in the same order, and do not skip any.`,
         const result = byWord.get(entry.word.trim().toLowerCase());
         if (!result) continue;
 
+        // What describes the meaning: written once on the entry, whatever
+        // the scope says, because these survive translation.
         const data: Record<string, string> = {};
-        for (const field of fields) {
-            if (field === "translation") continue;
+        for (const field of sharedFields) {
             const raw = (result as Record<string, unknown>)[field];
             if (typeof raw === "string" && raw.trim()) {
                 const cleaned = sanitizeGeneratedText(raw);
@@ -315,48 +423,71 @@ Return one object per word, in the same order, and do not skip any.`,
             }
         }
 
-        // Translations are rows in their own table now, so they're written
-        // separately from the entry's own columns rather than being one
-        // more key in `data` (Question 326).
-        const translations = fields.includes("translation")
-            ? readTranslations(result, translateInto)
-            : [];
+        // Every language this word was asked about — its own first, so a
+        // form the model returned for the source language is matched by
+        // that entry's language rather than by position.
+        const askedLanguages = [
+            ...(wantsForms ? [entry.language] : []),
+            ...(wantsTranslations ? translateInto : []),
+        ];
+        const forms = readForms(result, askedLanguages);
 
-        let addedTranslations = 0;
-        if (translations.length > 0) {
-            // skipDuplicates against the [entryId, language] unique
-            // constraint *is* the fill-in-only rule from Answer 241, only
-            // now applied per language: asking for French on a word that
-            // already has a French translation leaves the existing one
-            // alone. Hand-corrected text is never overwritten by a
-            // generated one, which is exactly what that rule promised when
-            // there was a single translation to promise it about.
-            //
-            // Its count is what gets read back, so a word whose languages
-            // were all already filled isn't counted as updated — otherwise
-            // re-running the same batch would report every word as changed
-            // while changing nothing.
-            const created = await prisma.vocabularyTranslation.createMany({
-                data: translations.map(({ language, text }) => ({
-                    entryId: entry.id,
-                    language,
-                    text,
-                })),
-                skipDuplicates: true,
+        // The word's own form lands in the entry's own columns — Option A
+        // from Question 332: the source word keeps its enrichment where it
+        // has always lived, and only the translations needed somewhere new.
+        const ownForm = enrichOwn ? forms.get(entry.language) : undefined;
+        if (ownForm) {
+            Object.assign(data, readFormFields(ownForm, formFields));
+        }
+
+        let touchedTranslations = 0;
+        for (const language of translateInto) {
+            if (!wantsTranslations) break;
+            const form = forms.get(language);
+            if (!form) continue;
+
+            const text = sanitizeGeneratedText(form.text ?? "");
+            const enrichment = enrichTargets
+                ? readFormFields(form, formFields)
+                : {};
+            if (!text && Object.keys(enrichment).length === 0) continue;
+
+            // Upsert rather than the insert this used to be, because a
+            // translation now has fields that can be refreshed on a word
+            // that already has one. The two halves keep different rules,
+            // and both are the rules they already had: the text is
+            // fill-in-only (Answer 241 — a translation you corrected by
+            // hand is never overwritten), while the generated fields
+            // refresh, exactly as the entry's own columns always have.
+            const existing = await prisma.vocabularyTranslation.findUnique({
+                where: {
+                    entryId_language: { entryId: entry.id, language },
+                },
+                select: { id: true },
             });
-            addedTranslations = created.count;
-            // Step 6a also copied the first translation into the old single
-            // column here, to keep the list row and the Translation column
-            // showing something until the real display existed. Both of
-            // those are gone as of Question 333, and so is the copy — a
-            // translation is now stored once, in the one place that knows
-            // which language it's in.
+
+            if (!existing) {
+                if (!text) continue;
+                await prisma.vocabularyTranslation.create({
+                    data: { entryId: entry.id, language, text, ...enrichment },
+                });
+                touchedTranslations += 1;
+                continue;
+            }
+
+            if (Object.keys(enrichment).length === 0) continue;
+            await prisma.vocabularyTranslation.update({
+                where: { id: existing.id },
+                data: enrichment,
+            });
+            touchedTranslations += 1;
         }
 
         if (Object.keys(data).length === 0) {
-            // A word can now be genuinely updated without any of its own
-            // columns changing — translations went to the other table.
-            if (addedTranslations > 0) updated += 1;
+            // A word can be genuinely updated without any of its own
+            // columns changing — everything may have landed on its
+            // translations instead.
+            if (touchedTranslations > 0) updated += 1;
             continue;
         }
         await prisma.vocabularyEntry.update({ where: { id: entry.id }, data });
