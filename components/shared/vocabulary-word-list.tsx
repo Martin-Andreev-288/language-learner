@@ -28,7 +28,7 @@ import {
   type PerLanguageField,
 } from "@/lib/vocabulary-enrichment";
 import { describeClientError } from "@/lib/client-error";
-import { languageTag } from "@/lib/language-codes";
+import { languageTag, languageTagLabel } from "@/lib/language-codes";
 import { VOCABULARY_MAX_WORDS } from "@/lib/limits";
 import {
   moveColumn,
@@ -355,7 +355,7 @@ function buildCardText(
     text += ` — ${chosen
       .map(
         (translation) =>
-          `${languageTag(translation.language)} ${translation.text.trim()}`,
+          `${languageTagLabel(translation.language)} ${translation.text.trim()}`,
       )
       .join(" · ")}`;
   }

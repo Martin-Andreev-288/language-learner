@@ -144,6 +144,24 @@ export function languageTag(name: string): string {
   return code ? code.split("-")[0] : name.trim();
 }
 
+// The same tag, enclosed, for the places that have only characters to work
+// with — a shuffle card, a copied passage, a saved note (Question 340).
+//
+// Square brackets rather than round ones, and that isn't a style
+// preference: every one of these already sits inside a parenthesis
+// — "Versammlung ([de] assembly · [en] meeting)" — so round brackets would
+// nest inside round brackets, which is exactly the case square brackets
+// exist for. They also scan better than a bare tag once there are four
+// languages in a row, since the eye can find the delimiter without reading
+// the letters.
+//
+// Deliberately not used where the tag is already a styled chip — in the
+// vocabulary table and the right-click popup, the background *is* the
+// enclosure, and brackets inside it would be saying the same thing twice.
+export function languageTagLabel(name: string): string {
+  return `[${languageTag(name)}]`;
+}
+
 export function languageNameForCode(code: string): string | undefined {
   const normalized = code.trim().toLowerCase();
   if (!normalized) return undefined;

@@ -15,18 +15,23 @@
 // from being two sources of truth for the same tokens.
 const STORAGE_KEY = "inline-translate:draft";
 
+// One phrase and everything it was translated into.
+export type DraftTranslation = [string, { language: string; text: string }[]];
+
 export interface InlineTranslateDraft {
   text: string;
   sourceLanguage: string;
-  targetLanguage: string;
+  // A list since Question 339. The single `targetLanguage` a draft used to
+  // carry is still read, and still meaningful — see readInlineTranslateDraft.
+  targetLanguages: string[];
   markedIndices: number[];
-  translations: [string, string][];
+  translations: DraftTranslation[];
 }
 
 const EMPTY_DRAFT: InlineTranslateDraft = {
   text: "",
   sourceLanguage: "",
-  targetLanguage: "",
+  targetLanguages: [],
   markedIndices: [],
   translations: [],
 };
@@ -37,12 +42,29 @@ export function readInlineTranslateDraft(): InlineTranslateDraft {
   if (!raw) return EMPTY_DRAFT;
   try {
     const parsed = JSON.parse(raw);
+
+    // A draft written before Question 339 has one language and translations
+    // as plain [phrase, text] pairs. Both are still readable, and the old
+    // language is what makes them so: it says which language those plain
+    // strings were in, so they can be lifted into the new shape rather than
+    // thrown away. Without it they would be text with no language — the
+    // exact problem Question 333 removed from the database.
+    const legacyLanguage =
+      typeof parsed.targetLanguage === "string" ? parsed.targetLanguage.trim() : "";
+
+    const targetLanguages = Array.isArray(parsed.targetLanguages)
+      ? parsed.targetLanguages.filter(
+          (name: unknown) => typeof name === "string" && name.trim(),
+        )
+      : legacyLanguage
+        ? [legacyLanguage]
+        : [];
+
     return {
       text: typeof parsed.text === "string" ? parsed.text : "",
       sourceLanguage:
         typeof parsed.sourceLanguage === "string" ? parsed.sourceLanguage : "",
-      targetLanguage:
-        typeof parsed.targetLanguage === "string" ? parsed.targetLanguage : "",
+      targetLanguages,
       // Defensive against an older draft saved before these two fields
       // existed — Array.isArray keeps it from crashing on that, rather
       // than assuming every stored draft already has the current shape.
@@ -50,13 +72,28 @@ export function readInlineTranslateDraft(): InlineTranslateDraft {
         ? parsed.markedIndices.filter((n: unknown) => typeof n === "number")
         : [],
       translations: Array.isArray(parsed.translations)
-        ? parsed.translations.filter(
-            (pair: unknown): pair is [string, string] =>
-              Array.isArray(pair) &&
-              pair.length === 2 &&
-              typeof pair[0] === "string" &&
-              typeof pair[1] === "string",
-          )
+        ? parsed.translations.flatMap((pair: unknown): DraftTranslation[] => {
+            if (!Array.isArray(pair) || pair.length !== 2) return [];
+            const [phrase, value] = pair;
+            if (typeof phrase !== "string") return [];
+
+            // The current shape: a list of {language, text}.
+            if (Array.isArray(value)) {
+              const items = value.filter(
+                (item: unknown): item is { language: string; text: string } =>
+                  typeof (item as { language?: unknown })?.language === "string" &&
+                  typeof (item as { text?: unknown })?.text === "string",
+              );
+              return items.length > 0 ? [[phrase, items]] : [];
+            }
+
+            // The old shape, lifted into the new one using the language the
+            // same draft recorded.
+            if (typeof value === "string" && legacyLanguage) {
+              return [[phrase, [{ language: legacyLanguage, text: value }]]];
+            }
+            return [];
+          })
         : [],
     };
   } catch {

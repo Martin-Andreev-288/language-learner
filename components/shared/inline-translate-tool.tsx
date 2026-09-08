@@ -8,7 +8,10 @@ import {
   type MarkedRun,
   type TextToken,
 } from "@/lib/clickable-words";
-import { translateMarkedPhrases } from "@/app/actions/inline-translate-actions";
+import {
+  translateMarkedPhrases,
+  type PhraseTranslation,
+} from "@/app/actions/inline-translate-actions";
 import { createNote } from "@/app/actions/note-actions";
 import { addVocabularyEntries } from "@/app/actions/vocabulary-entry-actions";
 import { NotePage } from "@/app/generated/prisma";
@@ -22,14 +25,33 @@ import {
   INLINE_TRANSLATE_MAX_CHARACTERS,
   INLINE_TRANSLATE_MAX_PHRASES,
 } from "@/lib/limits";
+import { MAX_TRANSLATION_LANGUAGES } from "@/lib/vocabulary-enrichment";
+import { languageTag, languageTagLabel } from "@/lib/language-codes";
 import CharacterCount from "@/components/shared/character-count";
 import LanguageCombobox from "@/components/shared/language-combobox";
 
 type TranslatedResult = {
   tokens: TextToken[];
   runs: MarkedRun[];
-  translations: Map<string, string>;
+  // One phrase to everything it was translated into (Question 339).
+  translations: Map<string, PhraseTranslation[]>;
 };
+
+// How a phrase's translations read inline, in the passage and in the text
+// that Copy and Save-to-note produce.
+//
+// One language prints bare, exactly as it always has — a tag beside a
+// single answer labels something nothing else is competing with, and
+// nobody translating into one language should see their output change.
+// Several print tagged and separated, the same shape the vocabulary
+// Translations column uses, so the two places agree.
+function formatTranslations(translations: PhraseTranslation[]) {
+  if (translations.length === 0) return "";
+  if (translations.length === 1) return translations[0].text;
+  return translations
+    .map(({ language, text }) => `${languageTagLabel(language)} ${text}`)
+    .join(" · ");
+}
 
 // Right-click's popup shows a plain translation of one word, not a
 // definition — same shape of result as left-click's marking, just for one
@@ -41,7 +63,7 @@ type WordPopup = {
   x: number;
   y: number;
   loading: boolean;
-  translation: string | null;
+  translations: PhraseTranslation[] | null;
   error: string | null;
   addingVocab: boolean;
   addedVocab: boolean;
@@ -56,7 +78,9 @@ function renderResult(result: TranslatedResult, showTranslations: boolean) {
     const run = runByStart.get(i);
     if (run) {
       if (showTranslations) {
-        const translation = result.translations.get(run.text);
+        const translation = formatTranslations(
+          result.translations.get(run.text) ?? [],
+        );
         nodes.push(
           <span key={i}>
             <strong className="text-indigo-200">{run.text}</strong>
@@ -88,7 +112,9 @@ function getResultText(result: TranslatedResult, showTranslations: boolean) {
     const run = runByStart.get(i);
     if (run) {
       if (showTranslations) {
-        const translation = result.translations.get(run.text);
+        const translation = formatTranslations(
+          result.translations.get(run.text) ?? [],
+        );
         output += `**${run.text}**`;
         if (translation) output += ` (*${translation}*)`;
       } else {
@@ -128,9 +154,17 @@ export default function InlineTranslateTool({
   // *this* passage is a deliberate choice about it, and shouldn't be
   // overruled by a general preference the next time the page opens. The
   // default only fills the gap when the draft has nothing to say.
-  const [targetLanguage, setTargetLanguage] = useState(
-    () => initialDraft.targetLanguage || defaultTranslateLanguage,
+  const [targetLanguages, setTargetLanguages] = useState<string[]>(() =>
+    initialDraft.targetLanguages.length > 0
+      ? initialDraft.targetLanguages
+      : defaultTranslateLanguage.trim()
+        ? [defaultTranslateLanguage.trim()]
+        : [],
   );
+  // Whatever is currently half-typed in the box, kept apart from the
+  // chosen list for the same reason the enrich modal keeps its own draft
+  // apart: "Germ" is not a language to translate into (Question 326).
+  const [languageDraft, setLanguageDraft] = useState("");
   // Marked by token position, not word text — marking one occurrence of
   // "the" must not mark every "the" in the passage. Restored from the
   // draft's stored positions, valid against the text restored above since
@@ -176,11 +210,11 @@ export default function InlineTranslateTool({
     writeInlineTranslateDraft({
       text,
       sourceLanguage,
-      targetLanguage,
+      targetLanguages,
       markedIndices: Array.from(markedIndices),
       translations: result ? Array.from(result.translations.entries()) : [],
     });
-  }, [text, sourceLanguage, targetLanguage, markedIndices, result]);
+  }, [text, sourceLanguage, targetLanguages, markedIndices, result]);
 
   // Left-click dismisses the popup when it lands outside it; right-clicks
   // are left alone here since onContextMenu already replaces the popup's
@@ -219,13 +253,17 @@ export default function InlineTranslateTool({
       x,
       y,
       loading: true,
-      translation: null,
+      translations: null,
       error: null,
       addingVocab: false,
       addedVocab: false,
     });
     try {
-      const result = await translateMarkedPhrases([word], text, targetLanguage);
+      const result = await translateMarkedPhrases(
+        [word],
+        text,
+        targetLanguages,
+      );
       if (!result.ok) {
         setWordPopup((prev) =>
           prev && prev.word === word
@@ -234,10 +272,10 @@ export default function InlineTranslateTool({
         );
         return;
       }
-      const [translation] = result.data;
+      const [translations] = result.data;
       setWordPopup((prev) =>
         prev && prev.word === word
-          ? { ...prev, loading: false, translation }
+          ? { ...prev, loading: false, translations }
           : prev,
       );
     } catch (err) {
@@ -265,15 +303,28 @@ export default function InlineTranslateTool({
       prev && prev.word === word ? { ...prev, addingVocab: true } : prev,
     );
     try {
-      await addVocabularyEntries(
-        word,
-        sourceLanguage,
-        wordPopup.translation ?? undefined,
-        // The language it was just translated into — passed since Question
-        // 333, so the translation lands as a row that knows its own
-        // language rather than in a column that never asked.
-        targetLanguage,
-      );
+      // One call per language rather than one call carrying all of them,
+      // and that works because of what Question 333 built: a word that is
+      // already saved still records the translation arriving with it. So
+      // the first call creates the word and its first translation, and
+      // each call after it adds only a translation. No new signature, no
+      // second endpoint — just the capability already there, used.
+      const popupTranslations = wordPopup.translations ?? [];
+      if (popupTranslations.length === 0) {
+        // Nothing came back to record, but the word is still worth
+        // keeping: you clicked it because you didn't know it, and that
+        // remains true whether or not the translation arrived.
+        await addVocabularyEntries(word, sourceLanguage);
+      } else {
+        for (const { language, text: translated } of popupTranslations) {
+          await addVocabularyEntries(
+            word,
+            sourceLanguage,
+            translated,
+            language,
+          );
+        }
+      }
       setWordPopup((prev) =>
         prev && prev.word === word
           ? { ...prev, addingVocab: false, addedVocab: true }
@@ -293,6 +344,28 @@ export default function InlineTranslateTool({
           : prev,
       );
     }
+  }
+
+  // Same Add-button commit the enrich modal uses, and for the same
+  // reason: the shared combobox reports typing and choosing through one
+  // callback, so there is no way to tell them apart from out here.
+  function addLanguage() {
+    const language = languageDraft.trim();
+    if (!language) return;
+    setTargetLanguages((prev) => {
+      if (prev.length >= MAX_TRANSLATION_LANGUAGES) return prev;
+      const already = prev.some(
+        (existing) => existing.toLowerCase() === language.toLowerCase(),
+      );
+      return already ? prev : [...prev, language];
+    });
+    setLanguageDraft("");
+  }
+
+  function removeLanguage(language: string) {
+    setTargetLanguages((prev) =>
+      prev.filter((existing) => existing !== language),
+    );
   }
 
   function toggleWordAt(index: number) {
@@ -333,7 +406,7 @@ export default function InlineTranslateTool({
       const result = await translateMarkedPhrases(
         uniquePhrases,
         text,
-        targetLanguage,
+        targetLanguages,
       );
       if (!result.ok) {
         setTranslateError(result.error);
@@ -372,7 +445,7 @@ export default function InlineTranslateTool({
 
     setSavingNote(true);
     try {
-      const title = targetLanguage.trim() || "Inline Translate";
+      const title = targetLanguages.join(", ") || "Inline Translate";
       await createNote(
         NotePage.reading,
         title,
@@ -400,24 +473,62 @@ export default function InlineTranslateTool({
     const uniqueRunTexts = Array.from(
       new Set(result.runs.map((run) => run.text)),
     );
-    const translationLines = uniqueRunTexts.map(
-      (runText) => result.translations.get(runText) ?? "",
-    );
 
     setAddingVocab(true);
     setVocabSummary(null);
     setNoteError(null);
     try {
-      const { added, skipped } = await addVocabularyEntries(
-        uniqueRunTexts.join("\n"),
-        sourceLanguage,
-        translationLines.join("\n"),
-        targetLanguage,
-      );
+      // One pass per language, for the reason spelled out in the popup's
+      // own save above: the words are created by the first pass and merely
+      // matched by the rest, each adding its own translation.
+      //
+      // The counts come from the first pass alone, and that is the honest
+      // number rather than a convenient one: it is how many *words* were
+      // added, which is what the sentence says. Later passes add
+      // translations to words that already exist, and counting those as
+      // "added" would claim the same word three times.
+      let added = 0;
+      let skipped = 0;
+      let first = true;
+      // Every chip removed after translating leaves a result with nothing
+      // to file it under. The words still go in — they're what you marked
+      // — just without translations attached.
+      if (targetLanguages.length === 0) {
+        const outcome = await addVocabularyEntries(
+          uniqueRunTexts.join("\n"),
+          sourceLanguage,
+        );
+        added = outcome.added;
+        skipped = outcome.skipped;
+        first = false;
+      }
+      for (const language of targetLanguages) {
+        const lines = uniqueRunTexts.map(
+          (runText) =>
+            result.translations
+              .get(runText)
+              ?.find((item) => item.language === language)?.text ?? "",
+        );
+        const outcome = await addVocabularyEntries(
+          uniqueRunTexts.join("\n"),
+          sourceLanguage,
+          lines.join("\n"),
+          language,
+        );
+        if (first) {
+          added = outcome.added;
+          skipped = outcome.skipped;
+          first = false;
+        }
+      }
+      const languageNote =
+        targetLanguages.length > 1
+          ? `, each with ${targetLanguages.length} translations`
+          : "";
       setVocabSummary(
         skipped > 0
-          ? `Added ${added} to vocabulary (${skipped} already saved).`
-          : `Added ${added} to vocabulary.`,
+          ? `Added ${added} to vocabulary${languageNote} (${skipped} already saved).`
+          : `Added ${added} to vocabulary${languageNote}.`,
       );
     } catch (err) {
       setNoteError(
@@ -451,6 +562,18 @@ export default function InlineTranslateTool({
   const markedPhraseCount = new Set(
     groupMarkedRuns(tokens, markedIndices).map((run) => run.text),
   ).size;
+
+  // The cap divides by the number of languages, mirroring the action's own
+  // rule: the response grows with phrases x languages, so sixty items into
+  // one language and fifteen into four are the same amount of work.
+  const maxPhrases = Math.max(
+    1,
+    Math.floor(INLINE_TRANSLATE_MAX_PHRASES / Math.max(1, targetLanguages.length)),
+  );
+  const languagesFull = targetLanguages.length >= MAX_TRANSLATION_LANGUAGES;
+  const draftAlreadyChosen = targetLanguages.some(
+    (existing) => existing.toLowerCase() === languageDraft.trim().toLowerCase(),
+  );
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -501,14 +624,68 @@ export default function InlineTranslateTool({
               >
                 Translate marked words into
               </label>
-              <LanguageCombobox
-                id="inline-translate-target-language"
-                value={targetLanguage}
-                onChange={setTargetLanguage}
-                placeholder="e.g. German"
-                wrapperClassName="mt-2 w-full max-w-xs"
-                className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
-              />
+
+              {/* Chips above the field they were added from, exactly as the
+                  vocabulary enrich modal does it (Question 326) — same
+                  control, same place, so there is nothing new to learn
+                  here. */}
+              {targetLanguages.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {targetLanguages.map((language) => (
+                    <button
+                      key={language}
+                      type="button"
+                      onClick={() => removeLanguage(language)}
+                      title={`Stop translating into ${language}`}
+                      className="flex items-center gap-1 rounded-full border border-indigo-800 bg-indigo-950/60 px-2 py-0.5 text-xs text-indigo-300 transition-colors hover:border-red-500 hover:text-red-400"
+                    >
+                      {language} ✕
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-2 flex w-full max-w-xs items-center gap-2">
+                <LanguageCombobox
+                  id="inline-translate-target-language"
+                  value={languageDraft}
+                  onChange={setLanguageDraft}
+                  placeholder="e.g. German"
+                  compact
+                  wrapperClassName="min-w-0 flex-1"
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={addLanguage}
+                  disabled={
+                    !languageDraft.trim() ||
+                    languagesFull ||
+                    draftAlreadyChosen
+                  }
+                  title={
+                    languagesFull
+                      ? `${MAX_TRANSLATION_LANGUAGES} languages at a time is the maximum`
+                      : draftAlreadyChosen
+                        ? "Already chosen"
+                        : "Add this language"
+                  }
+                  className="shrink-0 rounded-md bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Add
+                </button>
+              </div>
+
+              {/* Says the phrase cap here rather than leaving it to be met
+                  at Translate: with several languages it is a smaller
+                  number than the one shown beside the passage. */}
+              <p className="mt-1 max-w-xs text-xs text-zinc-600">
+                {languagesFull
+                  ? `That's the maximum of ${MAX_TRANSLATION_LANGUAGES} — remove one to add another.`
+                  : targetLanguages.length > 1
+                    ? `${targetLanguages.length} languages, so up to ${maxPhrases} marked items at a time.`
+                    : `Up to ${MAX_TRANSLATION_LANGUAGES} at a time. Each marked word gets one translation per language.`}
+              </p>
             </div>
             <div>
               <label
@@ -543,16 +720,15 @@ export default function InlineTranslateTool({
                   matter — marking a handful of words shouldn't come with a
                   running quota next to it. */}
               <span className="text-sm text-zinc-500">
-                {markedPhraseCount >= INLINE_TRANSLATE_MAX_PHRASES * 0.75 ? (
+                {markedPhraseCount >= maxPhrases * 0.75 ? (
                   <span
                     className={
-                      markedPhraseCount > INLINE_TRANSLATE_MAX_PHRASES
+                      markedPhraseCount > maxPhrases
                         ? "text-amber-400"
                         : undefined
                     }
                   >
-                    {markedPhraseCount} of {INLINE_TRANSLATE_MAX_PHRASES}{" "}
-                    phrases
+                    {markedPhraseCount} of {maxPhrases} phrases
                   </span>
                 ) : (
                   <>{markedIndices.size} marked</>
@@ -704,7 +880,28 @@ export default function InlineTranslateTool({
               <p className="text-red-400">{wordPopup.error}</p>
             ) : (
               <>
-                <p className="text-zinc-200">{wordPopup.translation}</p>
+                {/* One language reads as a plain answer, several as a
+                    labelled list — the popup is narrow, so tags on their
+                    own lines beat a run-on of them (Question 339). */}
+                {wordPopup.translations?.length === 1 ? (
+                  <p className="text-zinc-200">
+                    {wordPopup.translations[0].text}
+                  </p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {wordPopup.translations?.map((item) => (
+                      <li key={item.language} className="text-zinc-200">
+                        <span
+                          title={item.language}
+                          className="mr-1 rounded bg-zinc-800 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400"
+                        >
+                          {languageTag(item.language)}
+                        </span>
+                        {item.text}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <button
                   onClick={handleAddPopupWordToVocab}
                   disabled={wordPopup.addingVocab || wordPopup.addedVocab}
