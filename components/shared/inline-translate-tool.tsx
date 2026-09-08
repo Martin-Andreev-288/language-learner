@@ -60,6 +60,11 @@ function formatTranslations(translations: PhraseTranslation[]) {
 // Shuffle uses elsewhere, per the decision in Question 203.
 type WordPopup = {
   word: string;
+  // Which occurrence was right-clicked, so "Add to text" can mark that one
+  // rather than every copy of the same word (Question 343). Marking has
+  // always worked by position for this reason — one "the" in a passage is
+  // not the others — and the popup had no reason to know it until now.
+  index: number;
   x: number;
   y: number;
   loading: boolean;
@@ -67,6 +72,9 @@ type WordPopup = {
   error: string | null;
   addingVocab: boolean;
   addedVocab: boolean;
+  // Set once its translation has been folded into the passage, so the
+  // button can say so rather than silently doing nothing on a second press.
+  addedToText: boolean;
 };
 
 function renderResult(result: TranslatedResult, showTranslations: boolean) {
@@ -244,12 +252,17 @@ export default function InlineTranslateTool({
     };
   }, [wordPopup]);
 
-  async function handleWordRightClick(event: React.MouseEvent, word: string) {
+  async function handleWordRightClick(
+    event: React.MouseEvent,
+    word: string,
+    index: number,
+  ) {
     event.preventDefault();
     const x = event.clientX;
     const y = event.clientY;
     setWordPopup({
       word,
+      index,
       x,
       y,
       loading: true,
@@ -257,6 +270,7 @@ export default function InlineTranslateTool({
       error: null,
       addingVocab: false,
       addedVocab: false,
+      addedToText: false,
     });
     try {
       const result = await translateMarkedPhrases(
@@ -289,6 +303,46 @@ export default function InlineTranslateTool({
           : prev,
       );
     }
+  }
+
+  // Folds the popup's translation into the passage without asking for it
+  // again (Question 343).
+  //
+  // The saving is in what it does *not* do: no network call. The popup has
+  // already been handed exactly what the passage stores — since Step 8 both
+  // hold PhraseTranslation[], the same shape — so this is a state merge,
+  // not a request. Before that step the two shapes differed and this would
+  // have needed a conversion; the timing is luck rather than planning, but
+  // it is why this is small.
+  function handleAddPopupWordToText() {
+    if (!wordPopup?.translations || wordPopup.translations.length === 0) return;
+
+    const word = wordPopup.word;
+    const translations = wordPopup.translations;
+    const nextMarked = new Set(markedIndices);
+    nextMarked.add(wordPopup.index);
+
+    // Recomputed from the text rather than reused from the existing result:
+    // marking a word next to one that was already marked joins them into a
+    // single phrase, and the runs have to reflect that or the passage would
+    // show a run that no longer matches what is marked.
+    const tokens = tokenizeWords(text);
+    const runs = groupMarkedRuns(tokens, nextMarked);
+
+    setMarkedIndices(nextMarked);
+    setResult((prev) => ({
+      tokens,
+      runs,
+      // Kept, not replaced: everything already translated stays, and this
+      // word joins it. A phrase whose text changed because this mark joined
+      // it to a neighbour simply has no entry yet, and "Translate marked
+      // words" will fill it — the same way it always has.
+      translations: new Map(prev?.translations ?? []).set(word, translations),
+    }));
+    setShowTranslations(true);
+    setWordPopup((prev) =>
+      prev && prev.word === word ? { ...prev, addedToText: true } : prev,
+    );
   }
 
   // Saves the original word the popup is showing, under sourceLanguage —
@@ -400,11 +454,57 @@ export default function InlineTranslateTool({
 
     const uniquePhrases = Array.from(new Set(runs.map((run) => run.text)));
 
+    // Only what isn't already answered gets asked for (Question 343).
+    // Before this, pressing Translate re-fetched every marked phrase every
+    // time, so a word you had already translated by right-clicking it — or
+    // by pressing this same button a moment ago — was paid for twice.
+    //
+    // "Answered" means answered *in every language currently chosen*, not
+    // merely present, and that distinction is the whole correctness of this
+    // block. Checking only for presence would mean adding a language and
+    // pressing Translate did nothing at all for the phrases already on
+    // screen: they would count as known, be skipped, and never receive the
+    // language just added.
+    //
+    // Keyed on the phrase text, which is what makes the rest safe: a mark
+    // that joined two words into one phrase produces a different key, so it
+    // is treated as something new rather than matched against half of
+    // itself.
+    const known = result?.translations ?? new Map<string, PhraseTranslation[]>();
+    const covers = (phrase: string) => {
+      const stored = known.get(phrase);
+      if (!stored) return false;
+      const have = new Set(stored.map((item) => item.language));
+      return targetLanguages.every((language) => have.has(language));
+    };
+    const missingPhrases = uniquePhrases.filter((phrase) => !covers(phrase));
+
+    // Whatever is kept is trimmed to the languages chosen right now, so the
+    // passage always shows exactly what the language list says it will. Drop
+    // Italian and press Translate, and Italian leaves the passage rather
+    // than lingering as an answer to a question no longer being asked.
+    const keep = new Map<string, PhraseTranslation[]>();
+    for (const [phrase, stored] of known) {
+      const trimmed = stored.filter((item) =>
+        targetLanguages.includes(item.language),
+      );
+      if (trimmed.length > 0) keep.set(phrase, trimmed);
+    }
+
+    if (missingPhrases.length === 0) {
+      // Everything marked is already answered, so there is nothing to ask
+      // for — but the runs may still have changed, and saying nothing at
+      // all would look like the button was broken.
+      setResult({ tokens, runs, translations: keep });
+      setShowTranslations(true);
+      return;
+    }
+
     setTranslating(true);
     setTranslateError(null);
     try {
       const result = await translateMarkedPhrases(
-        uniquePhrases,
+        missingPhrases,
         text,
         targetLanguages,
       );
@@ -412,9 +512,10 @@ export default function InlineTranslateTool({
         setTranslateError(result.error);
         return;
       }
-      const translations = new Map(
-        uniquePhrases.map((phrase, index) => [phrase, result.data[index]]),
-      );
+      const translations = new Map(keep);
+      missingPhrases.forEach((phrase, index) => {
+        translations.set(phrase, result.data[index]);
+      });
       setResult({ tokens, runs, translations });
       setShowTranslations(true);
     } catch (err) {
@@ -744,7 +845,7 @@ export default function InlineTranslateTool({
                     type="button"
                     onClick={() => toggleWordAt(index)}
                     onContextMenu={(event) =>
-                      handleWordRightClick(event, token.text)
+                      handleWordRightClick(event, token.text, index)
                     }
                     title="Left-click: mark for batch translation. Right-click: translate just this word."
                     className={`cursor-pointer rounded p-0 transition-colors ${
@@ -902,10 +1003,30 @@ export default function InlineTranslateTool({
                     ))}
                   </ul>
                 )}
+                {/* Above "Add to vocabulary" rather than below it,
+                    because it's the cheaper of the two and the one you're
+                    more likely to want: it costs nothing and only affects
+                    this page, where saving a word is a decision about your
+                    vocabulary list (Question 343). */}
+                <button
+                  onClick={handleAddPopupWordToText}
+                  disabled={
+                    wordPopup.addedToText ||
+                    (wordPopup.translations?.length ?? 0) === 0
+                  }
+                  title="Mark this word in the passage and keep this translation — no second request"
+                  className={`mt-2 w-full rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                    wordPopup.addedToText
+                      ? "bg-emerald-600 text-white"
+                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                  } disabled:cursor-not-allowed`}
+                >
+                  {wordPopup.addedToText ? "In the text!" : "+ Add to text"}
+                </button>
                 <button
                   onClick={handleAddPopupWordToVocab}
                   disabled={wordPopup.addingVocab || wordPopup.addedVocab}
-                  className={`mt-2 w-full rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                  className={`mt-1.5 w-full rounded-md px-2 py-1 text-xs font-medium transition-colors ${
                     wordPopup.addedVocab
                       ? "bg-emerald-600 text-white"
                       : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
