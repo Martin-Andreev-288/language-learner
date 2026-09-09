@@ -472,6 +472,22 @@ export default function VocabularyWordList({
   // its place when you want to compare several words' information at once
   // (Answer 241). A view preference, so nothing about it is persisted.
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  // Whether the table is allowed the whole window rather than the column
+  // the rest of the page reads in (Question 344).
+  //
+  // Not persisted, and that's a deliberate match rather than an oversight:
+  // it's a sub-preference of viewMode directly above, which isn't
+  // persisted either. The column *layout* is remembered because it's a
+  // standing decision about which columns you care about; this is closer
+  // to "give me room for a minute", and fullscreen — its other half —
+  // can't be restored on load anyway, since browsers only grant it in
+  // response to a click.
+  const [wideTable, setWideTable] = useState(false);
+  // Fullscreen is the browser's, not ours, so it can be left by pressing
+  // Escape without anything here being clicked. Listening for the change
+  // rather than trusting our own button is what keeps the label honest.
+  const [tableFullscreen, setTableFullscreen] = useState(false);
+  const tableSectionRef = useRef<HTMLDivElement>(null);
   // Per-column value filters, Table view only. An empty set means "no
   // filter on this column" rather than "match nothing", so the initial
   // state shows everything.
@@ -1078,6 +1094,28 @@ export default function VocabularyWordList({
     };
   }, [languagesOpen]);
 
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setTableFullscreen(
+        document.fullscreenElement === tableSectionRef.current,
+      );
+    }
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  // The same request/exit pair the notes page already uses — this is that
+  // pattern pointed at the table's own section rather than a second way of
+  // doing it.
+  function toggleTableFullscreen() {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void tableSectionRef.current?.requestFullscreen();
+    }
+  }
+
   // Counted the way addVocabularyEntries counts: one entry per non-empty
   // line, deduplicated, so the number shown is the number the limit is
   // actually applied to rather than a rough line count.
@@ -1313,7 +1351,17 @@ export default function VocabularyWordList({
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-3xl px-6 py-10">
+      {/* The page reads in a narrow column by default, which is right for
+          the list and wrong for a fifteen-column table (Question 344).
+          Widening the wrapper rather than letting the table break out of it
+          keeps one layout rule instead of two fighting each other — the
+          Add-words box and the toolbar simply get more room too, which
+          costs nothing in a mode you switched on deliberately. */}
+      <div
+        className={`mx-auto px-6 py-10 ${
+          viewMode === "table" && wideTable ? "max-w-none" : "max-w-3xl"
+        }`}
+      >
         <div className="mb-8">
           <h1 className="text-2xl font-semibold tracking-tight">Vocabulary</h1>
           <p className="mt-1 text-sm text-zinc-500">
@@ -1386,7 +1434,21 @@ export default function VocabularyWordList({
           )}
         </div>
 
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+        {/* The fullscreen target is this whole card, not the table
+            inside it (Question 344). Fullscreening only the table would
+            strand the search box, the language filter and the sort control
+            outside the screen they belong to — you would gain rows and
+            lose the ability to narrow them down, which is the wrong trade
+            in the one view built for looking at everything at once.
+            It also needs no colours of its own: the card already carries a
+            background and padding, where a bare wrapper would have been
+            promoted onto the browser's black backdrop with neither. */}
+        <div
+          ref={tableSectionRef}
+          className={`border border-zinc-800 bg-zinc-900 p-6 ${
+            tableFullscreen ? "overflow-y-auto" : "rounded-lg"
+          }`}
+        >
           <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-semibold text-zinc-100">
@@ -1596,7 +1658,8 @@ export default function VocabularyWordList({
                   Splitting them into a "hide" menu and separate arrows in
                   the headers would have been two interfaces onto the same
                   array — and the headers already carry a filter button. */}
-              <div className="mb-3">
+              <div className="mb-3 flex flex-wrap items-start gap-2">
+                <div>
                 <button
                   onClick={() => setColumnsOpen((prev) => !prev)}
                   aria-expanded={columnsOpen}
@@ -1679,6 +1742,39 @@ export default function VocabularyWordList({
                     </ul>
                   </div>
                 )}
+                </div>
+
+                {/* Beside Columns rather than up with the List/Table
+                    switch: all three shape the table itself, and the
+                    switch above chooses whether there is a table at all. */}
+                <button
+                  onClick={() => setWideTable((prev) => !prev)}
+                  aria-pressed={wideTable}
+                  title={
+                    wideTable
+                      ? "Back to the page's normal width"
+                      : "Let the table use the whole window"
+                  }
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    wideTable
+                      ? "border-indigo-700 bg-indigo-950/60 text-indigo-300"
+                      : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
+                  }`}
+                >
+                  {wideTable ? "Narrow" : "Wide"}
+                </button>
+
+                <button
+                  onClick={toggleTableFullscreen}
+                  title={
+                    tableFullscreen
+                      ? "Leave fullscreen (or press Escape)"
+                      : "Show the table on its own, filling the screen"
+                  }
+                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+                >
+                  {tableFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                </button>
               </div>
 
               {activeColumnFilters.length > 0 && (
