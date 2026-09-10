@@ -4,16 +4,41 @@ import { useEffect, useRef, useState } from "react";
 import { splitIntoSentences } from "@/lib/sentence-split";
 import { guessLanguageCode } from "@/lib/language-codes";
 import LanguageCombobox from "@/components/shared/language-combobox";
+import { readAndClearShadowingCarry } from "@/lib/shadowing-carry";
+import {
+  encodeShadowingMetadata,
+  formatShadowingTranscript,
+  SHADOWING_METADATA_KIND,
+} from "@/lib/shadowing-note-format";
+import { createNote } from "@/app/actions/note-actions";
+import { NotePage } from "@/app/generated/prisma";
 
 export default function ShadowingTool() {
-  const [text, setText] = useState("");
-  const [language, setLanguage] = useState("");
-  const [started, setStarted] = useState(false);
+  // Restored from a carry, if you arrived by pressing "Practice again" on a
+  // saved note — read as part of the initial state itself rather than in an
+  // effect afterwards (Answer 171's discipline), and read exactly once into
+  // its own piece of state, since the read clears the carry as a side
+  // effect: calling it again to seed the language would find nothing there.
+  const [initialCarry] = useState(() => readAndClearShadowingCarry());
+  const [text, setText] = useState(() => initialCarry?.text ?? "");
+  const [language, setLanguage] = useState(() => initialCarry?.language ?? "");
+  // Straight into practice when a passage was carried in, rather than
+  // stopping at the paste screen with the box already filled. The button
+  // said "Practice again"; asking you to press Start once more would be
+  // answering a slightly different request. "← Back to passage" is right
+  // there if you want to edit it after all.
+  const [started, setStarted] = useState(
+    () => splitIntoSentences(initialCarry?.text ?? "").length > 0,
+  );
   const [index, setIndex] = useState(0);
   const [rate, setRate] = useState(1);
   const [repeatCount, setRepeatCount] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Bumped on every stop/replay/navigate so an in-flight utterance callback
   // from a superseded run recognizes it's stale and does nothing when it
   // fires — same pattern Parallel Listen uses for the same reason.
@@ -94,6 +119,39 @@ export default function ShadowingTool() {
     window.speechSynthesis.cancel();
     const playId = ++playbackIdRef.current;
     speakRemaining(remainingRef.current, playId);
+  }
+
+  // Saves the passage and its language, so "Practice again" from Notes can
+  // hand both straight back (Question 360). The passage is what's worth
+  // keeping — where you had got to in it isn't, and neither is anything
+  // about a particular run through it.
+  async function handleSaveToNote() {
+    if (!text.trim()) return;
+
+    setSavingNote(true);
+    setNoteError(null);
+    try {
+      const data = { text, language };
+      await createNote(
+        NotePage.speaking,
+        language.trim() || "Shadowing",
+        // Content is the readable passage; what reopening needs rides in
+        // metadata instead of being hidden inside it.
+        formatShadowingTranscript(data),
+        null,
+        {
+          kind: SHADOWING_METADATA_KIND,
+          data: encodeShadowingMetadata(data),
+        },
+      );
+      setNoteSaved(true);
+      if (noteResetRef.current) clearTimeout(noteResetRef.current);
+      noteResetRef.current = setTimeout(() => setNoteSaved(false), 2000);
+    } catch {
+      setNoteError("Couldn't save to Notes — try again.");
+    } finally {
+      setSavingNote(false);
+    }
   }
 
   function handleStart() {
@@ -191,17 +249,41 @@ export default function ShadowingTool() {
           </div>
         ) : (
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
-            <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <span className="text-sm text-zinc-500">
                 Sentence {index + 1} of {sentences.length}
               </span>
-              <button
-                onClick={handleEditPassage}
-                className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
-              >
-                ← Back to passage
-              </button>
+              <div className="flex items-center gap-4">
+                {/* Here rather than on the paste screen, because this is
+                    where you find out whether a passage was worth keeping —
+                    you've just practised it (Question 360). */}
+                <button
+                  onClick={handleSaveToNote}
+                  disabled={savingNote || !text.trim()}
+                  className={`text-sm font-medium transition-colors disabled:cursor-not-allowed ${
+                    noteSaved
+                      ? "text-emerald-400"
+                      : "text-zinc-400 hover:text-zinc-200 disabled:text-zinc-600"
+                  }`}
+                >
+                  {noteSaved
+                    ? "Saved!"
+                    : savingNote
+                      ? "Saving…"
+                      : "Save to a new note"}
+                </button>
+                <button
+                  onClick={handleEditPassage}
+                  className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
+                >
+                  ← Back to passage
+                </button>
+              </div>
             </div>
+
+            {noteError && (
+              <p className="mb-3 text-sm text-red-400">{noteError}</p>
+            )}
 
             <div className="flex min-h-40 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950 p-8 text-center">
               <p className="text-xl leading-relaxed text-zinc-100">

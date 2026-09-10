@@ -41,6 +41,11 @@ import {
   CHAT_METADATA_KIND,
   decodeChatMetadata,
 } from "@/lib/language-chat-note-format";
+import {
+  decodeShadowingMetadata,
+  SHADOWING_METADATA_KIND,
+} from "@/lib/shadowing-note-format";
+import { writeShadowingCarry } from "@/lib/shadowing-carry";
 
 type NotePage =
   | "reading"
@@ -294,6 +299,25 @@ export default function NoteDashboard({ page, data }: Props) {
   // at the FolderSection call site below.
   async function handleListenAgain(note: DashboardNote) {
     const full = await getNote(note.id);
+
+    // Shadowing first, and matched on the note's declared kind rather than
+    // by trying a decoder (Question 360). The branches below identify a
+    // format by whether its decoder accepts the payload, and Inline
+    // Listen's accepts anything carrying a `text` string — which a
+    // Shadowing note does. Probed in order, a saved passage would have
+    // opened Inline Listen instead of Shadowing, silently and every time.
+    //
+    // `metadataKind` is exactly the field that answers this without
+    // guessing, so this branch asks it directly instead of joining a chain
+    // that can't tell the two apart.
+    if (note.metadataKind === SHADOWING_METADATA_KIND) {
+      const shadowing = decodeShadowingMetadata(full.metadata);
+      if (shadowing) {
+        writeShadowingCarry(shadowing);
+        router.push("/speaking/shadowing");
+      }
+      return;
+    }
 
     const parallelColumns = decodeParallelListenMetadata(full.metadata);
     if (parallelColumns) {
@@ -632,16 +656,31 @@ export default function NoteDashboard({ page, data }: Props) {
                   ? (note) =>
                       note.metadataKind === PARALLEL_LISTEN_METADATA_KIND ||
                       note.metadataKind === INLINE_LISTEN_METADATA_KIND
-                  : chatModeForPage(page)
-                    ? (note) => note.metadataKind === CHAT_METADATA_KIND
-                    : undefined
+                  : // Speaking has to come before the chat check below, not
+                    // after: chatModeForPage matches this page too, so the
+                    // general chat branch would swallow it and a Shadowing
+                    // note would never offer the button (Question 360).
+                    page === "speaking"
+                    ? (note) =>
+                        note.metadataKind === SHADOWING_METADATA_KIND ||
+                        note.metadataKind === CHAT_METADATA_KIND
+                    : chatModeForPage(page)
+                      ? (note) => note.metadataKind === CHAT_METADATA_KIND
+                      : undefined
               }
-              // Same action, worded for what it actually resumes on this
-              // page — a chat isn't "listened to". Defaults to "Listen
-              // again" inside NoteCard when omitted, so the Listening page
-              // is unaffected.
-              listenAgainLabel={
-                chatModeForPage(page) ? "Continue this conversation" : undefined
+              // Same action, worded for what it actually resumes — a chat
+              // isn't "listened to", and a passage isn't "continued".
+              //
+              // Decided per note rather than per page since Question 360:
+              // Speaking notes now hold two resumable kinds at once, so a
+              // single label for the whole page would be wrong for half of
+              // them.
+              listenAgainLabel={(note) =>
+                note.metadataKind === SHADOWING_METADATA_KIND
+                  ? "Practice again"
+                  : note.metadataKind === CHAT_METADATA_KIND
+                    ? "Continue this conversation"
+                    : "Listen again"
               }
               onListenAgain={handleListenAgain}
               onOpenNote={(note) => {
@@ -1031,9 +1070,12 @@ type FolderSectionProps = {
   // note kinds. listenAgainLabel words the button for whichever page this
   // is; omitted means "Listen again", the original and still most common
   // case.
+  //
+  // The label takes the note since Question 360, because one page can now
+  // hold more than one resumable kind — see the call site.
   canListenAgain?: (note: DashboardNote) => boolean;
   onListenAgain?: (note: DashboardNote) => void;
-  listenAgainLabel?: string;
+  listenAgainLabel?: (note: DashboardNote) => string;
   onOpenNote: (note: DashboardNote) => void;
   onDeleteNote: (note: DashboardNote) => void;
   onMoveNote: (note: DashboardNote) => void;
@@ -1207,7 +1249,7 @@ function FolderSection(props: FolderSectionProps) {
                       ? () => onListenAgain(note)
                       : undefined
                   }
-                  listenAgainLabel={listenAgainLabel}
+                  listenAgainLabel={listenAgainLabel?.(note)}
                 />
               ))}
             </div>
