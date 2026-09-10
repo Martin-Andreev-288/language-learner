@@ -298,15 +298,45 @@ const MULTI_VALUE_SEPARATOR = ";";
 function columnValues(
   entry: VocabularyEntryData,
   column: { field: FilterableColumn; kind: FilterKind; multi?: boolean },
+  shown: Set<string>,
 ): string[] {
   // The one column whose values aren't in a column at all — they're rows in
   // another table, so this reads the languages a word has translations in
   // rather than splitting a string (Question 327). No "(none)" bucket:
   // "has no translations at all" is already answerable as "missing" every
   // language, and offering both would be two names for one question.
+  //
+  // Narrowed like every other column since Question 348. Answer 347
+  // exempted it, and that was two arguments wearing one coat: hiding
+  // languages from the *filter* would indeed make "which words are missing
+  // Italian" unanswerable, but that was never a reason to leave the *cell*
+  // showing four languages while every column beside it showed one.
+  //
+  // Narrowing both is the version with one rule instead of an exception to
+  // remember, and "missing Italian" isn't lost — it's one click away, in
+  // the same control that hid Italian. Asking it while looking only at
+  // French was a contradiction anyway.
   if (column.kind === "languages") {
-    return entry.translations.map((translation) => translation.language);
+    return entry.translations
+      .map((translation) => translation.language)
+      .filter((language) => shown.size === 0 || shown.has(language));
   }
+
+  // A field answered once per language reads every form rather than only
+  // the word's own (Question 347). Matching stays `some`, the rule this
+  // filter has always used — a word counts as B1 if any form it is being
+  // shown in is B1, the same way it counts under a topic it carries.
+  if (PER_LANGUAGE_FIELD_SET.has(column.field)) {
+    const forms = fieldForms(entry, column.field as PerLanguageField, shown);
+    if (column.kind === "presence") {
+      return [forms.length > 0 ? HAS_VALUE : NO_VALUE];
+    }
+    const values = forms.map((form) => form.value.trim()).filter(Boolean);
+    return values.length > 0 ? values : [NO_VALUE];
+  }
+
+  // Category and used-in, which describe the meaning and so have only ever
+  // had the word's own answer (Question 333).
   const raw = entry[column.field as EnrichmentKey]?.trim() || NO_VALUE;
   if (column.kind === "presence") return [raw ? HAS_VALUE : NO_VALUE];
   if (!column.multi || !raw) return [raw];
@@ -434,6 +464,126 @@ function DetailFields({
   );
 }
 
+// Which fields a word answers once per language, as a set for looking up
+// (Question 347). The list itself lives in lib/vocabulary-enrichment.ts —
+// this is only the membership test the table needs.
+const PER_LANGUAGE_FIELD_SET = new Set<string>(PER_LANGUAGE_FIELDS);
+
+// The word and its translations as one list of "this word, in this
+// language" — the shape the table needs now that a field can be answered
+// once per language (Question 347).
+//
+// The narrowing applies to the word's own form too, not only to its
+// translations, and that's deliberate rather than careless. Narrow to
+// French and ask for B1, and you should get words that are B1 *in French* —
+// not words that are B1 in whatever language they happen to be saved
+// under, which is exactly the loose match Answer 345 flagged and this is
+// here to close.
+//
+// Empty values are dropped, so a form contributes nothing until it has
+// something to say. That keeps "which words have no synonyms yet" honest
+// once synonyms can exist in one language and not another.
+function fieldForms(
+  entry: VocabularyEntryData,
+  field: PerLanguageField,
+  shown: Set<string>,
+): { language: string; value: string }[] {
+  const forms = [
+    { language: entry.language, value: entry[field] ?? "" },
+    ...entry.translations.map((translation) => ({
+      language: translation.language,
+      value: translation[field] ?? "",
+    })),
+  ];
+  return forms.filter(
+    (form) =>
+      form.value.trim() && (shown.size === 0 || shown.has(form.language)),
+  );
+}
+
+// One field's answers, tagged by language.
+//
+// Bare when there's only one and tagged when there are several — the same
+// rule Inline Translate's passage follows, for the same reason: a label
+// beside a single answer names something nothing else is competing with.
+//
+// Question 347 showed the sentence fields as tags alone, on the grounds
+// that four languages of examples would make a row taller than the screen.
+// Question 348 overruled it, and rightly: the Columns control already
+// exists so you can hide a column you find too heavy, and deciding a
+// column was too heavy on your behalf was answering a question you already
+// had a control for.
+//
+// So every field shows its text. `multiline` only changes the shape —
+// one-per-line values keep the bullet list the table has always given
+// them, and several languages of those stack rather than run together.
+function LanguageValues({
+  forms,
+  multiline = false,
+}: {
+  forms: { language: string; value: string }[];
+  multiline?: boolean;
+}) {
+  if (forms.length === 0) return null;
+
+  const renderValue = (value: string) => {
+    const lines = value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (multiline && lines.length > 1) {
+      return (
+        <ul className="list-disc space-y-0.5 pl-4">
+          {lines.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
+      );
+    }
+    return lines[0] ?? "";
+  };
+
+  // One language reads exactly as this column always has, bullet list and
+  // all — nobody working in a single language should see a change.
+  if (forms.length === 1) return <>{renderValue(forms[0].value)}</>;
+
+  const tag = (language: string) => (
+    <span
+      title={language}
+      className="rounded bg-zinc-800 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400"
+    >
+      {languageTag(language)}
+    </span>
+  );
+
+  // Sentences get a block each, with the tag above them: a bullet list
+  // can't sit inline beside a tag, and three languages of them running
+  // together would be unreadable even where there's room for it.
+  if (multiline) {
+    return (
+      <div className="space-y-1.5">
+        {forms.map((form) => (
+          <div key={form.language}>
+            {tag(form.language)}
+            <div className="mt-0.5">{renderValue(form.value)}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+      {forms.map((form) => (
+        <span key={form.language}>
+          <span className="mr-1">{tag(form.language)}</span>
+          {form.value}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function formatDate(date: string | Date) {
   const parsed = new Date(date);
   const day = String(parsed.getDate()).padStart(2, "0");
@@ -483,6 +633,17 @@ export default function VocabularyWordList({
   // can't be restored on load anyway, since browsers only grant it in
   // response to a click.
   const [wideTable, setWideTable] = useState(false);
+  // Which languages the table's per-language columns show and match on
+  // (Question 347). Empty means all of them, the same convention the
+  // Languages filter above uses for "no filter" rather than "nothing".
+  //
+  // Not persisted, matching Wide and Fullscreen beside it: this is
+  // "I'm working on French this week", not a standing decision about the
+  // table's shape the way the column layout is.
+  const [shownLanguages, setShownLanguages] = useState<string[]>([]);
+  const [shownLanguagesOpen, setShownLanguagesOpen] = useState(false);
+  const [shownLanguageDraft, setShownLanguageDraft] = useState("");
+  const shownLanguagesRef = useRef<HTMLDivElement>(null);
   // Fullscreen is the browser's, not ours, so it can be left by pressing
   // Escape without anything here being clicked. Listening for the change
   // rather than trusting our own button is what keeps the label honest.
@@ -664,6 +825,17 @@ export default function VocabularyWordList({
     setOpenFilter(field);
   }
 
+  function addShownLanguage() {
+    const language = shownLanguageDraft.trim();
+    if (!language) return;
+    setShownLanguages((prev) =>
+      prev.some((existing) => existing.toLowerCase() === language.toLowerCase())
+        ? prev
+        : [...prev, language],
+    );
+    setShownLanguageDraft("");
+  }
+
   function toggleLanguageFilter(value: string) {
     setLanguageFilters((prev) => {
       const next = new Set(prev);
@@ -717,7 +889,7 @@ export default function VocabularyWordList({
     }
     const column = FILTER_BY_FIELD.get(field as FilterableColumn);
     if (!column) return label;
-    const active = columnFilters[column.field].size > 0;
+    const active = effectiveFilter(column.field).size > 0;
     return (
       <button
         onClick={(event) => openHeaderFilter(column.field, event.currentTarget)}
@@ -1095,6 +1267,26 @@ export default function VocabularyWordList({
   }, [languagesOpen]);
 
   useEffect(() => {
+    if (!shownLanguagesOpen) return;
+
+    function close(event: Event) {
+      const target = event.target as Node;
+      if (shownLanguagesRef.current?.contains(target)) return;
+      setShownLanguagesOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setShownLanguagesOpen(false);
+    }
+
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [shownLanguagesOpen]);
+
+  useEffect(() => {
     function handleFullscreenChange() {
       setTableFullscreen(
         document.fullscreenElement === tableSectionRef.current,
@@ -1228,27 +1420,116 @@ export default function VocabularyWordList({
   // rather than folded into them — column filters are Table-view state
   // (Question 255), so switching to List must not silently hide words with
   // no column header on screen to explain why.
-  const tableEntries = visibleEntries.filter((entry) =>
-    FILTERABLE_COLUMNS.every((column) => {
-      const chosen = columnFilters[column.field];
+  // Every language anything in view is written in — the words' own
+  // languages and the languages they're translated into, together. Built
+  // from what's actually there, the same way every other option list on
+  // this page is, so it can't offer a language you have nothing in.
+  const formLanguages = Array.from(
+    new Set(
+      visibleEntries.flatMap((entry) => [
+        entry.language,
+        ...entry.translations.map((translation) => translation.language),
+      ]),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
+
+  // Kept honest against that list rather than trusted as typed: a language
+  // whose last word was deleted stops narrowing anything, instead of
+  // silently hiding every row.
+  const activeShownLanguages = formLanguages.filter((language) =>
+    shownLanguages.includes(language),
+  );
+  const shownLanguageSet = new Set(activeShownLanguages);
+  const shownLanguagesLabel =
+    activeShownLanguages.length === 0
+      ? "all languages"
+      : activeShownLanguages.length <= 2
+        ? activeShownLanguages.join(", ")
+        : `${activeShownLanguages.length} languages`;
+
+  // Which ticks actually count, once the narrower has had its say.
+  //
+  // A language ticked here and then hidden by the narrower stops counting
+  // (Question 348) — left alone it would be worse than useless in
+  // "missing" mode, where every word is missing a language that has been
+  // hidden from view. Intersected rather than deleted, the same way the
+  // toolbar's own language filter treats a language whose last word was
+  // removed: put the language back and your tick is still there.
+  //
+  // Pulled out of the row filter in Question 349 because the row filter
+  // wasn't the only place that needed it. The chips above the table were
+  // reading the raw ticks, so a filter that had stopped counting still
+  // announced itself — "Has: German" sitting beside "Showing 14 of 14",
+  // claiming to filter while filtering nothing. One answer, read by
+  // everything that asks.
+  function effectiveFilter(field: FilterableColumn): Set<string> {
+    const chosen = columnFilters[field];
+    const column = FILTER_BY_FIELD.get(field);
+    if (!column || column.kind !== "languages" || shownLanguageSet.size === 0) {
+      return chosen;
+    }
+    return new Set(
+      Array.from(chosen).filter((language) => shownLanguageSet.has(language)),
+    );
+  }
+
+  const tableEntries = visibleEntries.filter((entry) => {
+    // Narrowing hides words with nothing in the languages you're showing
+    // (Question 349). Without this, narrowing to Italian still listed every
+    // word that has no Italian at all, as a row of empty cells — which is
+    // noise in the one view you opened to look at Italian.
+    //
+    // Question 349 carved out an exception for "missing", on the grounds
+    // that the mode would otherwise be unusable while narrowed. Question
+    // 350 took it back out, and was right to: the exception let a filter
+    // reach past the narrower and drag back the very rows it had just
+    // removed. The rules compose properly without it — the narrower says
+    // which words are on the table, the filters ask questions of those,
+    // and "which of the words that have Italian are missing Italian" has
+    // an honest answer of none. An empty table saying so is a better
+    // answer than a contradictory list.
+    //
+    // Nothing is lost: to ask what's missing in a language, don't narrow
+    // to it. The control that hid it is one click from showing it again.
+    if (shownLanguageSet.size > 0) {
+      const hasSomethingShown =
+        shownLanguageSet.has(entry.language) ||
+        entry.translations.some((translation) =>
+          shownLanguageSet.has(translation.language),
+        );
+      if (!hasSomethingShown) return false;
+    }
+
+    return FILTERABLE_COLUMNS.every((column) => {
+      const chosen = effectiveFilter(column.field);
       if (chosen.size === 0) return true;
 
-      const values = columnValues(entry, column);
+      const values = columnValues(entry, column, shownLanguageSet);
 
       // The languages column is the only one that can be asked a negative
       // question, and "missing any of these" is the useful reading of
       // several ticks rather than "missing all of them": ticking French and
       // Italian is asking what still needs work, and a word that has French
       // but not Italian is still work (Question 327).
+      //
+      // A word is never missing its own language (Question 350). "Which
+      // words still need German" should not answer with your German words:
+      // they are already German, and nobody translates a word into the
+      // language it is written in. This was wrong before any narrowing
+      // existed — narrowing only made it visible, by leaving a word's own
+      // language as the only one left to ask about.
       if (column.kind === "languages" && translationsMode === "missing") {
-        return Array.from(chosen).some((language) => !values.includes(language));
+        return Array.from(chosen).some(
+          (language) =>
+            language !== entry.language && !values.includes(language),
+        );
       }
 
       // `some`, not equality: a word shows up under a topic it carries,
       // whether or not it also carries another one.
       return values.some((value) => chosen.has(value));
-    }),
-  );
+    });
+  });
 
   // Options come from `visibleEntries` — what the shared filters allow —
   // not from `tableEntries`, so checking a value doesn't make the other
@@ -1266,7 +1547,11 @@ export default function VocabularyWordList({
     // you haven't started. The moment one word has it, it becomes a fair
     // question to ask of all the others.
     return Array.from(
-      new Set(visibleEntries.flatMap((entry) => columnValues(entry, column))),
+      new Set(
+        visibleEntries.flatMap((entry) =>
+          columnValues(entry, column, shownLanguageSet),
+        ),
+      ),
     ).sort((a, b) =>
       a === NO_VALUE ? 1 : b === NO_VALUE ? -1 : a.localeCompare(b),
     );
@@ -1285,7 +1570,16 @@ export default function VocabularyWordList({
           key={key}
           className="border border-zinc-800 px-3 py-2 align-top text-zinc-300"
         >
-          <TranslationTags translations={entry.translations} />
+          {/* Narrowed here and nowhere else: the narrower is a Table-view
+              control, so the list row below still shows every translation
+              a word has. */}
+          <TranslationTags
+            translations={entry.translations.filter(
+              (translation) =>
+                shownLanguageSet.size === 0 ||
+                shownLanguageSet.has(translation.language),
+            )}
+          />
         </td>
       );
     }
@@ -1316,6 +1610,25 @@ export default function VocabularyWordList({
     const multiline = ENRICHMENT_FIELDS.find(
       (item) => item.field === field,
     )?.multiline;
+
+    // Every language's answer, not just the word's own (Question 347). The
+    // cell shows exactly the forms the filter counts, which is what keeps
+    // the two honest with each other: a word can't appear under a value it
+    // gives no visible sign of having.
+    if (PER_LANGUAGE_FIELD_SET.has(field)) {
+      return (
+        <td
+          key={key}
+          className="border border-zinc-800 px-3 py-2 align-top text-zinc-300"
+        >
+          <LanguageValues
+            forms={fieldForms(entry, field as PerLanguageField, shownLanguageSet)}
+            multiline={multiline}
+          />
+        </td>
+      );
+    }
+
     const lines = (entry[field]?.trim() ?? "")
       .split("\n")
       .map((line) => line.trim())
@@ -1346,7 +1659,7 @@ export default function VocabularyWordList({
       : undefined;
 
   const activeColumnFilters = FILTERABLE_COLUMNS.filter(
-    (column) => columnFilters[column.field].size > 0,
+    (column) => effectiveFilter(column.field).size > 0,
   );
 
   return (
@@ -1449,7 +1762,17 @@ export default function VocabularyWordList({
             tableFullscreen ? "overflow-y-auto" : "rounded-lg"
           }`}
         >
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+          {/* Sticky so the search box, the filters and the List/Table
+              switch stay reachable while you scroll (Question 354) — the
+              same treatment, and the same classes, Parallel Listen's own
+              controls have had since Question 232. `bg-zinc-900` matches
+              the card, so rows scrolling underneath disappear behind it
+              rather than showing through a transparent bar.
+
+              Above the table's own frozen header in the stacking order,
+              since they can meet on a short window and the outer control
+              should win. */}
+          <div className="sticky top-0 z-20 mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 bg-zinc-900 pb-4">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-semibold text-zinc-100">
                 {entries.length} word{entries.length !== 1 ? "s" : ""}
@@ -1744,6 +2067,114 @@ export default function VocabularyWordList({
                 )}
                 </div>
 
+                {/* Narrows which languages the per-language columns show
+                    and match on (Question 347). Down here with Columns
+                    rather than up beside the Languages filter on purpose,
+                    because it answers a different question: that one picks
+                    which words are rows, this one picks which of each
+                    word's languages you're looking at. Sharing a row with
+                    Columns — the other "what does this table show" control
+                    — says that better than sitting next to a filter it
+                    would be mistaken for. */}
+                <div className="relative" ref={shownLanguagesRef}>
+                  <button
+                    onClick={() => setShownLanguagesOpen((prev) => !prev)}
+                    aria-expanded={shownLanguagesOpen}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      activeShownLanguages.length > 0
+                        ? "border-indigo-700 bg-indigo-950/60 text-indigo-300"
+                        : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
+                    }`}
+                  >
+                    Showing: {shownLanguagesLabel}
+                    <span className="ml-1.5 text-zinc-500">▾</span>
+                  </button>
+
+                  {shownLanguagesOpen && (
+                    <div className="absolute left-0 top-full z-40 mt-1 w-72 rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                          Show values in
+                        </p>
+                        {activeShownLanguages.length > 0 && (
+                          <button
+                            onClick={() => setShownLanguages([])}
+                            className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+                          >
+                            All
+                          </button>
+                        )}
+                      </div>
+                      {/* Says what it governs, because "languages" on a
+                          page that already filters by language is ambiguous
+                          until something disambiguates it. */}
+                      <p className="mb-2 text-xs text-zinc-600">
+                        Every column that answers per language — translations
+                        included — shows and filters on only these, and words
+                        with nothing in them drop out of the table. Asking
+                        which words are <em>missing</em> a language still
+                        finds them.
+                      </p>
+
+                      {activeShownLanguages.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-1.5">
+                          {activeShownLanguages.map((language) => (
+                            <button
+                              key={language}
+                              onClick={() =>
+                                setShownLanguages((prev) =>
+                                  prev.filter(
+                                    (existing) => existing !== language,
+                                  ),
+                                )
+                              }
+                              title={`Stop showing ${language}`}
+                              className="flex items-center gap-1 rounded-full border border-indigo-800 bg-indigo-950/60 px-2 py-0.5 text-xs text-indigo-300 transition-colors hover:border-red-500 hover:text-red-400"
+                            >
+                              {language} ✕
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {formLanguages.length === 0 ? (
+                        <p className="text-xs text-zinc-600">
+                          No languages to choose from yet.
+                        </p>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={shownLanguageDraft}
+                            onChange={(event) =>
+                              setShownLanguageDraft(event.target.value)
+                            }
+                            className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                          >
+                            <option value="">Add a language…</option>
+                            {formLanguages
+                              .filter(
+                                (language) =>
+                                  !activeShownLanguages.includes(language),
+                              )
+                              .map((language) => (
+                                <option key={language} value={language}>
+                                  {language}
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            onClick={addShownLanguage}
+                            disabled={!shownLanguageDraft.trim()}
+                            className="shrink-0 rounded-md bg-zinc-800 px-3 py-1 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* Beside Columns rather than up with the List/Table
                     switch: all three shape the table itself, and the
                     switch above chooses whether there is a table at all. */}
@@ -1793,10 +2224,10 @@ export default function VocabularyWordList({
                           same as no filter, so showing a count there would
                           be noise — it says what it's showing instead. */}
                       {column.kind === "presence" &&
-                      columnFilters[column.field].size === 1
+                      effectiveFilter(column.field).size === 1
                         ? `${column.label}: ${optionLabel(
                             column.kind,
-                            Array.from(columnFilters[column.field])[0],
+                            Array.from(effectiveFilter(column.field))[0],
                           )}`
                         : // A count alone would be a lie by omission here:
                           // "Translations: 2" reads as two translations
@@ -1808,10 +2239,10 @@ export default function VocabularyWordList({
                               translationsMode === "missing"
                                 ? "Missing"
                                 : "Has"
-                            }: ${Array.from(columnFilters[column.field])
+                            }: ${Array.from(effectiveFilter(column.field))
                               .sort((a, b) => a.localeCompare(b))
                               .join(", ")}`
-                          : `${column.label}: ${columnFilters[column.field].size}`}{" "}
+                          : `${column.label}: ${effectiveFilter(column.field).size}`}{" "}
                       ✕
                     </button>
                   ))}
@@ -1828,20 +2259,42 @@ export default function VocabularyWordList({
                 // instead of down one. Deliberately read-only: editing stays in
                 // List view rather than being rebuilt a second time here, since
                 // the row-level edit form is far too tall to live in a cell.
-                <div className="overflow-x-auto">
+                //
+                // Bounded and scrolling in both directions since Question
+                // 354, rather than only sideways. A sticky header sticks
+                // inside its nearest scrolling ancestor, and this wrapper
+                // already was one — `overflow-x: auto` quietly makes the
+                // vertical axis scrollable too — but with no height limit it
+                // never actually scrolled, so a sticky header had nothing to
+                // stick against and sat where it already was. Giving it a
+                // height is what turns the freezing on.
+                //
+                // The side effect is worth naming: rows now scroll inside
+                // the table rather than scrolling the page, which is what
+                // keeps everything above them on screen while you read down
+                // a long list.
+                <div className="max-h-[65vh] overflow-auto">
                   <table className="min-w-full border-collapse border border-zinc-800 text-sm">
                     <thead>
+                      {/* Each header cell carries its own background and its
+                          own bottom edge, and both are needed. A sticky cell
+                          leaves the row behind, so the row's background
+                          can't travel with it — and under `border-collapse`
+                          the borders belong to the table rather than the
+                          cell, so they'd be left behind too. The inset
+                          shadow is that missing bottom border, drawn by the
+                          cell itself. */}
                       <tr className="bg-zinc-800">
-                        <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                        <th className="sticky top-0 z-10 border border-zinc-800 bg-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300 shadow-[inset_0_-1px_0_#27272a]">
                           <span className="sr-only">Select</span>
                         </th>
-                        <th className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300">
+                        <th className="sticky top-0 z-10 border border-zinc-800 bg-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300 shadow-[inset_0_-1px_0_#27272a]">
                           Word
                         </th>
                         {visibleColumns.map(({ key }) => (
                           <th
                             key={key}
-                            className="border border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300"
+                            className="sticky top-0 z-10 border border-zinc-800 bg-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300 shadow-[inset_0_-1px_0_#27272a]"
                           >
                             {/* Only Added has no header filter — a date
                                 isn't a value picked from a list, the same
@@ -2439,7 +2892,9 @@ export default function VocabularyWordList({
           {openColumn?.kind === "languages" &&
             columnOptions(openColumn).length === 0 && (
               <p className="px-3 py-2 text-xs text-zinc-600">
-                No translations saved yet — add some from “Add information”.
+                {activeShownLanguages.length > 0
+                  ? "None in the languages you're showing — widen Showing to see the rest."
+                  : "No translations saved yet — add some from “Add information”."}
               </p>
             )}
 
