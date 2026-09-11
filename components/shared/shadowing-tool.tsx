@@ -175,6 +175,68 @@ export default function ShadowingTool() {
     setIndex((i) => Math.min(i + 1, sentences.length - 1));
   }
 
+  // Keyboard control while practising: arrows move between sentences
+  // (Question 361), space plays and stops, escape stops (Question 362).
+  //
+  // Deliberately narrower than the two buttons it mirrors: a key press only
+  // acts when there's somewhere to go. handlePrev stops playback before it
+  // moves, so pressing ← on the first sentence would otherwise cut the
+  // audio off and then not move — a key doing half of nothing.
+  //
+  // No dependency array, matching Vocab Shuffle's own key handler: the
+  // listener is rebound after each render so it always closes over the
+  // current sentence index, rather than needing every function it calls
+  // wrapped in useCallback to keep a dependency list honest.
+  useEffect(() => {
+    if (!started) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      // The practice screen has a language field on it, so arrows have to
+      // stay arrows while you're typing in one — same guard, same reason,
+      // as the flashcard session's.
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
+      ) {
+        return;
+      }
+
+      if (event.key === "ArrowRight" && index < sentences.length - 1) {
+        event.preventDefault();
+        handleNext();
+      } else if (event.key === "ArrowLeft" && index > 0) {
+        event.preventDefault();
+        handlePrev();
+      } else if (event.key === " ") {
+        // One key for both, because there's one button for both — space
+        // does whatever the button in front of you currently says.
+        //
+        // Skipped when a button has focus, and this is the whole reason
+        // that guard exists: the browser already activates a focused
+        // button on space, so handling it here as well would toggle twice
+        // and land back where it started. Click Play with the mouse, press
+        // space, and without this nothing would appear to happen at all.
+        if (target?.tagName === "BUTTON") return;
+        event.preventDefault();
+        if (playing) {
+          handleStop();
+        } else {
+          handlePlay();
+        }
+      } else if (event.key === "Escape" && playing) {
+        // A second way out, and deliberately one-directional: escape means
+        // stop, never start. It's the key you reach for when a voice is
+        // talking over you, and it shouldn't be able to start one.
+        event.preventDefault();
+        handleStop();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
   function handleClear() {
     handleStop();
     setText("");
@@ -342,6 +404,7 @@ export default function ShadowingTool() {
               {!playing ? (
                 <button
                   onClick={handlePlay}
+                  title="Shortcut: Space"
                   className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
                 >
                   ▶ Play
@@ -349,6 +412,7 @@ export default function ShadowingTool() {
               ) : (
                 <button
                   onClick={handleStop}
+                  title="Shortcut: Space or Esc"
                   className="rounded-md bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
                 >
                   ■ Stop
@@ -360,6 +424,7 @@ export default function ShadowingTool() {
               <button
                 onClick={handlePrev}
                 disabled={index === 0}
+                title="Shortcut: ←"
                 className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 ← Previous
@@ -367,6 +432,7 @@ export default function ShadowingTool() {
               <button
                 onClick={handleNext}
                 disabled={index === sentences.length - 1}
+                title="Shortcut: →"
                 className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Next →
