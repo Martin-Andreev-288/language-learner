@@ -11,7 +11,17 @@ import {
   SHADOWING_METADATA_KIND,
 } from "@/lib/shadowing-note-format";
 import { createNote } from "@/app/actions/note-actions";
+import { generateShadowingPassage } from "@/app/actions/shadowing-actions";
 import { NotePage } from "@/app/generated/prisma";
+import { describeClientError } from "@/lib/client-error";
+import { SHADOWING_TOPIC_MAX_CHARACTERS } from "@/lib/limits";
+import {
+  DEFAULT_SHADOWING_LENGTH,
+  DEFAULT_SHADOWING_REGISTER,
+  SHADOWING_LENGTHS,
+  SHADOWING_LEVELS,
+  SHADOWING_REGISTERS,
+} from "@/lib/shadowing-generation";
 
 export default function ShadowingTool() {
   // Restored from a carry, if you arrived by pressing "Practice again" on a
@@ -35,6 +45,21 @@ export default function ShadowingTool() {
   const [repeatCount, setRepeatCount] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  // The generator's own fields (Question 363). Level and topic start empty
+  // because empty is a real answer here — "no direction" rather than a
+  // default standing in for a choice you didn't make. Register and length
+  // can't be empty in a dropdown, so they start at the two defaults settled
+  // in Question 357.
+  const [level, setLevel] = useState("");
+  const [topic, setTopic] = useState("");
+  const [register, setRegister] = useState<string>(DEFAULT_SHADOWING_REGISTER);
+  const [length, setLength] = useState<string>(DEFAULT_SHADOWING_LENGTH);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  // Only changes the button's wording — "Generate another" once there's
+  // something to generate another of. Kept through hand-edits on purpose:
+  // tweaking a generated passage doesn't make the next one the first one.
+  const [hasGenerated, setHasGenerated] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
@@ -119,6 +144,41 @@ export default function ShadowingTool() {
     window.speechSynthesis.cancel();
     const playId = ++playbackIdRef.current;
     speakRemaining(remainingRef.current, playId);
+  }
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setGenerateError(null);
+    try {
+      const result = await generateShadowingPassage({
+        language,
+        level,
+        topic,
+        register,
+        length,
+      });
+      if (!result.ok) {
+        setGenerateError(result.error);
+        return;
+      }
+      // Into the same box a paste would land in, editable, rather than
+      // straight into practice (Question 357). Generated text shouldn't be
+      // more locked down than text you dictated — Speak Check makes the
+      // same promise in as many words.
+      setText(result.data.passage);
+      // Fills the language in when you left it open, so playback has a
+      // voice to match. Never overwrites a language you chose yourself:
+      // the action already decided that, and this just takes what it sends.
+      setLanguage(result.data.language);
+      setHasGenerated(true);
+      setIndex(0);
+    } catch (err) {
+      setGenerateError(
+        describeClientError(err, "Couldn't generate a passage — try again."),
+      );
+    } finally {
+      setGenerating(false);
+    }
   }
 
   // Saves the passage and its language, so "Practice again" from Notes can
@@ -242,6 +302,11 @@ export default function ShadowingTool() {
     setText("");
     setStarted(false);
     setIndex(0);
+    // The generated-ness goes, the settings stay: Clear empties the
+    // passage, and having to re-pick the same level and style to generate a
+    // replacement would make it a worse button than it looks.
+    setHasGenerated(false);
+    setGenerateError(null);
   }
 
   return (
@@ -269,20 +334,18 @@ export default function ShadowingTool() {
               </button>
             </div>
 
-            <textarea
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              placeholder="Paste the passage you want to practice…"
-              className="h-64 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 p-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
-            />
-
+            {/* Above the passage since Question 363, where it used to sit
+                below it. One field doing two jobs now — it picks the voice
+                for playback and tells the generator what to write in — and
+                a field the generator reads from belongs above the generator
+                rather than under the box it fills. */}
             <label
               htmlFor="shadowing-language"
-              className="mt-3 block text-xs font-medium uppercase tracking-wider text-zinc-500"
+              className="block text-xs font-medium uppercase tracking-wider text-zinc-500"
             >
               Language{" "}
               <span className="normal-case font-normal text-zinc-600">
-                (optional — picks a matching voice for playback)
+                (optional — picks a matching voice, and what to generate in)
               </span>
             </label>
             <LanguageCombobox
@@ -292,6 +355,99 @@ export default function ShadowingTool() {
               placeholder="e.g. German"
               wrapperClassName="mt-1 w-full"
               className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+            />
+
+            {/* Every field here is optional, including the two dropdowns —
+                they have defaults because a dropdown can't be empty, not
+                because those answers were assumed (Question 357). */}
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+              <p className="mb-1 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Generate a passage
+              </p>
+              <p className="mb-3 text-xs text-zinc-600">
+                Leave anything blank and it won&apos;t be asked for — no
+                level means no particular level, not an average one.
+              </p>
+
+              <div className="flex flex-wrap gap-3">
+                <label className="flex items-center gap-1.5 text-sm text-zinc-400">
+                  Level
+                  <select
+                    value={level}
+                    onChange={(event) => setLevel(event.target.value)}
+                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                  >
+                    <option value="">Any</option>
+                    {SHADOWING_LEVELS.map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex items-center gap-1.5 text-sm text-zinc-400">
+                  Style
+                  <select
+                    value={register}
+                    onChange={(event) => setRegister(event.target.value)}
+                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                  >
+                    {SHADOWING_REGISTERS.map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex items-center gap-1.5 text-sm text-zinc-400">
+                  Length
+                  <select
+                    value={length}
+                    onChange={(event) => setLength(event.target.value)}
+                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                  >
+                    {SHADOWING_LENGTHS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label} ({item.sentences} sentences)
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <input
+                type="text"
+                value={topic}
+                onChange={(event) => setTopic(event.target.value)}
+                maxLength={SHADOWING_TOPIC_MAX_CHARACTERS}
+                placeholder="Topic (optional) — e.g. ordering at a bakery"
+                className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+              />
+
+              <button
+                onClick={handleGenerate}
+                disabled={generating}
+                className="mt-3 rounded-lg bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {generating
+                  ? "Generating…"
+                  : hasGenerated
+                    ? "Generate another"
+                    : "Generate"}
+              </button>
+
+              {generateError && (
+                <p className="mt-2 text-sm text-red-400">{generateError}</p>
+              )}
+            </div>
+
+            <textarea
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              placeholder="Paste the passage you want to practice — or generate one above…"
+              className="mt-4 h-64 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 p-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
             />
 
             {text.trim() && (

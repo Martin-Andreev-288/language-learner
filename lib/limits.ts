@@ -61,3 +61,11 @@ export const VOCABULARY_MAX_WORDS = 300;
 // these up the way there is for the fields above.
 export const WORD_LOOKUP_MAX_WORD_LENGTH = 100;
 export const WORD_LOOKUP_MAX_CONTEXT_LENGTH = 500;
+
+// Shadowing's "generate a passage": the only free-text field in that form,
+// and the only one worth a ceiling. The passage's own size is already
+// bounded by the length preset, so nothing else there can run away — but a
+// topic goes straight into the prompt, so an enormous one is both a cost
+// and a way to smuggle instructions in behind a label that says "topic".
+// Short enough that anything longer isn't a topic any more.
+export const SHADOWING_TOPIC_MAX_CHARACTERS = 120;
