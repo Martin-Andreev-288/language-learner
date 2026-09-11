@@ -453,7 +453,17 @@ export default function ShadowingTool() {
             {text.trim() && (
               <p className="mt-2 text-xs text-zinc-500">
                 {sentences.length} sentence
-                {sentences.length !== 1 ? "s" : ""} found.
+                {sentences.length !== 1 ? "s" : ""} found.{" "}
+                {/* Said here rather than left implicit, because this is the
+                    one moment the count is already on screen for you to
+                    judge against the text above it (Question 371).
+                    Abbreviations and titles are handled for five languages,
+                    not guessed at for every one — if a split looks wrong,
+                    fixing the line break by hand in the box above is the
+                    right move, not a sign something's broken. */}
+                <span title="A period followed by a capital letter is usually a new sentence, but not always — an abbreviation this app doesn't know about can still split wrong. Edit the passage above if a split looks off.">
+                  Not always perfect — edit above if a split looks wrong.
+                </span>
               </p>
             )}
 
