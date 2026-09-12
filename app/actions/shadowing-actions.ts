@@ -6,7 +6,15 @@ import { google } from "@ai-sdk/google";
 import { z } from "zod";
 import { describeAiError } from "@/lib/ai-error";
 import { actionError, actionOk, type ActionResult } from "@/lib/action-result";
-import { SHADOWING_TOPIC_MAX_CHARACTERS } from "@/lib/limits";
+import {
+    SHADOWING_ATTEMPT_MAX_CHARACTERS,
+    SHADOWING_TOPIC_MAX_CHARACTERS,
+} from "@/lib/limits";
+import {
+    isWordPerfect,
+    SHADOWING_CHECK_CAVEAT,
+    type ShadowingCheck,
+} from "@/lib/shadowing-check";
 import { splitIntoSentences } from "@/lib/sentence-split";
 import {
     DEFAULT_SHADOWING_LENGTH,
@@ -160,4 +168,137 @@ Also report which language you wrote it in.`,
         // gap when you left it open.
         language: language || output.language?.trim() || "",
     });
+}
+
+
+// --- the record-and-check loop -------------------------------------------
+
+const differenceSchema = z.object({
+    expected: z
+        .string()
+        .describe(
+            "The word or short phrase from the target sentence — just that part, not the sentence around it.",
+        ),
+    heard: z
+        .string()
+        .describe(
+            "What was said instead. An empty string when the word was left out altogether — genuinely empty, not a placeholder such as [missing] or (nothing); the page supplies its own wording for that.",
+        ),
+    note: z
+        .string()
+        .describe(
+            "One short line for the learner: what the difference is, or that it is probably the recogniser mishearing rather than a mistake they made.",
+        ),
+});
+
+const attemptSchema = z.object({
+    verdict: z
+        .enum(["match", "close", "off"])
+        .describe(
+            "match when the words are the same, close when a word or two drifted, off when a good part of the sentence is missing or different.",
+        ),
+    summary: z
+        .string()
+        .describe(
+            "One short sentence addressed to the learner, saying how it went. No greeting, no praise padding.",
+        ),
+    differences: z.array(differenceSchema),
+});
+
+// Compares a spoken attempt against the sentence being shadowed
+// (Question 373).
+//
+// The first AI call in this app that compares two pieces of text rather than
+// transforming one — translate, check, enrich and look up all take a single
+// input and do something to it. Worth naming because it changes what a bad
+// answer looks like: there is a correct answer here sitting right next to
+// the input, so a wrong finding is checkable in a way a wrong translation
+// isn't.
+//
+// What it does *not* do is judge pronunciation, and the prompt says so as
+// plainly as the page does. The browser hands back words, never sounds.
+//
+// Returns failures rather than throwing them, so the message survives a
+// production build — see lib/action-result.ts.
+export async function checkShadowingAttempt(
+    target: string,
+    attempt: string,
+    language?: string,
+): Promise<ActionResult<ShadowingCheck>> {
+    const session = await auth();
+    if (!session?.user?.id) {
+        throw new Error("Unauthorized");
+    }
+
+    const trimmedTarget = target.trim();
+    const trimmedAttempt = attempt.trim();
+
+    if (!trimmedTarget) {
+        return actionError("There's no sentence to compare against.");
+    }
+    if (!trimmedAttempt) {
+        return actionError("Nothing was heard — try recording again.");
+    }
+    if (trimmedAttempt.length > SHADOWING_ATTEMPT_MAX_CHARACTERS) {
+        return actionError(
+            `That attempt is ${trimmedAttempt.length} characters — one sentence at a time, please.`,
+        );
+    }
+
+    // The page checks this first and never gets here when it holds, so this
+    // is a guard rather than the main path: it costs one string comparison
+    // and means a word-perfect attempt can't spend a request even if it
+    // arrives from somewhere that forgot to look.
+    if (isWordPerfect(trimmedTarget, trimmedAttempt)) {
+        return actionOk({
+            verdict: "match",
+            summary: "Word for word — that is exactly the sentence.",
+            differences: [],
+        });
+    }
+
+    const trimmedLanguage = language?.trim();
+    const languageLine = trimmedLanguage
+        ? `The sentence is in ${trimmedLanguage}, and the attempt was meant to be too. Judge it as ${trimmedLanguage}.\n\n`
+        : "";
+
+    let output: ShadowingCheck;
+    try {
+        const result = await generateText({
+            model: google("gemini-3.6-flash"),
+            output: Output.object({ schema: attemptSchema }),
+            prompt: `${languageLine}Someone learning a language is shadowing: they listened to one sentence and repeated it out loud. Their attempt was captured by the browser's speech recognition, so it reaches you as text.
+
+Compare what was heard against the sentence they were repeating.
+
+${SHADOWING_CHECK_CAVEAT} Bear that in mind throughout — never comment on accent, stress, intonation or pronunciation, because none of that survives in the text you were given.
+
+Rules for what counts as a difference:
+- Ignore punctuation and capitalisation completely. Neither can be spoken aloud, and the recogniser supplies both by itself.
+- Ignore differences that are only about spelling out numbers, dates or currency — "20" and "twenty" are the same spoken word.
+- Speech recognition mishears. When a difference looks like the recogniser's fault rather than the speaker's — a homophone, one word split into two, a name transcribed oddly — report it, but say in the note that it is probably a mishearing rather than a mistake they made.
+- Report only the specific word or short phrase that differs, not the whole sentence around it.
+- If nothing meaningful differs, return an empty list of differences and the "match" verdict.
+
+Write the summary to the learner directly, as "you" — not as "the user" or "the speaker".
+
+Do not invent differences to have something to report, and do not rewrite the sentence for them.
+
+The sentence they were shadowing:
+"""
+${trimmedTarget}
+"""
+
+What was heard:
+"""
+${trimmedAttempt}
+"""`,
+        });
+        output = result.output;
+    } catch (err) {
+        console.error("checkShadowingAttempt failed:", err);
+        return actionError(describeAiError(err, "Attempt check").message);
+    }
+
+    return actionOk(output);
 }
