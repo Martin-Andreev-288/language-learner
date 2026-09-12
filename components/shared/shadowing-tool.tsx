@@ -38,6 +38,19 @@ import {
   SHADOWING_SENTENCE_LENGTHS,
 } from "@/lib/shadowing-generation";
 
+// How long the loop waits after a sentence has finished playing before
+// moving to the next one (Question 376).
+//
+// Measured from the end of playback rather than from when the sentence
+// appeared, which is the one real design decision in this feature. A fixed
+// time on screen would have to cover the longest sentence in the passage,
+// so every short one would sit there doing nothing — and a passage with a
+// sentence longer than the setting would advance while still talking. This
+// way the gap means the only thing it could usefully mean: how long you get
+// to say it back.
+const AUTO_ADVANCE_GAPS = [3, 5, 8, 12] as const;
+const DEFAULT_AUTO_ADVANCE_GAP = 5;
+
 // How each verdict presents itself (Question 373). Out here rather than
 // inline so the three stay side by side and readable as a set — and worded
 // as descriptions rather than marks: "Word for word" says what happened,
@@ -108,6 +121,16 @@ export default function ShadowingTool() {
   // something to generate another of. Kept through hand-edits on purpose:
   // tweaking a generated passage doesn't make the next one the first one.
   const [hasGenerated, setHasGenerated] = useState(false);
+  // Auto-advance (Question 376). Off until asked for: a page that starts
+  // moving on its own the first time you open it would be a worse first
+  // impression than one that waits to be told.
+  const [autoAdvance, setAutoAdvance] = useState(false);
+  const [autoGap, setAutoGap] = useState<number>(DEFAULT_AUTO_ADVANCE_GAP);
+  // Seconds left before the next sentence, or null when nothing is pending.
+  // Shown rather than kept private, because a page about to move on its own
+  // should say so before it does it.
+  const [autoCountdown, setAutoCountdown] = useState<number | null>(null);
+
   // The record-and-check loop (Question 373). The attempt is held as
   // editable text rather than being sent the instant recording stops,
   // because the recogniser guesses — and an unchecked guess would be
@@ -133,6 +156,20 @@ export default function ShadowingTool() {
   // language change can restart from the same point instead of resetting
   // the repeat count.
   const remainingRef = useRef(0);
+  // The countdown between sentences, plus the count it is working through.
+  // The count lives in a ref as well as in state because the interval
+  // callback has to read it, and reading state from inside a timer set up
+  // several renders ago gets the value from that render, not this one.
+  const autoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoRemainingRef = useRef(0);
+  // Set immediately before an automatic move, and consumed by the effect
+  // that runs after it — see there for why this isn't a dependency array.
+  const autoPlayPendingRef = useRef(false);
+  // Read inside the utterance callbacks, which were bound in an earlier
+  // render and would otherwise see whatever these were when the sentence
+  // started playing — the same reason languageRef exists just above.
+  const autoAdvanceRef = useRef(false);
+  const autoSuspendedRef = useRef(false);
 
   const sentences = splitIntoSentences(text);
   const current = sentences[index];
@@ -175,16 +212,83 @@ export default function ShadowingTool() {
         ? "Stop recording (Esc or R)"
         : "Record your attempt (R)";
 
-  // Stop any speech in progress if the page is left mid-playback.
+  useEffect(() => {
+    autoAdvanceRef.current = autoAdvance;
+  }, [autoAdvance]);
+
+  // The whole of Answer 356's promise, in one line: the clock stops
+  // mattering the moment you start an attempt, and stays stopped while
+  // there is an attempt or a verdict on screen. Nothing moves on from here
+  // except Continue.
+  useEffect(() => {
+    autoSuspendedRef.current =
+      listening || attempt.trim().length > 0 || checkResult !== null;
+  }, [listening, attempt, checkResult]);
+
+  // Stop any speech in progress if the page is left mid-playback, and take
+  // the countdown with it — a timer that outlives the page it belongs to
+  // would move a sentence nobody is looking at.
   useEffect(() => {
     return () => {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
+      if (autoTimerRef.current) clearInterval(autoTimerRef.current);
     };
   }, []);
 
+  // Plays the sentence the loop has just moved to. No dependency array and
+  // a ref for a guard, matching the keyboard handler below: the flag is set
+  // immediately before the move, so the very next render is the one that
+  // should act, and every other render must not.
+  useEffect(() => {
+    if (!autoPlayPendingRef.current) return;
+    autoPlayPendingRef.current = false;
+    handlePlay();
+  });
+
+  function clearAutoTimer() {
+    if (autoTimerRef.current) {
+      clearInterval(autoTimerRef.current);
+      autoTimerRef.current = null;
+    }
+    autoRemainingRef.current = 0;
+    setAutoCountdown(null);
+  }
+
+  // Counts down a second at a time rather than sleeping for the whole gap,
+  // so the page can show how long is left. The interval is the only timer —
+  // it does the waiting and the displaying with one mechanism instead of a
+  // timeout racing a separate ticker.
+  function startAutoCountdown() {
+    clearAutoTimer();
+    autoRemainingRef.current = autoGap;
+    setAutoCountdown(autoGap);
+    autoTimerRef.current = setInterval(() => {
+      autoRemainingRef.current -= 1;
+      if (autoRemainingRef.current <= 0) {
+        clearAutoTimer();
+        autoAdvanceNow();
+      } else {
+        setAutoCountdown(autoRemainingRef.current);
+      }
+    }, 1000);
+  }
+
+  // The loop ends at the last sentence rather than wrapping around. An
+  // endless carousel through the same eight sentences would keep going long
+  // after you had stopped practising, and there is no way for it to notice.
+  function autoAdvanceNow() {
+    if (index >= sentences.length - 1) return;
+    handleNext();
+  }
+
   function handleStop() {
+    // Stopping stops everything, including whatever was about to happen
+    // next. Cancelling only the voice would leave the countdown running,
+    // so the sentence you just silenced would move on anyway — which is
+    // the opposite of what the button says.
+    clearAutoTimer();
     playbackIdRef.current += 1;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
@@ -199,6 +303,13 @@ export default function ShadowingTool() {
     if (playbackIdRef.current !== playId) return; // stopped or superseded
     if (remaining <= 0 || !current) {
       setPlaying(false);
+      // Where auto-advance's clock actually starts: the sentence has been
+      // said, including every repeat of it. Reached only on a natural
+      // finish — a Stop bumps playbackIdRef, so a stopped sentence returns
+      // at the line above and never schedules anything.
+      if (current && autoAdvanceRef.current && !autoSuspendedRef.current) {
+        startAutoCountdown();
+      }
       return;
     }
     remainingRef.current = remaining;
@@ -222,6 +333,9 @@ export default function ShadowingTool() {
       return;
     }
     setPlaybackError(null);
+    // A manual Play during the gap replaces the pending move rather than
+    // racing it — the countdown restarts when this sentence finishes.
+    clearAutoTimer();
     languageRef.current = language;
     window.speechSynthesis.cancel();
     const playId = ++playbackIdRef.current;
@@ -319,6 +433,7 @@ export default function ShadowingTool() {
   // verdict on the sentence you were just on would be worse than no verdict
   // at all once a different sentence is on screen.
   function clearAttempt() {
+    clearAutoTimer();
     stopListening();
     setAttempt("");
     setCheckResult(null);
@@ -392,6 +507,7 @@ export default function ShadowingTool() {
   function handleStart() {
     if (sentences.length === 0) return;
     clearAttempt();
+    if (autoAdvanceRef.current) autoPlayPendingRef.current = true;
     setIndex(0);
     setStarted(true);
   }
@@ -402,16 +518,58 @@ export default function ShadowingTool() {
     setStarted(false);
   }
 
+  // Both arrows arm the loop, not only the automatic one. With
+  // auto-advance on, arriving at a sentence is what makes it play — and
+  // stepping back to hear one again is an arrival like any other, so
+  // having it sit silent would make the manual buttons feel broken.
   function handlePrev() {
     handleStop();
     clearAttempt();
+    if (autoAdvanceRef.current) autoPlayPendingRef.current = true;
     setIndex((i) => Math.max(i - 1, 0));
   }
 
   function handleNext() {
     handleStop();
     clearAttempt();
+    if (autoAdvanceRef.current) autoPlayPendingRef.current = true;
     setIndex((i) => Math.min(i + 1, sentences.length - 1));
+  }
+
+  // Back to the first sentence without leaving practice (Question 377).
+  //
+  // The same thing Vocab Shuffle's "Restart & reshuffle" does at the end of
+  // a session, minus the reshuffling: a passage read out of order would
+  // stop being a passage. What it shares is the part that matters — the end
+  // of a run is a place you are likely to want to start another one, and
+  // the way back shouldn't be out through the door you came in.
+  //
+  // Auto-advance survives it: if the loop was running, it starts running
+  // again from the top rather than stopping to be switched on a second
+  // time.
+  function handleRestart() {
+    handleStop();
+    clearAttempt();
+    if (autoAdvanceRef.current) autoPlayPendingRef.current = true;
+    setIndex(0);
+  }
+
+  function handleAutoAdvanceChange(next: boolean) {
+    setAutoAdvance(next);
+    // Written straight to the ref as well, because the utterance callbacks
+    // read the ref and one of them may fire before the next render.
+    autoAdvanceRef.current = next;
+    if (!next) {
+      clearAutoTimer();
+      return;
+    }
+    // Switching it on starts the loop rather than waiting for a press. A
+    // hands-free setting that still needs you to press Play before it does
+    // anything is not one, and the gap only exists after a sentence has
+    // played — so with nothing playing there would be nothing to wait for.
+    if (!playing && !listening && !attempt.trim() && !checkResult) {
+      handlePlay();
+    }
   }
 
   // Keyboard control while practising: arrows move between sentences
@@ -485,14 +643,24 @@ export default function ShadowingTool() {
         } else {
           handlePlay();
         }
-      } else if (event.key === "Escape" && (playing || listening)) {
+      } else if (
+        event.key === "Escape" &&
+        (playing || listening || autoCountdown !== null)
+      ) {
         // A second way out, and deliberately one-directional: escape means
         // stop, never start. It's the key you reach for when a voice is
         // talking over you — or when you would rather this one attempt
         // simply ended — and it shouldn't be able to start either.
+        //
+        // It cancels a pending auto-advance too (Question 376), and that
+        // case is the reason this branch grew a third condition: during the
+        // gap nothing is playing and nothing is listening, so without it
+        // the one moment the page is about to act on its own would be the
+        // one moment the stop key did nothing.
         event.preventDefault();
         if (listening) stopListening();
         if (playing) handleStop();
+        clearAutoTimer();
       }
     }
 
@@ -809,6 +977,58 @@ export default function ShadowingTool() {
               )}
             </div>
 
+            {/* Auto-advance (Question 376), on the row below the transport
+                controls rather than in it: those four say what happens
+                when you press Play, and these two say what happens when
+                you don't press anything at all. */}
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+              <label
+                className="flex items-center gap-2 text-sm text-zinc-400"
+                title="Plays each sentence, waits for you to say it back, then moves on. Pauses itself the moment you record an attempt, and waits for Continue."
+              >
+                <input
+                  type="checkbox"
+                  checked={autoAdvance}
+                  onChange={(event) =>
+                    handleAutoAdvanceChange(event.target.checked)
+                  }
+                  className="h-4 w-4 rounded border-zinc-700 bg-zinc-800 accent-indigo-600"
+                />
+                Auto-advance
+              </label>
+              <label
+                className={`flex items-center gap-1.5 text-sm transition-colors ${
+                  autoAdvance ? "text-zinc-400" : "text-zinc-600"
+                }`}
+                title="How long you get to say the sentence back before the next one starts. Counted from the end of playback, not from when the sentence appeared."
+              >
+                Pause
+                <select
+                  value={autoGap}
+                  disabled={!autoAdvance}
+                  onChange={(event) => setAutoGap(Number(event.target.value))}
+                  className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {AUTO_ADVANCE_GAPS.map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {seconds}s
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {/* Said out loud rather than left to surprise you, and it
+                doubles as the reminder that Stop is what cancels it. */}
+            {autoCountdown !== null && (
+              <p className="mt-3 text-center text-sm text-zinc-500">
+                Your turn — next sentence in {autoCountdown}s.{" "}
+                <span className="text-zinc-600">
+                  Record, or press Esc, to stay here.
+                </span>
+              </p>
+            )}
+
             {/* The record-and-check loop (Question 373). Below the
                 playback controls because that is the order it happens in:
                 hear it, say it, see what came back. */}
@@ -967,14 +1187,35 @@ export default function ShadowingTool() {
               >
                 ← Previous
               </button>
-              <button
-                onClick={handleNext}
-                disabled={index === sentences.length - 1}
-                title="Shortcut: →"
-                className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Next →
-              </button>
+              {/* On the last sentence this stops being a dead button and
+                  becomes the way to go round again (Question 377). It is
+                  the same place your hand already is after eight presses of
+                  Next, which is the whole reason it lives here rather than
+                  up beside "Back to passage" — and a greyed-out Next was
+                  never telling you anything you couldn't already read off
+                  the counter above it.
+
+                  Deliberately not wired to the → key as well. A key that
+                  wrapped around would mean holding the arrow a moment too
+                  long silently restarted the passage; pressing a button
+                  labelled "Start over" cannot be done by accident. */}
+              {index === sentences.length - 1 ? (
+                <button
+                  onClick={handleRestart}
+                  title="Back to the first sentence"
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+                >
+                  ↺ Start over
+                </button>
+              ) : (
+                <button
+                  onClick={handleNext}
+                  title="Shortcut: →"
+                  className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
+                >
+                  Next →
+                </button>
+              )}
             </div>
           </div>
         )}
