@@ -75,3 +75,10 @@ export const WORD_LOOKUP_MAX_CONTEXT_LENGTH = 500;
 // ceiling rather than a licence — long enough for a line of direction,
 // short enough that a pasted essay doesn't fit.
 export const SHADOWING_TOPIC_MAX_CHARACTERS = 240;
+
+// Shadowing's record-and-check loop: the ceiling on one spoken attempt at
+// one sentence (Question 373). Generous next to any sentence this app will
+// hand you — the passage's own sentence-length setting tops out around
+// thirty words — because the thing being bounded isn't the sentence, it's a
+// microphone somebody walked away from with it still running.
+export const SHADOWING_ATTEMPT_MAX_CHARACTERS = 1000;

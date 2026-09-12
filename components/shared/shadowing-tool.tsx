@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { splitIntoSentences } from "@/lib/sentence-split";
 import { guessLanguageCode } from "@/lib/language-codes";
 import LanguageCombobox from "@/components/shared/language-combobox";
@@ -11,10 +11,23 @@ import {
   SHADOWING_METADATA_KIND,
 } from "@/lib/shadowing-note-format";
 import { createNote } from "@/app/actions/note-actions";
-import { generateShadowingPassage } from "@/app/actions/shadowing-actions";
+import {
+  checkShadowingAttempt,
+  generateShadowingPassage,
+} from "@/app/actions/shadowing-actions";
+import MicIcon from "@/components/shared/mic-icon";
+import { useSpeechToText } from "@/lib/use-speech-to-text";
+import {
+  isWordPerfect,
+  SHADOWING_CHECK_CAVEAT,
+  type ShadowingCheck,
+} from "@/lib/shadowing-check";
 import { NotePage } from "@/app/generated/prisma";
 import { describeClientError } from "@/lib/client-error";
-import { SHADOWING_TOPIC_MAX_CHARACTERS } from "@/lib/limits";
+import {
+  SHADOWING_ATTEMPT_MAX_CHARACTERS,
+  SHADOWING_TOPIC_MAX_CHARACTERS,
+} from "@/lib/limits";
 import {
   DEFAULT_SHADOWING_LENGTH,
   DEFAULT_SHADOWING_REGISTER,
@@ -24,6 +37,33 @@ import {
   SHADOWING_REGISTERS,
   SHADOWING_SENTENCE_LENGTHS,
 } from "@/lib/shadowing-generation";
+
+// How each verdict presents itself (Question 373). Out here rather than
+// inline so the three stay side by side and readable as a set — and worded
+// as descriptions rather than marks: "Word for word" says what happened,
+// where "Excellent" would be praise for having been understood by a
+// transcriber, which is not the same achievement.
+//
+// All three are phrases rather than single words, and that is a rule now
+// rather than a coincidence (Question 375). The middle one used to be the
+// bare word "Close", which sat in the corner of a bordered panel where
+// English reads it as the verb — a Close button that did nothing when
+// pressed. A word that can be an instruction will be read as one when it
+// sits where instructions sit, so none of these may be shortened to one.
+const VERDICT_STYLES = {
+  match: {
+    label: "Word for word",
+    className: "border-emerald-800 bg-emerald-950/40 text-emerald-300",
+  },
+  close: {
+    label: "Nearly there",
+    className: "border-amber-800 bg-amber-950/40 text-amber-300",
+  },
+  off: {
+    label: "Some way off",
+    className: "border-red-900 bg-red-950/40 text-red-300",
+  },
+} as const;
 
 export default function ShadowingTool() {
   // Restored from a carry, if you arrived by pressing "Practice again" on a
@@ -68,6 +108,15 @@ export default function ShadowingTool() {
   // something to generate another of. Kept through hand-edits on purpose:
   // tweaking a generated passage doesn't make the next one the first one.
   const [hasGenerated, setHasGenerated] = useState(false);
+  // The record-and-check loop (Question 373). The attempt is held as
+  // editable text rather than being sent the instant recording stops,
+  // because the recogniser guesses — and an unchecked guess would be
+  // reported back to you as your own mistake. Same discipline as Speak
+  // Check: nothing is sent until you have seen it.
+  const [attempt, setAttempt] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<ShadowingCheck | null>(null);
+  const [checkError, setCheckError] = useState<string | null>(null);
   const [savingNote, setSavingNote] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
@@ -87,6 +136,44 @@ export default function ShadowingTool() {
 
   const sentences = splitIntoSentences(text);
   const current = sentences[index];
+  const langCode = guessLanguageCode(language);
+
+  // Appends rather than replaces: one attempt at one sentence can still
+  // arrive as two or three finalized chunks if you pause in the middle of
+  // it. Capped so a microphone left running can't build a string the check
+  // would then refuse.
+  const handleFinalResult = useCallback((spoken: string) => {
+    setAttempt((prev) => {
+      const joined = prev ? `${prev.replace(/\s+$/, "")} ${spoken}` : spoken;
+      return joined.length <= SHADOWING_ATTEMPT_MAX_CHARACTERS
+        ? joined
+        : joined.slice(0, SHADOWING_ATTEMPT_MAX_CHARACTERS);
+    });
+  }, []);
+
+  const {
+    supported: recordingSupported,
+    listening,
+    interimTranscript,
+    error: recordingError,
+    notice: recordingNotice,
+    start: startListening,
+    stop: stopListening,
+  } = useSpeechToText({ lang: langCode, onFinalResult: handleFinalResult });
+
+  // A language is required here, where playback treats it as optional, and
+  // the difference is real rather than an oversight: playback without one
+  // gets the wrong voice, which is merely annoying, while recognition
+  // without one transcribes your French as English words and then reports
+  // every single one of them as a difference.
+  const canRecord = recordingSupported && langCode !== undefined;
+  const recordTitle = !recordingSupported
+    ? "This browser doesn't support speech recognition — try Chrome, Edge, or Safari"
+    : !langCode
+      ? "Pick a language first, so it listens for the right one"
+      : listening
+        ? "Stop recording (Esc or R)"
+        : "Record your attempt (R)";
 
   // Stop any speech in progress if the page is left mid-playback.
   useEffect(() => {
@@ -126,6 +213,10 @@ export default function ShadowingTool() {
 
   function handlePlay() {
     if (!current) return;
+    // Never both at once: the microphone would hear the synthesiser and
+    // transcribe it, which would score the computer's reading of the
+    // sentence rather than yours.
+    if (listening) return;
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       setPlaybackError("Playback isn't supported in this browser.");
       return;
@@ -223,24 +314,103 @@ export default function ShadowingTool() {
     }
   }
 
+  // Everything a particular attempt produced, cleared in one place so
+  // every way of leaving a sentence behind forgets it the same way. A
+  // verdict on the sentence you were just on would be worse than no verdict
+  // at all once a different sentence is on screen.
+  function clearAttempt() {
+    stopListening();
+    setAttempt("");
+    setCheckResult(null);
+    setCheckError(null);
+  }
+
+  function handleStartRecording() {
+    // Stops playback first rather than refusing to start — you press
+    // Record when the voice has said enough, and making that press mean
+    // "stop talking and listen to me" is what the gesture already implies.
+    handleStop();
+    setAttempt("");
+    setCheckResult(null);
+    setCheckError(null);
+    startListening();
+  }
+
+  async function handleCheckAttempt() {
+    // Speaking and then checking is one gesture — a live microphone would
+    // keep appending to the very attempt being checked.
+    if (listening) stopListening();
+
+    const spoken = attempt.trim();
+    if (!spoken || !current) return;
+
+    // Answered here rather than by asking the model, and it saves a request
+    // from the daily allowance every time you get a sentence right — which,
+    // after a couple of passes at the same passage, is most times. There is
+    // also nothing a model could add: "that is the sentence" is the whole
+    // finding. See lib/shadowing-check.ts.
+    if (isWordPerfect(current, spoken)) {
+      setCheckError(null);
+      setCheckResult({
+        verdict: "match",
+        summary: "Word for word — that is exactly the sentence.",
+        differences: [],
+      });
+      return;
+    }
+
+    setChecking(true);
+    setCheckError(null);
+    try {
+      const result = await checkShadowingAttempt(current, spoken, language);
+      if (!result.ok) {
+        setCheckError(result.error);
+        return;
+      }
+      setCheckResult(result.data);
+    } catch (err) {
+      setCheckError(
+        describeClientError(err, "Couldn't check that attempt — try again."),
+      );
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  // An explicit press rather than a timeout, settled back in Answer 356:
+  // a countdown competing with how fast you read a correction is a worse
+  // idea than one deliberate act between "here is what drifted" and
+  // "moving on". Step 5's auto-advance clock hands control here too.
+  function handleContinue() {
+    if (index < sentences.length - 1) {
+      handleNext();
+    } else {
+      clearAttempt();
+    }
+  }
+
   function handleStart() {
     if (sentences.length === 0) return;
+    clearAttempt();
     setIndex(0);
     setStarted(true);
   }
 
   function handleEditPassage() {
     handleStop();
+    clearAttempt();
     setStarted(false);
   }
 
   function handlePrev() {
     handleStop();
+    clearAttempt();
     setIndex((i) => Math.max(i - 1, 0));
   }
 
   function handleNext() {
     handleStop();
+    clearAttempt();
     setIndex((i) => Math.min(i + 1, sentences.length - 1));
   }
 
@@ -277,6 +447,23 @@ export default function ShadowingTool() {
       } else if (event.key === "ArrowLeft" && index > 0) {
         event.preventDefault();
         handlePrev();
+      } else if (
+        (event.key === "r" || event.key === "R") &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        // R for record, and only bare R — Ctrl+R and Cmd+R belong to the
+        // browser, and stealing a page reload would be a genuinely
+        // unpleasant surprise.
+        if (target?.tagName === "BUTTON") return;
+        if (!canRecord && !listening) return;
+        event.preventDefault();
+        if (listening) {
+          stopListening();
+        } else {
+          handleStartRecording();
+        }
       } else if (event.key === " ") {
         // One key for both, because there's one button for both — space
         // does whatever the button in front of you currently says.
@@ -287,18 +474,25 @@ export default function ShadowingTool() {
         // and land back where it started. Click Play with the mouse, press
         // space, and without this nothing would appear to happen at all.
         if (target?.tagName === "BUTTON") return;
+        // Ignored outright while recording, rather than stopping the
+        // recording: space is the key that starts the voice talking, and
+        // the one moment it must not do that is while the microphone is
+        // open. R and Esc both still end a recording.
+        if (listening) return;
         event.preventDefault();
         if (playing) {
           handleStop();
         } else {
           handlePlay();
         }
-      } else if (event.key === "Escape" && playing) {
+      } else if (event.key === "Escape" && (playing || listening)) {
         // A second way out, and deliberately one-directional: escape means
         // stop, never start. It's the key you reach for when a voice is
-        // talking over you, and it shouldn't be able to start one.
+        // talking over you — or when you would rather this one attempt
+        // simply ended — and it shouldn't be able to start either.
         event.preventDefault();
-        handleStop();
+        if (listening) stopListening();
+        if (playing) handleStop();
       }
     }
 
@@ -308,6 +502,7 @@ export default function ShadowingTool() {
 
   function handleClear() {
     handleStop();
+    clearAttempt();
     setText("");
     setStarted(false);
     setIndex(0);
@@ -374,8 +569,8 @@ export default function ShadowingTool() {
                 Generate a passage
               </p>
               <p className="mb-3 text-xs text-zinc-600">
-                Leave anything blank and it won&apos;t be asked for — no
-                level means no particular level, not an average one.
+                Leave anything blank and it won&apos;t be asked for — no level
+                means no particular level, not an average one.
               </p>
 
               <div className="flex flex-wrap gap-3">
@@ -450,7 +645,9 @@ export default function ShadowingTool() {
                 value={topic}
                 onChange={(event) => setTopic(event.target.value)}
                 maxLength={SHADOWING_TOPIC_MAX_CHARACTERS}
-                placeholder={'Topic or notes (optional) \u2014 e.g. ordering at a bakery, or "keep it in the past tense"'}
+                placeholder={
+                  'Topic or notes (optional) \u2014 e.g. ordering at a bakery, or "keep it in the past tense"'
+                }
                 className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
               />
 
@@ -542,9 +739,7 @@ export default function ShadowingTool() {
             )}
 
             <div className="flex min-h-40 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950 p-8 text-center">
-              <p className="text-xl leading-relaxed text-zinc-100">
-                {current}
-              </p>
+              <p className="text-xl leading-relaxed text-zinc-100">{current}</p>
             </div>
 
             {playbackError && (
@@ -611,6 +806,155 @@ export default function ShadowingTool() {
                 >
                   ■ Stop
                 </button>
+              )}
+            </div>
+
+            {/* The record-and-check loop (Question 373). Below the
+                playback controls because that is the order it happens in:
+                hear it, say it, see what came back. */}
+            <div className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Disabled rather than hidden when unavailable
+                    (Answer 278): a missing button reads as a missing
+                    feature, a disabled one with a reason reads as a
+                    limitation of the browser. */}
+                <button
+                  onClick={listening ? stopListening : handleStartRecording}
+                  disabled={!canRecord}
+                  title={recordTitle}
+                  className={`flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    listening
+                      ? "bg-red-600 text-white hover:bg-red-500"
+                      : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                  }`}
+                >
+                  {listening ? (
+                    <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" />
+                  ) : (
+                    <MicIcon />
+                  )}
+                  {listening
+                    ? "Stop recording"
+                    : attempt
+                      ? "Record again"
+                      : "Record your attempt"}
+                </button>
+                <p className="flex-1 text-xs text-zinc-600">
+                  {SHADOWING_CHECK_CAVEAT}
+                </p>
+              </div>
+
+              {/* Kept out of the editable box on purpose: interim results
+                  are rewritten on every syllable, so putting them in the
+                  field would rewrite it under your cursor. */}
+              {listening && (
+                <p className="mt-3 flex items-start gap-2 text-sm text-zinc-500">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-red-500" />
+                  <span className="italic">
+                    {interimTranscript || "Listening…"}
+                  </span>
+                </p>
+              )}
+
+              {/* Two different weights on purpose: an error is something to
+                  fix before recording can work at all, a notice is just how
+                  this recording happened to end. */}
+              {recordingError && (
+                <p className="mt-3 text-sm text-red-400">{recordingError}</p>
+              )}
+              {recordingNotice && !recordingError && (
+                <p className="mt-3 text-sm text-zinc-500">{recordingNotice}</p>
+              )}
+              {!recordingSupported && (
+                <p className="mt-3 text-sm text-amber-400">
+                  Recording isn&apos;t available in this browser — try Chrome,
+                  Edge, or Safari. Listening and repeating still works; only
+                  the checking part needs a microphone.
+                </p>
+              )}
+
+              {attempt && !listening && (
+                <div className="mt-4">
+                  <label
+                    htmlFor="shadowing-attempt"
+                    className="block text-xs font-medium uppercase tracking-wider text-zinc-500"
+                  >
+                    What was heard
+                  </label>
+                  <textarea
+                    id="shadowing-attempt"
+                    value={attempt}
+                    onChange={(event) => setAttempt(event.target.value)}
+                    maxLength={SHADOWING_ATTEMPT_MAX_CHARACTERS}
+                    rows={2}
+                    className="mt-1 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 p-3 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                  />
+                  <p className="mt-1 text-xs text-zinc-600">
+                    Editable — fix anything misheard before checking, so the
+                    recogniser&apos;s guess isn&apos;t reported back to you as
+                    your mistake.
+                  </p>
+                  <button
+                    onClick={handleCheckAttempt}
+                    disabled={checking || !attempt.trim()}
+                    className="mt-3 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+                  >
+                    {checking ? "Checking…" : "Check my attempt"}
+                  </button>
+                </div>
+              )}
+
+              {checkError && (
+                <p className="mt-3 text-sm text-red-400">{checkError}</p>
+              )}
+
+              {checkResult && (
+                <div
+                  className={`mt-4 rounded-lg border p-4 ${VERDICT_STYLES[checkResult.verdict].className}`}
+                >
+                  <p className="text-sm font-semibold">
+                    {VERDICT_STYLES[checkResult.verdict].label}
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-300">
+                    {checkResult.summary}
+                  </p>
+
+                  {checkResult.differences.length > 0 && (
+                    <ul className="mt-3 space-y-2">
+                      {checkResult.differences.map((difference, i) => (
+                        <li
+                          key={`${difference.expected}-${i}`}
+                          className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3 text-sm"
+                        >
+                          <p className="text-zinc-200">
+                            <span className="text-zinc-500">Expected </span>
+                            <span className="font-medium">
+                              {difference.expected}
+                            </span>
+                            <span className="text-zinc-500"> · heard </span>
+                            <span className="font-medium">
+                              {difference.heard || "nothing"}
+                            </span>
+                          </p>
+                          <p className="mt-1 text-zinc-400">
+                            {difference.note}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {/* An explicit press rather than a countdown
+                      (Answer 356) — nothing moves on until you say so. */}
+                  <button
+                    onClick={handleContinue}
+                    className="mt-4 rounded-lg bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
+                  >
+                    {index < sentences.length - 1
+                      ? "Continue →"
+                      : "Done with this passage"}
+                  </button>
+                </div>
               )}
             </div>
 
