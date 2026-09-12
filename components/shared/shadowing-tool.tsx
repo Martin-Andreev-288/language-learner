@@ -18,9 +18,11 @@ import { SHADOWING_TOPIC_MAX_CHARACTERS } from "@/lib/limits";
 import {
   DEFAULT_SHADOWING_LENGTH,
   DEFAULT_SHADOWING_REGISTER,
+  DEFAULT_SHADOWING_SENTENCE_LENGTH,
   SHADOWING_LENGTHS,
   SHADOWING_LEVELS,
   SHADOWING_REGISTERS,
+  SHADOWING_SENTENCE_LENGTHS,
 } from "@/lib/shadowing-generation";
 
 export default function ShadowingTool() {
@@ -54,6 +56,12 @@ export default function ShadowingTool() {
   const [topic, setTopic] = useState("");
   const [register, setRegister] = useState<string>(DEFAULT_SHADOWING_REGISTER);
   const [length, setLength] = useState<string>(DEFAULT_SHADOWING_LENGTH);
+  // How long each sentence runs, separately from how many there are
+  // (Question 372) — see lib/shadowing-generation.ts for why the two are
+  // different questions.
+  const [sentenceLength, setSentenceLength] = useState<string>(
+    DEFAULT_SHADOWING_SENTENCE_LENGTH,
+  );
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   // Only changes the button's wording — "Generate another" once there's
@@ -156,6 +164,7 @@ export default function ShadowingTool() {
         topic,
         register,
         length,
+        sentenceLength,
       });
       if (!result.ok) {
         setGenerateError(result.error);
@@ -401,8 +410,12 @@ export default function ShadowingTool() {
                   </select>
                 </label>
 
+                {/* "Length" on its own stopped being a usable label once
+                    there were two of them (Question 372). Both say what
+                    they measure now, rather than one of them assuming it's
+                    the only length anyone meant. */}
                 <label className="flex items-center gap-1.5 text-sm text-zinc-400">
-                  Length
+                  Passage length
                   <select
                     value={length}
                     onChange={(event) => setLength(event.target.value)}
@@ -415,6 +428,21 @@ export default function ShadowingTool() {
                     ))}
                   </select>
                 </label>
+
+                <label className="flex items-center gap-1.5 text-sm text-zinc-400">
+                  Sentence length
+                  <select
+                    value={sentenceLength}
+                    onChange={(event) => setSentenceLength(event.target.value)}
+                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                  >
+                    {SHADOWING_SENTENCE_LENGTHS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label} ({item.words} words)
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
 
               <input
@@ -422,7 +450,7 @@ export default function ShadowingTool() {
                 value={topic}
                 onChange={(event) => setTopic(event.target.value)}
                 maxLength={SHADOWING_TOPIC_MAX_CHARACTERS}
-                placeholder="Topic (optional) — e.g. ordering at a bakery"
+                placeholder={'Topic or notes (optional) \u2014 e.g. ordering at a bakery, or "keep it in the past tense"'}
                 className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
               />
 

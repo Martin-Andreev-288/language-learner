@@ -7,12 +7,15 @@ import { z } from "zod";
 import { describeAiError } from "@/lib/ai-error";
 import { actionError, actionOk, type ActionResult } from "@/lib/action-result";
 import { SHADOWING_TOPIC_MAX_CHARACTERS } from "@/lib/limits";
+import { splitIntoSentences } from "@/lib/sentence-split";
 import {
     DEFAULT_SHADOWING_LENGTH,
     DEFAULT_SHADOWING_REGISTER,
+    DEFAULT_SHADOWING_SENTENCE_LENGTH,
     SHADOWING_LENGTHS,
     SHADOWING_REGISTER_PROMPTS,
     SHADOWING_REGISTERS,
+    SHADOWING_SENTENCE_LENGTHS,
     type GeneratedPassage,
     type ShadowingGenerationOptions,
 } from "@/lib/shadowing-generation";
@@ -43,7 +46,7 @@ export async function generateShadowingPassage(
 
     if (topic.length > SHADOWING_TOPIC_MAX_CHARACTERS) {
         return actionError(
-            `That topic is ${topic.length} characters — please keep it under ${SHADOWING_TOPIC_MAX_CHARACTERS}.`,
+            `That's ${topic.length} characters — please keep the topic or notes under ${SHADOWING_TOPIC_MAX_CHARACTERS}.`,
         );
     }
 
@@ -60,6 +63,14 @@ export async function generateShadowingPassage(
         SHADOWING_LENGTHS.find((item) => item.value === options.length) ??
         SHADOWING_LENGTHS.find((item) => item.value === DEFAULT_SHADOWING_LENGTH)!;
 
+    const sentenceLength =
+        SHADOWING_SENTENCE_LENGTHS.find(
+            (item) => item.value === options.sentenceLength,
+        ) ??
+        SHADOWING_SENTENCE_LENGTHS.find(
+            (item) => item.value === DEFAULT_SHADOWING_SENTENCE_LENGTH,
+        )!;
+
     // Each optional field contributes a line or contributes nothing. An
     // empty field says "no direction here" — the alternative, writing
     // "Topic: any", spends words telling the model to ignore something it
@@ -69,9 +80,14 @@ export async function generateShadowingPassage(
             ? `Write it in ${language}.`
             : "Choose a language yourself — any language a learner might reasonably be studying.",
         level ? `Pitch it at CEFR level ${level}.` : null,
-        topic ? `It should be about: ${topic}.` : null,
+        // Deliberately not labelled "Topic", because the field no longer is
+        // one (Question 372). Saying "topic or instruction" is what lets
+        // "use lots of past tense" be read as a direction rather than as a
+        // subject to write a passage *about*.
+        topic ? `Topic or instruction from the learner: ${topic}` : null,
         `Style: ${SHADOWING_REGISTER_PROMPTS[register] ?? register}.`,
-        `Length: about ${length.sentences} sentences.`,
+        `Length: about ${length.sentences} sentences in total.`,
+        `Keep most sentences to about ${sentenceLength.words} words each — this is read back out loud one sentence at a time, so a sentence longer than a breath is one nobody can repeat.`,
     ]
         .filter(Boolean)
         .join("\n");
@@ -89,7 +105,9 @@ export async function generateShadowingPassage(
                 schema: z.object({
                     passage: z
                         .string()
-                        .describe("The passage itself, and nothing else."),
+                        .describe(
+                            "The passage itself, and nothing else, with each sentence on its own line.",
+                        ),
                     language: z
                         .string()
                         .describe(
@@ -101,7 +119,8 @@ export async function generateShadowingPassage(
 
 ${directions}
 
-Write it as ordinary sentences of flowing text. It will be split into sentences and spoken aloud one at a time by a speech synthesiser, so:
+Put each sentence on its own line. It will be split into sentences and spoken aloud one at a time by a speech synthesiser, so:
+- One sentence per line, with no blank lines between them.
 - No headings, no bullet points, no numbering, and no stage directions.
 - No speaker labels like "A:" or "Interviewer:" even when the style is a conversation — write the turns as ordinary sentences.
 - Nothing in brackets, and no notes to the reader.
@@ -119,8 +138,22 @@ Also report which language you wrote it in.`,
         return actionError("That came back empty — try generating again.");
     }
 
+    // One sentence per line, made true rather than asked for (Question 372).
+    //
+    // The prompt asks, and a model mostly complies, but "mostly" is the
+    // wrong guarantee here: a line break is the one thing the splitter
+    // treats as an unconditional boundary, so a generated passage that
+    // arrives one-per-line can't be mis-split by an abbreviation or an
+    // initial the list doesn't know. Running it through the same splitter
+    // the page will use makes that certain — and when the model did comply,
+    // the splitter sees the line breaks it already has and changes nothing.
+    //
+    // What this costs is paragraph breaks, which a passage read one
+    // sentence at a time was never showing anyway.
+    const lines = splitIntoSentences(passage);
+
     return actionOk({
-        passage,
+        passage: lines.length > 0 ? lines.join("\n") : passage,
         // What was asked for wins over what was reported: the language field
         // is what picks the voice, and quietly rewriting a choice you made
         // would be worse than trusting it. The reported one only fills the

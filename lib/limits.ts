@@ -67,5 +67,11 @@ export const WORD_LOOKUP_MAX_CONTEXT_LENGTH = 500;
 // bounded by the length preset, so nothing else there can run away — but a
 // topic goes straight into the prompt, so an enormous one is both a cost
 // and a way to smuggle instructions in behind a label that says "topic".
-// Short enough that anything longer isn't a topic any more.
-export const SHADOWING_TOPIC_MAX_CHARACTERS = 120;
+//
+// Raised from 120 when the field started accepting directions as well as
+// topics (Question 372): "a bakery" fits in 120 characters, but "keep it in
+// the past tense and use the formal you throughout" is the kind of thing
+// the field now invites, and it shouldn't be cut off mid-sentence. Still a
+// ceiling rather than a licence — long enough for a line of direction,
+// short enough that a pasted essay doesn't fit.
+export const SHADOWING_TOPIC_MAX_CHARACTERS = 240;

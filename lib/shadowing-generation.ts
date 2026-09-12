@@ -75,6 +75,27 @@ export const SHADOWING_LENGTHS = [
 
 export type ShadowingLength = (typeof SHADOWING_LENGTHS)[number]["value"];
 
+// How long each individual sentence runs (Question 372).
+//
+// A separate question from the one above, and the passage showed why: a
+// "Medium" passage of six sentences can still be six sentences nobody can
+// hold in their head long enough to repeat, which is the whole exercise.
+// Passage length is how long the session is; this is whether each turn of
+// it is shadowable.
+//
+// Word counts rather than clause counts, because a word count is the one
+// thing a model reliably obeys — and stated as "most sentences" rather than
+// "every sentence", since a hard per-sentence quota produces text that
+// sounds counted out rather than spoken.
+export const SHADOWING_SENTENCE_LENGTHS = [
+    { value: "short", label: "Short", words: "6 to 10" },
+    { value: "medium", label: "Medium", words: "12 to 16" },
+    { value: "long", label: "Long", words: "20 to 30" },
+] as const;
+
+export type ShadowingSentenceLength =
+    (typeof SHADOWING_SENTENCE_LENGTHS)[number]["value"];
+
 // Used when nothing is chosen (Question 357). Conversational rather than
 // formal isn't arbitrary: this is a speaking tool, and the natural spoken
 // register is the more honest default than narration, which reads well on
@@ -82,6 +103,12 @@ export type ShadowingLength = (typeof SHADOWING_LENGTHS)[number]["value"];
 export const DEFAULT_SHADOWING_REGISTER: ShadowingRegister =
     "Everyday conversation";
 export const DEFAULT_SHADOWING_LENGTH: ShadowingLength = "medium";
+// Middle of the three rather than the shortest, even though sentences being
+// too long is what prompted the control. Shortest-by-default would quietly
+// flatten every level to the same clipped rhythm, including the C1 practice
+// where a long sentence is the point.
+export const DEFAULT_SHADOWING_SENTENCE_LENGTH: ShadowingSentenceLength =
+    "medium";
 
 // The same A1–C2 scale the rest of the app already uses, rather than a
 // second one invented here.
@@ -89,10 +116,14 @@ export const SHADOWING_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
 
 export interface ShadowingGenerationOptions {
     language?: string;
-    level?: string;
+    // Topic *or* free direction — "ordering at a bakery", but equally "use
+    // lots of past tense" (Question 372). One field rather than two because
+    // both end up as the same thing: a line of prose appended to the prompt.
     topic?: string;
+    level?: string;
     register?: string;
     length?: string;
+    sentenceLength?: string;
 }
 
 export interface GeneratedPassage {
