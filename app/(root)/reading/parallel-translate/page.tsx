@@ -1,7 +1,10 @@
 import { auth } from "@/auth";
 import { getDefaultTranslateLanguage } from "@/app/actions/user-actions";
 import AuthPrompt from "@/components/shared/auth-prompt";
+import { featureTool } from "@/lib/feature-sections";
 import ParallelTranslateTool from "@/components/shared/parallel-translate-tool";
+
+const tool = featureTool("/reading/parallel-translate");
 
 export default async function ParallelTranslatePage() {
   const session = await auth();
@@ -9,8 +12,8 @@ export default async function ParallelTranslatePage() {
   if (!session) {
     return (
       <AuthPrompt
-        featureName="Parallel Translate"
-        description="Paste the same passage in two or more languages and get it back aligned sentence by sentence."
+        featureName={tool.authName}
+        description={tool.description}
       />
     );
   }

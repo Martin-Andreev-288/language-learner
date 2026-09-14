@@ -1,7 +1,10 @@
 import { auth } from "@/auth";
 import { getDefaultTranslateLanguage } from "@/app/actions/user-actions";
 import AuthPrompt from "@/components/shared/auth-prompt";
+import { featureTool } from "@/lib/feature-sections";
 import InlineTranslateTool from "@/components/shared/inline-translate-tool";
+
+const tool = featureTool("/reading/inline-translate");
 
 export default async function InlineTranslatePage() {
   const session = await auth();
@@ -9,8 +12,8 @@ export default async function InlineTranslatePage() {
   if (!session) {
     return (
       <AuthPrompt
-        featureName="Inline Translate"
-        description="Click the words you don't know in a pasted passage and get their translation inserted right next to them."
+        featureName={tool.authName}
+        description={tool.description}
       />
     );
   }

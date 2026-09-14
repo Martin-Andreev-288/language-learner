@@ -1,6 +1,9 @@
 import { auth } from "@/auth";
 import AuthPrompt from "@/components/shared/auth-prompt";
+import { featureTool } from "@/lib/feature-sections";
 import ShadowingTool from "@/components/shared/shadowing-tool";
+
+const tool = featureTool("/speaking/shadowing");
 
 export default async function ShadowingPracticePage() {
   const session = await auth();
@@ -8,8 +11,8 @@ export default async function ShadowingPracticePage() {
   if (!session) {
     return (
       <AuthPrompt
-        featureName="Shadowing Practice"
-        description="Paste a passage and go through it one sentence at a time to practice repeating it out loud."
+        featureName={tool.authName}
+        description={tool.description}
       />
     );
   }

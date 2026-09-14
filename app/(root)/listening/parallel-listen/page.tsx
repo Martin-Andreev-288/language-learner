@@ -1,6 +1,9 @@
 import { auth } from "@/auth";
 import AuthPrompt from "@/components/shared/auth-prompt";
+import { featureTool } from "@/lib/feature-sections";
 import ParallelListenTool from "@/components/shared/parallel-listen-tool";
+
+const tool = featureTool("/listening/parallel-listen");
 
 export default async function ParallelListenPage() {
   const session = await auth();
@@ -8,8 +11,8 @@ export default async function ParallelListenPage() {
   if (!session) {
     return (
       <AuthPrompt
-        featureName="Parallel Listen"
-        description="Paste the same passage in two or more languages and listen to only the ones you choose, sentence by sentence."
+        featureName={tool.authName}
+        description={tool.description}
       />
     );
   }

@@ -1,6 +1,12 @@
-import Link from "next/link";
 import { auth } from "@/auth";
 import AuthPrompt from "@/components/shared/auth-prompt";
+import FeatureHub from "@/components/shared/feature-hub";
+import { featureSection } from "@/lib/feature-sections";
+
+// Landing page for the section (Question 379). Everything it shows comes
+// from lib/feature-sections.ts, so adding a tool here is a line in that file
+// rather than an edit to this one.
+const section = featureSection("/vocabulary");
 
 export default async function VocabularyPage() {
   const session = await auth();
@@ -8,36 +14,11 @@ export default async function VocabularyPage() {
   if (!session) {
     return (
       <AuthPrompt
-        featureName="Vocabulary Tracking"
-        description="Keep track of all the words you've encountered in reading and writing practice."
+        featureName={section.title}
+        description={section.description}
       />
     );
   }
 
-  return (
-    <div className="mx-auto max-w-4xl px-8 py-16">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-[#2c3e50]">
-          📝 Vocabulary Tracking
-        </h1>
-        <p className="mt-2 text-gray-600">
-          Welcome, {session.user?.name}! This feature is coming soon.
-        </p>
-      </div>
-
-      <div className="rounded-xl bg-white p-8 shadow-lg">
-        <div className="space-y-4 text-center">
-          <p className="text-gray-500">
-            Your vocabulary list will appear here.
-          </p>
-          <Link
-            href="/vocabulary/shuffle"
-            className="inline-flex items-center rounded-lg bg-[#4facfe] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#2f8fe3]"
-          >
-            Open Vocab Shuffle →
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
+  return <FeatureHub section={section} />;
 }

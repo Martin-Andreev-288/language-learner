@@ -1,8 +1,11 @@
 import { auth } from "@/auth";
 import AuthPrompt from "@/components/shared/auth-prompt";
+import { featureTool } from "@/lib/feature-sections";
 import { getShuffleFolderTree } from "@/app/actions/shuffle-folder-actions";
 import { ShuffleListType } from "@/app/generated/prisma";
 import VocabularyShuffleDashboard from "@/components/shared/vocabulary-shuffle-dashboard";
+
+const tool = featureTool("/vocabulary/shuffle");
 
 export default async function VocabularyShufflePage() {
   const session = await auth();
@@ -10,8 +13,8 @@ export default async function VocabularyShufflePage() {
   if (!session) {
     return (
       <AuthPrompt
-        featureName="Vocabulary Shuffle"
-        description="Create word lists, group them by topics, and review them in randomized order."
+        featureName={tool.authName}
+        description={tool.description}
       />
     );
   }

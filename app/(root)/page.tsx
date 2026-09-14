@@ -1,60 +1,13 @@
 import Link from "next/link";
 import { APP_NAME, APP_DESCRIPTION } from "@/lib/constants";
 import { auth } from "@/auth";
+import { ALL_FEATURES } from "@/lib/feature-sections";
 
-// Dashboard feature cards for authenticated users
-const dashboardFeatures = [
-  {
-    href: "/reading",
-    emoji: "📖",
-    title: "Reading Practice",
-    description: "Read texts and track your vocabulary progress.",
-    gradient: "from-[#667eea] to-[#764ba2]",
-  },
-  {
-    href: "/writing",
-    emoji: "✍️",
-    title: "Writing Practice",
-    description: "Practice writing in your target language.",
-    gradient: "from-[#f093fb] to-[#f5576c]",
-  },
-  {
-    href: "/vocabulary",
-    emoji: "📝",
-    title: "Vocabulary",
-    description: "Track words from reading and writing practice.",
-    gradient: "from-[#4facfe] to-[#00f2fe]",
-  },
-  {
-    href: "/listening",
-    emoji: "🎧",
-    title: "Listening",
-    description: "Sharpen your listening comprehension with audio practice.",
-    gradient: "from-[#30cfd0] to-[#330867]",
-  },
-  {
-    href: "/speaking",
-    emoji: "🗣️",
-    title: "Speaking",
-    description: "Practice speaking and pronunciation in your target language.",
-    gradient: "from-[#f6d365] to-[#fda085]",
-  },
-  {
-    href: "/vocabulary-analyzer",
-    emoji: "🔍",
-    title: "Analyzer",
-    description: "Analyze any text for word frequency and progress.",
-    gradient: "from-[#43e97b] to-[#38f9d7]",
-  },
-  {
-    href: "/notes",
-    emoji: "📓",
-    title: "Notes",
-    description: "Take notes on grammar, vocabulary, and more.",
-    gradient: "from-[#fa709a] to-[#fee140]",
-  },
-];
-
+// Both views are built from lib/feature-sections.ts rather than from lists
+// written out here (Question 379). The signed-in cards and the guest
+// showcase used to be two hand-maintained copies of roughly the same seven
+// features, which is how the guest one ended up still advertising an "AI
+// Assistant (coming soon)" long after AI had arrived in six of the tools.
 export default async function Home() {
   const session = await auth();
 
@@ -75,7 +28,7 @@ export default async function Home() {
 
           {/* Quick-Access Feature Cards */}
           <div className="mb-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {dashboardFeatures.map((feature) => (
+            {ALL_FEATURES.map((feature) => (
               <Link
                 key={feature.href}
                 href={feature.href}
@@ -90,6 +43,14 @@ export default async function Home() {
                   {feature.title}
                 </h3>
                 <p className="text-sm text-gray-600">{feature.description}</p>
+                {/* Says how many tools are behind the card, so the click is
+                    a known quantity rather than a guess. The two features
+                    that are a single page say nothing and simply open. */}
+                {feature.tools.length > 0 && (
+                  <p className="mt-3 text-xs font-medium text-gray-400">
+                    {feature.tools.length} tools
+                  </p>
+                )}
               </Link>
             ))}
           </div>
@@ -113,7 +74,7 @@ export default async function Home() {
     );
   }
 
-  // ─── Guest View: Marketing / Feature Showcase (unchanged) ───
+  // ─── Guest View: Marketing / Feature Showcase ───
   return (
     <div className="w-full">
       <div className="mx-auto max-w-4xl px-8 py-16">
@@ -149,99 +110,27 @@ export default async function Home() {
             What You Can Do
           </h2>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {/* Reading Feature */}
-            <div className="rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
-              <div className="mb-4 text-4xl">📖</div>
-              <h3 className="mb-2 text-xl font-semibold text-[#2c3e50]">
-                Reading Practice
-              </h3>
-              <p className="text-gray-600">
-                Read texts and track your vocabulary progress. See which words
-                are new and which you&apos;ve already learned.
-              </p>
-            </div>
-
-            {/* Writing Feature */}
-            <div className="rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
-              <div className="mb-4 text-4xl">✍️</div>
-              <h3 className="mb-2 text-xl font-semibold text-[#2c3e50]">
-                Writing Practice
-              </h3>
-              <p className="text-gray-600">
-                Practice writing in your target language and track the words you
-                use in your compositions.
-              </p>
-            </div>
-
-            {/* Vocabulary Feature */}
-            <div className="rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
-              <div className="mb-4 text-4xl">📝</div>
-              <h3 className="mb-2 text-xl font-semibold text-[#2c3e50]">
-                Vocabulary Tracking
-              </h3>
-              <p className="text-gray-600">
-                Keep track of all the words you&apos;ve encountered in reading
-                and writing practice.
-              </p>
-            </div>
-
-            {/* Listening Feature */}
-            <div className="rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
-              <div className="mb-4 text-4xl">🎧</div>
-              <h3 className="mb-2 text-xl font-semibold text-[#2c3e50]">
-                Listening
-              </h3>
-              <p className="text-gray-600">
-                Sharpen your listening comprehension with audio practice.
-              </p>
-            </div>
-
-            {/* Speaking Feature */}
-            <div className="rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
-              <div className="mb-4 text-4xl">🗣️</div>
-              <h3 className="mb-2 text-xl font-semibold text-[#2c3e50]">
-                Speaking
-              </h3>
-              <p className="text-gray-600">
-                Practice speaking and pronunciation in your target language.
-              </p>
-            </div>
-
-            {/* Vocabulary Analyzer Feature */}
-            <div className="rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
-              <div className="mb-4 text-4xl">🔍</div>
-              <h3 className="mb-2 text-xl font-semibold text-[#2c3e50]">
-                Vocabulary Analyzer
-              </h3>
-              <p className="text-gray-600">
-                Analyze any text to see word counts, identify new vs. repeated
-                words, and track your progress.
-              </p>
-            </div>
-
-            {/* Notes Feature */}
-            <div className="rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
-              <div className="mb-4 text-4xl">📓</div>
-              <h3 className="mb-2 text-xl font-semibold text-[#2c3e50]">
-                Notes
-              </h3>
-              <p className="text-gray-600">
-                Take notes on grammar rules, vocabulary, and anything else you
-                want to remember.
-              </p>
-            </div>
-
-            {/* AI Feature (Coming Soon) */}
-            <div className="rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
-              <div className="mb-4 text-4xl">🤖</div>
-              <h3 className="mb-2 text-xl font-semibold text-[#2c3e50]">
-                AI Assistant
-              </h3>
-              <p className="text-gray-600">
-                Get personalized recommendations and translations powered by AI
-                (coming soon).
-              </p>
-            </div>
+            {ALL_FEATURES.map((feature) => (
+              <div
+                key={feature.href}
+                className="rounded-xl bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+              >
+                <div className="mb-4 text-4xl">{feature.emoji}</div>
+                <h3 className="mb-2 text-xl font-semibold text-[#2c3e50]">
+                  {feature.title}
+                </h3>
+                <p className="text-gray-600">{feature.description}</p>
+                {/* Naming the tools rather than only the section: this is
+                    the page that has to convince someone the app is worth
+                    signing in to, and "Speaking" alone says far less than
+                    the four things it can actually do. */}
+                {feature.tools.length > 0 && (
+                  <p className="mt-3 text-sm text-gray-400">
+                    {feature.tools.map((tool) => tool.label).join(" · ")}
+                  </p>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 

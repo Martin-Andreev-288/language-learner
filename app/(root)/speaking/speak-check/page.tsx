@@ -1,6 +1,9 @@
 import { auth } from "@/auth";
 import AuthPrompt from "@/components/shared/auth-prompt";
+import { featureTool } from "@/lib/feature-sections";
 import CheckTool from "@/components/shared/check-tool";
+
+const tool = featureTool("/speaking/speak-check");
 
 export default async function SpeakCheckPage() {
   const session = await auth();
@@ -8,8 +11,8 @@ export default async function SpeakCheckPage() {
   if (!session) {
     return (
       <AuthPrompt
-        featureName="Speak Check"
-        description="Say something in the language you're learning and get mistakes pointed out with a corrected version and an explanation."
+        featureName={tool.authName}
+        description={tool.description}
       />
     );
   }

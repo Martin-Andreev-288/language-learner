@@ -1,6 +1,9 @@
 import { auth } from "@/auth";
 import AuthPrompt from "@/components/shared/auth-prompt";
+import { featureTool } from "@/lib/feature-sections";
 import CheckTool from "@/components/shared/check-tool";
+
+const tool = featureTool("/writing/writing-check");
 
 export default async function WritingCheckPage() {
   const session = await auth();
@@ -8,8 +11,8 @@ export default async function WritingCheckPage() {
   if (!session) {
     return (
       <AuthPrompt
-        featureName="Writing Check"
-        description="Paste or write something and get mistakes pointed out with a corrected version and an explanation."
+        featureName={tool.authName}
+        description={tool.description}
       />
     );
   }

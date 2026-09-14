@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
+import { ALL_FEATURES } from "@/lib/feature-sections";
 
 interface SubLink {
   href: string;
@@ -15,64 +16,32 @@ interface NavItem {
   subLinks?: SubLink[];
 }
 
+// Built from lib/feature-sections.ts rather than written out here
+// (Question 379). This array used to be the only correct list of what the
+// app contains, which was the problem: the pages those labels led to still
+// said the feature was coming soon.
+//
+// Two labels also changed where they go. "Reading" pointed at
+// /reading/shuffle and "Vocabulary" at /vocabulary/shuffle — reasonable when
+// /reading was a stub worth skipping, and confusing now that it isn't:
+// clicking Reading in the header and clicking Reading on the home page
+// landed you in two different places. Both now open the section.
 const navLinks: NavItem[] = [
   { href: "/", label: "Home" },
-  {
-    href: "/reading/shuffle",
-    label: "Reading",
-    subLinks: [
-      { href: "/reading/shuffle", label: "Reading Shuffle" },
-      { href: "/reading/parallel-translate", label: "Parallel Translate" },
-      { href: "/reading/inline-translate", label: "Inline Translate" },
-      { href: "/reading/notes", label: "Notes" },
-    ],
-  },
-  {
-    href: "/writing",
-    label: "Writing",
-    subLinks: [
-      { href: "/writing/writing-check", label: "Writing Check" },
-      { href: "/writing/chat", label: "Chat" },
-      { href: "/writing/notes", label: "Notes" },
-    ],
-  },
-  {
-    href: "/vocabulary/shuffle",
-    label: "Vocabulary",
-    subLinks: [
-      { href: "/vocabulary/word-list", label: "Word List" },
-      { href: "/vocabulary/shuffle", label: "Vocab Shuffle" },
-      { href: "/vocabulary/notes", label: "Notes" },
-    ],
-  },
-  {
-    href: "/listening",
-    label: "Listening",
-    subLinks: [
-      { href: "/listening/parallel-listen", label: "Parallel Listen" },
-      { href: "/listening/inline-listen", label: "Inline Listen" },
-      { href: "/listening/notes", label: "Notes" },
-    ],
-  },
-  {
-    href: "/speaking",
-    label: "Speaking",
-    subLinks: [
-      { href: "/speaking/speak-check", label: "Speak Check" },
-      { href: "/speaking/voice-chat", label: "Voice Chat" },
-      { href: "/speaking/shadowing", label: "Shadowing Practice" },
-      { href: "/speaking/notes", label: "Notes" },
-    ],
-  },
-  {
-    href: "/vocabulary-analyzer",
-    label: "Analyzer",
-    subLinks: [{ href: "/vocabulary-analyzer", label: "Analyze Text" }],
-  },
-  {
-    href: "/notes",
-    label: "Notes",
-  },
+  ...ALL_FEATURES.map((feature) => ({
+    href: feature.href,
+    label: feature.label,
+    // A section with one page gets no dropdown at all, rather than a menu
+    // holding a single item that repeats the label above it.
+    ...(feature.tools.length > 0
+      ? {
+          subLinks: feature.tools.map((tool) => ({
+            href: tool.href,
+            label: tool.label,
+          })),
+        }
+      : {}),
+  })),
 ];
 
 interface NavLinksProps {
