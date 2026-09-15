@@ -33,8 +33,8 @@ export interface FeatureSection {
     // hard-coded pairs would be more machinery than colours.
     gradient: string;
     description: string;
-    // Empty for the two features that are a single page rather than a
-    // section — see STANDALONE_FEATURES below.
+    // Empty for a feature that is a single page rather than a section —
+    // see STANDALONE_FEATURES below.
     tools: FeatureTool[];
 }
 
@@ -217,20 +217,14 @@ export const FEATURE_SECTIONS: FeatureSection[] = [
 
 // One page each, so there is nothing to land on and choose between. They
 // appear on the home page beside the sections and in the header as plain
-// links — the Analyzer used to have a dropdown containing one item that
-// pointed at the page the label already went to, which is a menu that can
-// only ever waste a click.
+// links rather than as a label with a menu under it.
+//
+// A list of one, for now. It held the Vocabulary Analyzer too until
+// Question 385 retired that feature; the shape is kept rather than folded
+// into FEATURE_SECTIONS because the distinction it draws — a feature that
+// is one page versus a section you choose within — is still real, and the
+// header and home page both still branch on it.
 export const STANDALONE_FEATURES: FeatureSection[] = [
-    {
-        href: "/vocabulary-analyzer",
-        label: "Analyzer",
-        title: "Vocabulary Analyzer",
-        emoji: "🔍",
-        gradient: "from-[#43e97b] to-[#38f9d7]",
-        description:
-            "Analyze any text to see word counts, and which words are new to you.",
-        tools: [],
-    },
     {
         href: "/notes",
         label: "Notes",

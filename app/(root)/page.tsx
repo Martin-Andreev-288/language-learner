@@ -27,7 +27,7 @@ export default async function Home() {
           </div>
 
           {/* Quick-Access Feature Cards */}
-          <div className="mb-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {ALL_FEATURES.map((feature) => (
               <Link
                 key={feature.href}
@@ -54,21 +54,6 @@ export default async function Home() {
               </Link>
             ))}
           </div>
-
-          {/* Recent Activity Placeholder */}
-          <div className="rounded-xl bg-white p-8 shadow-lg">
-            <h2 className="mb-4 text-xl font-bold text-[#2c3e50]">
-              📊 Recent Activity
-            </h2>
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <p className="mb-2 text-gray-500">
-                Your learning activity will appear here as you use the app.
-              </p>
-              <p className="text-sm text-gray-400">
-                Start by analyzing a text or practicing your reading!
-              </p>
-            </div>
-          </div>
         </div>
       </div>
     );
@@ -90,10 +75,10 @@ export default async function Home() {
           {/* Call to Action Buttons */}
           <div className="flex flex-wrap justify-center gap-4">
             <Link
-              href="/vocabulary-analyzer"
+              href="/sign-up"
               className="rounded-lg bg-linear-to-br from-[#667eea] to-[#764ba2] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
             >
-              Try as Guest
+              Create a free account
             </Link>
             <Link
               href="/sign-in"
@@ -105,7 +90,7 @@ export default async function Home() {
         </div>
 
         {/* Features Section */}
-        <div className="mb-16">
+        <div>
           <h2 className="mb-8 text-center text-3xl font-bold text-[#2c3e50]">
             What You Can Do
           </h2>
@@ -131,24 +116,6 @@ export default async function Home() {
                 )}
               </div>
             ))}
-          </div>
-        </div>
-
-        {/* Quick Start Section */}
-        <div className="rounded-xl bg-white p-8 shadow-lg">
-          <h2 className="mb-6 text-center text-2xl font-bold text-[#2c3e50]">
-            Get Started Now
-          </h2>
-          <p className="mb-6 text-center text-gray-600">
-            Try our Vocabulary Analyzer right now to see how the app works!
-          </p>
-          <div className="flex justify-center">
-            <Link
-              href="/vocabulary-analyzer"
-              className="rounded-lg bg-linear-to-br from-[#4facfe] to-[#00f2fe] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
-            >
-              Open Vocabulary Analyzer →
-            </Link>
           </div>
         </div>
       </div>
