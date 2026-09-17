@@ -16,6 +16,7 @@ import {
   generateShadowingPassage,
 } from "@/app/actions/shadowing-actions";
 import MicIcon from "@/components/shared/mic-icon";
+import KeyboardHints from "@/components/shared/keyboard-hints";
 import { useSpeechToText } from "@/lib/use-speech-to-text";
 import {
   isWordPerfect,
@@ -1217,6 +1218,20 @@ export default function ShadowingTool() {
                 </button>
               )}
             </div>
+
+            {/* The shortcuts were only ever in the buttons' tooltips, which
+                means only a mouse could find them (Question 386, item 1).
+                Record is listed last because it is the one that does
+                nothing until a language is set. */}
+            <KeyboardHints
+              className="mt-4"
+              hints={[
+                { keys: ["←", "→"], label: "sentence" },
+                { keys: ["Space"], label: "play / stop" },
+                { keys: ["R"], label: "record" },
+                { keys: ["Esc"], label: "stop" },
+              ]}
+            />
           </div>
         )}
       </div>

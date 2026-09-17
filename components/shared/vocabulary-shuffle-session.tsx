@@ -15,6 +15,7 @@ import { languageNameForCode } from "@/lib/language-codes";
 import { shuffle } from "@/lib/shuffle";
 import { tokenizeWords } from "@/lib/clickable-words";
 import { describeClientError } from "@/lib/client-error";
+import KeyboardHints from "@/components/shared/keyboard-hints";
 
 type LookupResult = {
   word: string;
@@ -259,6 +260,22 @@ export default function VocabularyShuffleSession({
     setIndex((currentIndex) => Math.min(currentIndex + 1, queue.length));
   }
 
+  // Back one card (Question 386, item 2). Shadowing has had this since
+  // Question 361; flashcards only ever went forwards, so a card you skipped
+  // past by a keystroke was gone for the rest of the session.
+  //
+  // Safe as a plain index step, which is worth stating because it wouldn't
+  // be under a different queue model: marking a card memorized here *edits*
+  // it in place rather than dropping it from the queue, so the list you are
+  // walking doesn't change shape underneath you and the card at index - 1 is
+  // still the card you just saw. Deleting is the one thing that does shorten
+  // the queue, and it already re-clamps the index itself.
+  function handlePrev() {
+    setEditing(false);
+    setConfirmDelete(false);
+    setIndex((currentIndex) => Math.max(currentIndex - 1, 0));
+  }
+
   function handleToggleMemorized() {
     if (!current) return;
 
@@ -377,6 +394,10 @@ export default function VocabularyShuffleSession({
         case "ArrowRight":
           event.preventDefault();
           handleNext();
+          break;
+        case "ArrowLeft":
+          event.preventDefault();
+          handlePrev();
           break;
         case "m":
         case "M":
@@ -543,8 +564,20 @@ export default function VocabularyShuffleSession({
                 </div>
               )}
 
-              <div className="flex items-center justify-between gap-2 px-5 pb-5 pt-2">
-                <div className="flex items-center gap-2">
+              {/* Wraps rather than sits on one line (Question 391). The
+                  card is max-w-lg — 512px — and the row held five buttons
+                  before Previous joined it. Six never fit, and because the
+                  card is overflow-hidden the surplus wasn't pushed out of
+                  view, it was sliced off mid-button.
+
+                  justify-between traded for ml-auto on the nav pair: with
+                  wrapping enabled, justify-between drops a wrapped group to
+                  the *left* of the new line, while ml-auto keeps it right
+                  whether it shares the line or takes its own. The result is
+                  actions on one row and movement on the next, which is a
+                  better grouping than the accident that produced it. */}
+              <div className="flex flex-wrap items-center gap-2 px-5 pb-3 pt-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={handleToggleMemorized}
                     title="Shortcut: M"
@@ -601,15 +634,46 @@ export default function VocabularyShuffleSession({
                   )}
                 </div>
 
-                <button
-                  onClick={handleNext}
-                  title="Shortcut: Enter / Space / →"
-                  className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-                >
-                  Next
-                  <ChevronRightIcon />
-                </button>
+                {/* Previous sits beside Next rather than the new key
+                    being keyboard-only. A shortcut with nothing on screen
+                    that corresponds to it is a feature only the person who
+                    built it knows about — which is the complaint that
+                    started this pair of changes in the first place. */}
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    onClick={handlePrev}
+                    disabled={index === 0}
+                    title="Shortcut: ←"
+                    className="flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronLeftIcon />
+                    Previous
+                  </button>
+                  <button
+                    onClick={handleNext}
+                    title="Shortcut: Enter / Space / →"
+                    className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+                  >
+                    Next
+                    <ChevronRightIcon />
+                  </button>
+                </div>
               </div>
+
+              {/* Listed rather than left in the buttons' tooltips
+                  (Question 386, item 1). Ordered by how often you'd reach
+                  for them, not alphabetically or by keyboard position. */}
+              <KeyboardHints
+                className="px-5 pb-5"
+                hints={[
+                  { keys: ["←", "→"], label: "move" },
+                  { keys: ["Space"], label: "next" },
+                  { keys: ["M"], label: "memorized" },
+                  { keys: ["F"], label: "favourite" },
+                  { keys: ["E"], label: "edit" },
+                  { keys: ["B"], label: "back" },
+                ]}
+              />
             </>
           )}
         </div>
