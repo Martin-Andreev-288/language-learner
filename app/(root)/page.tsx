@@ -87,6 +87,25 @@ export default async function Home() {
               Sign In
             </Link>
           </div>
+
+          {/* The way into the one tool that works signed out (Question 399).
+              A third button would have crowded the two that matter; a line
+              underneath them offers it without competing.
+
+              Question 385 removed the Analyzer and with it the only "try it
+              first" path this page had. This is what puts one back, and it
+              is a better one — the Analyzer counted words, while this is the
+              app actually doing the thing it is for. */}
+          <p className="mt-6 text-sm text-[#5a6c7d]">
+            Or{" "}
+            <Link
+              href="/speaking/shadowing"
+              className="font-semibold text-[#667eea] underline underline-offset-2 transition-colors hover:text-[#4c63d2]"
+            >
+              try Shadowing Practice without an account
+            </Link>{" "}
+            first.
+          </p>
         </div>
 
         {/* Features Section */}

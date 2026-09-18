@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { splitIntoSentences } from "@/lib/sentence-split";
 import { guessLanguageCode } from "@/lib/language-codes";
 import LanguageCombobox from "@/components/shared/language-combobox";
@@ -16,6 +17,7 @@ import {
   generateShadowingPassage,
 } from "@/app/actions/shadowing-actions";
 import MicIcon from "@/components/shared/mic-icon";
+import SignInToUse from "@/components/shared/sign-in-to-use";
 import KeyboardHints from "@/components/shared/keyboard-hints";
 import { useSpeechToText } from "@/lib/use-speech-to-text";
 import {
@@ -79,7 +81,26 @@ const VERDICT_STYLES = {
   },
 } as const;
 
-export default function ShadowingTool() {
+// The one tool a signed-out visitor can open (Question 399).
+//
+// Everything that runs in the browser works without an account: pasting a
+// passage, splitting it, playing it, moving through it, auto-advance, and
+// even recording an attempt — the microphone is the browser's own, and the
+// words it hears never leave the page. What needs an account is the three
+// things that need a server: generating a passage, checking an attempt
+// against what you said, and saving to a note.
+//
+// That split is not a compromise, it is the reason this tool was chosen for
+// this over the other sixteen. The free parts are most of the feature, so a
+// visitor sees a real tool rather than a screenshot with the buttons
+// removed — and the gate lands exactly where the interesting part starts.
+export default function ShadowingTool({
+  isAuthenticated = true,
+}: {
+  // Defaulted to true so every other caller keeps working untouched. Only
+  // the page that deliberately serves guests passes it.
+  isAuthenticated?: boolean;
+}) {
   // Restored from a carry, if you arrived by pressing "Practice again" on a
   // saved note — read as part of the initial state itself rather than in an
   // effect afterwards (Answer 171's discipline), and read exactly once into
@@ -693,6 +714,26 @@ export default function ShadowingTool() {
             Paste a passage, then go through it one sentence at a time —
             practice repeating each one out loud at your own pace.
           </p>
+
+          {/* Said once, up front, rather than left to be discovered three
+              times (Question 399). A visitor who meets the first locked
+              button with no warning reads it as the page being broken; one
+              who was told which parts need an account reads the same button
+              as a boundary they already knew about. */}
+          {!isAuthenticated && (
+            <p className="mt-4 rounded-lg border border-indigo-900/60 bg-indigo-950/40 px-4 py-3 text-sm text-indigo-200">
+              You&apos;re trying this without an account. Pasting, playing and
+              recording all work. Generating a passage, checking what you said
+              and saving to notes need one —{" "}
+              <Link
+                href="/sign-up"
+                className="font-medium underline underline-offset-2 transition-colors hover:text-white"
+              >
+                it&apos;s free
+              </Link>
+              .
+            </p>
+          )}
         </div>
 
         {!started ? (
@@ -820,17 +861,26 @@ export default function ShadowingTool() {
                 className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
               />
 
-              <button
-                onClick={handleGenerate}
-                disabled={generating}
-                className="mt-3 rounded-lg bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {generating
-                  ? "Generating…"
-                  : hasGenerated
-                    ? "Generate another"
-                    : "Generate"}
-              </button>
+              {/* The settings above stay visible and usable to a guest
+                  even though the button below them doesn't. They are what
+                  explain the feature — a Level, a Style, a Length and a
+                  topic box say what generating a passage would do far
+                  better than a sentence about it would. */}
+              {isAuthenticated ? (
+                <button
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  className="mt-3 rounded-lg bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {generating
+                    ? "Generating…"
+                    : hasGenerated
+                      ? "Generate another"
+                      : "Generate"}
+                </button>
+              ) : (
+                <SignInToUse className="mt-3" what="Generating a passage" />
+              )}
 
               {generateError && (
                 <p className="mt-2 text-sm text-red-400">{generateError}</p>
@@ -879,21 +929,35 @@ export default function ShadowingTool() {
                 {/* Here rather than on the paste screen, because this is
                     where you find out whether a passage was worth keeping —
                     you've just practised it (Question 360). */}
-                <button
-                  onClick={handleSaveToNote}
-                  disabled={savingNote || !text.trim()}
-                  className={`text-sm font-medium transition-colors disabled:cursor-not-allowed ${
-                    noteSaved
-                      ? "text-emerald-400"
-                      : "text-zinc-400 hover:text-zinc-200 disabled:text-zinc-600"
-                  }`}
-                >
-                  {noteSaved
-                    ? "Saved!"
-                    : savingNote
-                      ? "Saving…"
-                      : "Save to a new note"}
-                </button>
+                {/* A link rather than the bordered panel the other two
+                    get. This one sits in a tight row beside "Back to
+                    passage", where a three-line box would shove the whole
+                    header around for the least important of the three. */}
+                {isAuthenticated ? (
+                  <button
+                    onClick={handleSaveToNote}
+                    disabled={savingNote || !text.trim()}
+                    className={`text-sm font-medium transition-colors disabled:cursor-not-allowed ${
+                      noteSaved
+                        ? "text-emerald-400"
+                        : "text-zinc-400 hover:text-zinc-200 disabled:text-zinc-600"
+                    }`}
+                  >
+                    {noteSaved
+                      ? "Saved!"
+                      : savingNote
+                        ? "Saving…"
+                        : "Save to a new note"}
+                  </button>
+                ) : (
+                  <Link
+                    href="/sign-up"
+                    className="text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+                    title="Saving a passage to your notes needs an account"
+                  >
+                    Sign in to save
+                  </Link>
+                )}
                 <button
                   onClick={handleEditPassage}
                   className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
@@ -1115,13 +1179,27 @@ export default function ShadowingTool() {
                     recogniser&apos;s guess isn&apos;t reported back to you as
                     your mistake.
                   </p>
-                  <button
-                    onClick={handleCheckAttempt}
-                    disabled={checking || !attempt.trim()}
-                    className="mt-3 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
-                  >
-                    {checking ? "Checking…" : "Check my attempt"}
-                  </button>
+                  {/* Recording itself is left working for a guest, and
+                      this is the one gate placed on purpose rather than by
+                      necessity: the microphone is the browser's own and
+                      costs nothing, so a visitor gets the whole loop —
+                      press record, say the sentence, watch the words appear
+                      — and meets the wall at the exact moment the app would
+                      have told them something they didn't know. */}
+                  {isAuthenticated ? (
+                    <button
+                      onClick={handleCheckAttempt}
+                      disabled={checking || !attempt.trim()}
+                      className="mt-3 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+                    >
+                      {checking ? "Checking…" : "Check my attempt"}
+                    </button>
+                  ) : (
+                    <SignInToUse
+                      className="mt-3"
+                      what="Checking what you said against the sentence"
+                    />
+                  )}
                 </div>
               )}
 
