@@ -82,3 +82,16 @@ export const SHADOWING_TOPIC_MAX_CHARACTERS = 240;
 // thirty words — because the thing being bounded isn't the sentence, it's a
 // microphone somebody walked away from with it still running.
 export const SHADOWING_ATTEMPT_MAX_CHARACTERS = 1000;
+
+// The contact form (Question 394). Three caps rather than one, because the
+// three fields fail differently.
+//
+// These matter more than the caps above them, and it is worth saying why:
+// every other limit in this file bounds something a signed-in person typed
+// into a tool. This form is the first thing in the app a complete stranger
+// can submit, and every submission sends an email. A cap is not politeness
+// here, it is the floor of not having an open-ended relay pointed at one
+// inbox.
+export const FEEDBACK_NAME_MAX_CHARACTERS = 80;
+export const FEEDBACK_EMAIL_MAX_CHARACTERS = 200;
+export const FEEDBACK_MESSAGE_MAX_CHARACTERS = 4000;

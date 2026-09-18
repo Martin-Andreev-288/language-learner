@@ -42,6 +42,12 @@ const navLinks: NavItem[] = [
         }
       : {}),
   })),
+  // Appended rather than added to ALL_FEATURES (Question 394): that list is
+  // practice tools, read by the home page grids and the section pages as
+  // well as by this nav. Contact is none of those things, and putting it
+  // there would have it advertised on the home page as a sixth way to
+  // practise a language.
+  { href: "/contact", label: "Contact" },
 ];
 
 interface NavLinksProps {
