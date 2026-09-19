@@ -12,6 +12,51 @@ async function requireUserId(): Promise<string> {
     return session.user.id;
 }
 
+// Finds a title nothing else on this page is already using, adding
+// "(2)", "(3)" the way a file manager does (Question 386, item 3).
+//
+// The rule is the one Question 392 settled: same user, same page, same
+// title. Deliberately not across pages — "German" under Reading and
+// "German" under Listening are two different things, and numbering the
+// second one would be answering a question nobody asked.
+//
+// It exists because six of the seven tools that save notes derive the
+// title rather than asking for one — usually the language, sometimes the
+// tool's own name — so saving three German passages produced three notes
+// all called "German", with nothing in the list to tell them apart.
+async function availableTitle(
+    userId: string,
+    page: NotePage,
+    title: string,
+): Promise<string> {
+    // One query, not one per attempt. `startsWith` casts slightly wide —
+    // looking for "German" also returns "Germanic" — which costs nothing,
+    // since what comes back is only ever used for exact lookups below.
+    const taken = new Set(
+        (
+            await prisma.note.findMany({
+                where: { userId, page, title: { startsWith: title } },
+                select: { title: true },
+            })
+        ).map((note) => note.title),
+    );
+
+    if (!taken.has(title)) return title;
+
+    // Bounded rather than `for(;;)`, and the bound is provable rather than
+    // a guess: there are `taken.size` titles in the way, so by the time
+    // that many numbers have been tried one of them must be free.
+    for (let suffix = 2; suffix <= taken.size + 2; suffix += 1) {
+        const candidate = `${title} (${suffix})`;
+        if (!taken.has(candidate)) return candidate;
+    }
+
+    // Unreachable by the argument above; returned rather than thrown
+    // because losing someone's note to a numbering detail would be a far
+    // worse outcome than an unlikely duplicate name.
+    return title;
+}
+
 async function requireOwnedNote(userId: string, noteId: string) {
     const note = await prisma.note.findFirst({
         where: { id: noteId, userId },
@@ -56,7 +101,7 @@ export async function createNote(
         data: {
             userId,
             page,
-            title: normalizedTitle,
+            title: await availableTitle(userId, page, normalizedTitle),
             content,
             folderId: folderId ?? null,
             metadataKind: metadata?.kind ?? null,
@@ -123,7 +168,12 @@ export async function upsertNote(
         data: {
             userId,
             page,
-            title: normalizedTitle,
+            // Numbered here too, since this branch is a first save like any
+            // other (Question 408). Only this branch: the update path above
+            // deliberately leaves the title alone, so a note that already
+            // exists keeps whatever it is called rather than being
+            // renumbered every time it is saved.
+            title: await availableTitle(userId, page, normalizedTitle),
             content,
             metadataKind: metadata?.kind ?? null,
             metadata: metadata?.data ?? null,
