@@ -29,6 +29,11 @@ import {
 } from "@/lib/vocabulary-enrichment";
 import { describeClientError } from "@/lib/client-error";
 import { languageTag, languageTagLabel } from "@/lib/language-codes";
+import {
+  buildListCopy,
+  buildTableCopy,
+  type CopyColumn,
+} from "@/lib/vocabulary-copy";
 import { VOCABULARY_MAX_WORDS } from "@/lib/limits";
 import {
   moveColumn,
@@ -753,6 +758,12 @@ export default function VocabularyWordList({
   // Translate's word marking uses, for the same reason: selecting one
   // occurrence must not select anything else that merely looks like it.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Copy's own two pieces of state (Question 404). `copied` drives the
+  // same two-second label flip seven other tools in this app already use
+  // for saving; `copyError` exists because the clipboard can refuse.
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [enrichModalOpen, setEnrichModalOpen] = useState(false);
   const [shuffleModalOpen, setShuffleModalOpen] = useState(false);
   const [sendingToShuffle, setSendingToShuffle] = useState(false);
@@ -922,6 +933,48 @@ export default function VocabularyWordList({
       }
       return next;
     });
+  }
+
+  // Where the last tick happened, so a shift-click knows what it is
+  // reaching back to (Question 404).
+  //
+  // A ref rather than state: nothing on screen changes when the anchor
+  // moves, and making it state would re-render every row on every tick for
+  // a value only the next click reads.
+  const selectionAnchorRef = useRef<string | null>(null);
+
+  // One tick, or a whole run of them.
+  //
+  // `order` is the rows as they are currently displayed — after filtering,
+  // after sorting — which is the only order a range can honestly mean. A
+  // range taken from the underlying list would select words that aren't
+  // between the two you clicked, or aren't on screen at all.
+  //
+  // Shift adds the run rather than replacing the selection, which is what
+  // the mail clients this came from do: tick three at the top, scroll,
+  // shift-click further down, and you have all of them rather than only the
+  // second batch.
+  function selectRow(id: string, order: string[], extendRange: boolean) {
+    const anchor = selectionAnchorRef.current;
+    const from = anchor ? order.indexOf(anchor) : -1;
+    const to = order.indexOf(id);
+
+    if (extendRange && from !== -1 && to !== -1 && from !== to) {
+      const [start, end] = from < to ? [from, to] : [to, from];
+      const run = order.slice(start, end + 1);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const rowId of run) next.add(rowId);
+        return next;
+      });
+      // The anchor moves to where you just clicked, so a second shift-click
+      // extends from here rather than from wherever the run began.
+      selectionAnchorRef.current = id;
+      return;
+    }
+
+    toggleSelected(id);
+    selectionAnchorRef.current = id;
   }
 
   function toggleSelected(id: string) {
@@ -1587,6 +1640,156 @@ export default function VocabularyWordList({
   const visibleColumns = columnLayout.filter((column) => column.visible);
   const hiddenColumnCount = columnLayout.length - visibleColumns.length;
 
+  // The same cell, as text rather than as markup (Question 404).
+  //
+  // A second function beside renderCell rather than one that returns both,
+  // and the duplication is deliberate: they answer different questions.
+  // renderCell decides what a cell should *look* like — bullet lists,
+  // language tags, colours. This decides what it *says*. Trying to make one
+  // serve both would mean rendering to markup and scraping the text back
+  // out of it, which is a worse coupling than two short functions that
+  // walk the same list of keys.
+  //
+  // Newlines are left in on purpose. buildTableCopy's cellText flattens
+  // them, so every column gets that treatment in one place instead of each
+  // branch here remembering to do it.
+  function copyValueFor(
+    entry: VocabularyEntryData,
+    key: ConfigurableColumn,
+  ): string {
+    if (key === "translations") {
+      const shown = entry.translations.filter(
+        (translation) =>
+          shownLanguageSet.size === 0 ||
+          shownLanguageSet.has(translation.language),
+      );
+      if (shown.length === 0) return "";
+      // Tagged only when there are several, matching what the cell does:
+      // a label beside a single answer names something nothing else is
+      // competing with.
+      return shown
+        .map((translation) =>
+          shown.length > 1
+            ? `${languageTagLabel(translation.language)} ${translation.text.trim()}`
+            : translation.text.trim(),
+        )
+        .join("\n");
+    }
+
+    if (key === "language") return entry.language;
+    if (key === "added") return formatDate(entry.firstSeen);
+
+    const field = key as EnrichmentKey;
+
+    if (PER_LANGUAGE_FIELD_SET.has(field)) {
+      const forms = fieldForms(
+        entry,
+        field as PerLanguageField,
+        shownLanguageSet,
+      );
+      return forms
+        .map((form) =>
+          forms.length > 1
+            ? `${languageTagLabel(form.language)} ${form.value.trim()}`
+            : form.value.trim(),
+        )
+        .join("\n");
+    }
+
+    return entry[field]?.trim() ?? "";
+  }
+
+  // What Copy would put on the clipboard, for whichever view is open.
+  //
+  // Selection decides the rows when there is one, and everything on screen
+  // when there isn't — the convention every mail client uses, and the one
+  // the enrich button beside it already follows.
+  function buildCopyText(): string {
+    if (viewMode === "table") {
+      const rows =
+        selectedIds.size > 0
+          ? tableEntries.filter((entry) => selectedIds.has(entry.id))
+          : tableEntries;
+      // Word first and always, because it is the column the table itself
+      // refuses to hide — a sheet of anonymous rows would be no use.
+      const columns: CopyColumn[] = [
+        { key: "word", label: "Word" },
+        ...visibleColumns.map(({ key }) => ({
+          key,
+          label: COLUMN_LABELS[key],
+        })),
+      ];
+      return buildTableCopy(
+        columns,
+        rows.map((entry) => ({
+          values: {
+            word: entry.word,
+            ...Object.fromEntries(
+              visibleColumns.map(({ key }) => [key, copyValueFor(entry, key)]),
+            ),
+          },
+        })),
+      );
+    }
+
+    const rows =
+      selectedIds.size > 0
+        ? visibleEntries.filter((entry) => selectedIds.has(entry.id))
+        : visibleEntries;
+    return buildListCopy(
+      rows.map((entry) => ({
+        word: entry.word,
+        // The word's own gender and plural. Per-language like everything
+        // else, so a word saved in German carries the German one — which
+        // is the one sitting beside it on screen.
+        nounInfo: entry.nounInfo?.trim() ?? "",
+        // Grouped by language rather than flattened (Question 405). Three
+        // languages of translations used to arrive as one comma-separated
+        // run, so "confusion, bewilderment, embarrassment, confusion,
+        // perplexité" read as five English words, two of them repeated.
+        //
+        // A Map keyed by language, because insertion order is what keeps
+        // the copied line in the same order as the row on screen — and
+        // because a word can hold more than one translation row for the
+        // same language, which flattening also hid.
+        groups: Array.from(
+          entry.translations.reduce((byLanguage, translation) => {
+            const text = translation.text.trim();
+            if (!text) return byLanguage;
+            const existing = byLanguage.get(translation.language);
+            byLanguage.set(
+              translation.language,
+              existing ? `${existing}, ${text}` : text,
+            );
+            return byLanguage;
+          }, new Map<string, string>()),
+        ).map(([language, text]) => ({
+          tag: languageTagLabel(language),
+          text,
+        })),
+      })),
+    );
+  }
+
+  async function handleCopy() {
+    const text = buildCopyText();
+    if (!text.trim()) return;
+
+    setCopyError(null);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      if (copyResetRef.current) clearTimeout(copyResetRef.current);
+      copyResetRef.current = setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // The clipboard can refuse — an insecure origin, or a browser that
+      // wants a permission this never asked for. Saying so is better than a
+      // button that silently does nothing, which is indistinguishable from
+      // a copy that worked.
+      setCopyError("Couldn't reach the clipboard — try again, or select the rows and press Ctrl+C.");
+    }
+  }
+
   // Renders one cell's worth of a word, whichever column it belongs to.
   // Kept in one place so the header order and the body order can't drift:
   // both walk the same list.
@@ -1859,8 +2062,42 @@ export default function VocabularyWordList({
                   Table
                 </button>
               </div>
+
+              {/* Beside the view switch rather than in the table's own
+                  toolbar, because it works in both views (Question 404) —
+                  the table's toolbar only exists when a table does.
+
+                  The label says what it will actually take, so the button
+                  answers the question before you press it: with rows ticked
+                  it copies those, with none it copies everything the
+                  filters have left on screen. */}
+              <button
+                onClick={handleCopy}
+                disabled={visibleEntries.length === 0}
+                title={
+                  viewMode === "table"
+                    ? "Copy the visible columns as tab-separated text, ready to paste into a spreadsheet"
+                    : "Copy these words and their translations as plain text"
+                }
+                className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  copied
+                    ? "border-emerald-700 text-emerald-400"
+                    : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
+                }`}
+              >
+                {copied
+                  ? "Copied!"
+                  : selectedIds.size > 0
+                    ? `Copy ${selectedIds.size}`
+                    : "Copy all"}
+              </button>
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              {copyError && (
+                <p role="alert" className="text-xs text-red-400">
+                  {copyError}
+                </p>
+              )}
               <input
                 type="text"
                 value={searchTerm}
@@ -2405,8 +2642,18 @@ export default function VocabularyWordList({
                             <input
                               type="checkbox"
                               checked={selectedIds.has(entry.id)}
-                              onChange={() => toggleSelected(entry.id)}
-                              title="Select"
+                              onClick={(event) =>
+                                selectRow(
+                                  entry.id,
+                                  tableEntries.map((row) => row.id),
+                                  event.shiftKey,
+                                )
+                              }
+                              // Required for a controlled checkbox; the
+                              // work happens in onClick, which is the only
+                              // one of the two that knows about Shift.
+                              onChange={() => {}}
+                              title="Select — hold Shift to take everything back to the last one you ticked"
                               className="accent-indigo-600"
                             />
                           </td>
@@ -2773,7 +3020,14 @@ export default function VocabularyWordList({
                     <input
                       type="checkbox"
                       checked={selectedIds.has(entry.id)}
-                      onChange={() => toggleSelected(entry.id)}
+                      onClick={(event) =>
+                        selectRow(
+                          entry.id,
+                          visibleEntries.map((row) => row.id),
+                          event.shiftKey,
+                        )
+                      }
+                      onChange={() => {}}
                       title="Select"
                       className="mt-1 shrink-0 accent-indigo-600"
                     />
