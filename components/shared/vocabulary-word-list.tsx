@@ -1070,7 +1070,10 @@ export default function VocabularyWordList({
       router.refresh();
     } catch (err) {
       setEnrichError(
-        describeClientError(err, "Couldn't generate that information — try again."),
+        describeClientError(
+          err,
+          "Couldn't generate that information — try again.",
+        ),
       );
     } finally {
       setEnriching(false);
@@ -1300,6 +1303,30 @@ export default function VocabularyWordList({
   // The same request/exit pair the notes page already uses — this is that
   // pattern pointed at the table's own section rather than a second way of
   // doing it.
+  // Leaves fullscreen on the way to the list (Question 400).
+  //
+  // The element that gets fullscreened is this whole card, not the table
+  // inside it — so switching view while fullscreen left the *list* filling
+  // the screen, in a mode it has no control to leave and no use for. Wide
+  // and Fullscreen exist because a table of twelve columns needs horizontal
+  // room; a list is read downwards, and all extra width does to it is drag
+  // each row's date away from the word it belongs to.
+  //
+  // So the modes stay a property of the table rather than being offered to
+  // both views. Wide already behaved this way — it is only applied when
+  // viewMode is "table" — and this is the half that was missing.
+  //
+  // The preference itself is kept, not reset: come back to Table and the
+  // width you chose is still there. Only fullscreen is actually exited,
+  // because fullscreen is the browser's state rather than ours and cannot
+  // simply be ignored while it lasts.
+  function showListView() {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    }
+    setViewMode("list");
+  }
+
   function toggleTableFullscreen() {
     if (document.fullscreenElement) {
       void document.exitFullscreen();
@@ -1381,7 +1408,8 @@ export default function VocabularyWordList({
     (a, b) => a.localeCompare(b),
   );
   const suggestedShuffleLanguage =
-    defaultTranslateLanguage && shuffleLanguageCounts.has(defaultTranslateLanguage)
+    defaultTranslateLanguage &&
+    shuffleLanguageCounts.has(defaultTranslateLanguage)
       ? defaultTranslateLanguage
       : (Array.from(shuffleLanguageCounts.entries()).sort(
           (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
@@ -1394,8 +1422,7 @@ export default function VocabularyWordList({
         // Guarded on the derived list, not the raw set: if the last word
         // in a ticked language is deleted, that tick would otherwise keep
         // filtering while the button had already stopped mentioning it.
-        (chosenLanguages.length === 0 ||
-          languageFilters.has(entry.language)) &&
+        (chosenLanguages.length === 0 || languageFilters.has(entry.language)) &&
         (enrichmentFilter === "all" ||
           (enrichmentFilter === "enriched"
             ? hasEnrichment(entry)
@@ -1568,7 +1595,7 @@ export default function VocabularyWordList({
       return (
         <td
           key={key}
-          className="border border-zinc-800 px-3 py-2 align-top text-zinc-300"
+          className="border border-zinc-800 px-2 py-2 align-top text-zinc-300"
         >
           {/* Narrowed here and nowhere else: the narrower is a Table-view
               control, so the list row below still shows every translation
@@ -1619,10 +1646,14 @@ export default function VocabularyWordList({
       return (
         <td
           key={key}
-          className="border border-zinc-800 px-3 py-2 align-top text-zinc-300"
+          className="border border-zinc-800 px-2 py-2 align-top text-zinc-300"
         >
           <LanguageValues
-            forms={fieldForms(entry, field as PerLanguageField, shownLanguageSet)}
+            forms={fieldForms(
+              entry,
+              field as PerLanguageField,
+              shownLanguageSet,
+            )}
             multiline={multiline}
           />
         </td>
@@ -1636,7 +1667,7 @@ export default function VocabularyWordList({
     return (
       <td
         key={key}
-        className="border border-zinc-800 px-3 py-2 align-top text-zinc-300"
+        className="border border-zinc-800 px-2 py-2 align-top text-zinc-300"
       >
         {multiline && lines.length > 1 ? (
           <ul className="list-disc space-y-0.5 pl-4">
@@ -1671,8 +1702,10 @@ export default function VocabularyWordList({
           Add-words box and the toolbar simply get more room too, which
           costs nothing in a mode you switched on deliberately. */}
       <div
-        className={`mx-auto px-6 py-10 ${
-          viewMode === "table" && wideTable ? "max-w-none" : "max-w-3xl"
+        className={`mx-auto py-10 ${
+          viewMode === "table" && wideTable
+            ? "max-w-none px-4"
+            : "max-w-3xl px-6"
         }`}
       >
         <div className="mb-8">
@@ -1758,8 +1791,30 @@ export default function VocabularyWordList({
             promoted onto the browser's black backdrop with neither. */}
         <div
           ref={tableSectionRef}
-          className={`border border-zinc-800 bg-zinc-900 p-6 ${
-            tableFullscreen ? "overflow-y-auto" : "rounded-lg"
+          // A flex column exactly the height of the screen, in fullscreen
+          // only (Question 400). It used to be `overflow-y-auto`, which
+          // made the card scrollable but said nothing about how tall
+          // anything inside it should be — so the table kept the 65vh cap
+          // it wears on the normal page, stopped two thirds of the way
+          // down, and left the rest of the screen empty. Which is the
+          // opposite of what pressing Fullscreen asks for.
+          //
+          // overflow-hidden because the table below now does the
+          // scrolling. Without it a short window could scroll the card and
+          // the table independently, which is two scrollbars for one list.
+          // Padding trimmed in the two modes asked for more room
+          // (Question 401). Wide removed the page's max-width but left
+          // 24px of page padding and another 24px of card padding on each
+          // side — 96px of the window spent on gutters in the one mode
+          // whose entire purpose is width. Sixteen a side in wide and
+          // fullscreen, twenty-four otherwise, so the default reading
+          // width is untouched.
+          className={`border border-zinc-800 bg-zinc-900 ${
+            tableFullscreen
+              ? "flex h-screen flex-col overflow-hidden p-4"
+              : `rounded-lg ${
+                  viewMode === "table" && wideTable ? "p-4" : "p-6"
+                }`
           }`}
         >
           {/* Sticky so the search box, the filters and the List/Table
@@ -1783,7 +1838,7 @@ export default function VocabularyWordList({
                   not a second page or a second query. */}
               <div className="flex overflow-hidden rounded-md border border-zinc-700">
                 <button
-                  onClick={() => setViewMode("list")}
+                  onClick={showListView}
                   className={`px-3 py-1 text-xs font-medium transition-colors ${
                     viewMode === "list"
                       ? "bg-indigo-600 text-white"
@@ -1901,8 +1956,8 @@ export default function VocabularyWordList({
                 {tooManyToEnrich && (
                   <span className="text-zinc-500">
                     {" "}
-                    — more than {MAX_ENRICH_WORDS}, so information can&apos;t
-                    be added in one go
+                    — more than {MAX_ENRICH_WORDS}, so information can&apos;t be
+                    added in one go
                   </span>
                 )}
               </span>
@@ -1983,88 +2038,90 @@ export default function VocabularyWordList({
                   array — and the headers already carry a filter button. */}
               <div className="mb-3 flex flex-wrap items-start gap-2">
                 <div>
-                <button
-                  onClick={() => setColumnsOpen((prev) => !prev)}
-                  aria-expanded={columnsOpen}
-                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
-                >
-                  Columns
-                  {hiddenColumnCount > 0 && (
-                    <span className="text-zinc-500">
-                      {" "}
-                      · {hiddenColumnCount} hidden
-                    </span>
-                  )}
-                </button>
+                  <button
+                    onClick={() => setColumnsOpen((prev) => !prev)}
+                    aria-expanded={columnsOpen}
+                    className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+                  >
+                    Columns
+                    {hiddenColumnCount > 0 && (
+                      <span className="text-zinc-500">
+                        {" "}
+                        · {hiddenColumnCount} hidden
+                      </span>
+                    )}
+                  </button>
 
-                {columnsOpen && (
-                  <div className="mt-2 w-72 rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                        Columns
-                      </p>
-                      <button
-                        onClick={() => writeColumnLayout(DEFAULT_COLUMN_LAYOUT)}
-                        className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-                      >
-                        Reset
-                      </button>
-                    </div>
-                    {/* Said outright, because a vertical list moving things
-                        left and right is otherwise a guess. */}
-                    <p className="mb-2 text-xs text-zinc-600">
-                      Top to bottom is left to right in the table.
-                    </p>
-                    <ul className="max-h-64 space-y-0.5 overflow-y-auto pr-1">
-                      {columnLayout.map((column, index) => (
-                        <li
-                          key={column.key}
-                          className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-zinc-800/60"
+                  {columnsOpen && (
+                    <div className="mt-2 w-72 rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                          Columns
+                        </p>
+                        <button
+                          onClick={() =>
+                            writeColumnLayout(DEFAULT_COLUMN_LAYOUT)
+                          }
+                          className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
                         >
-                          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm text-zinc-300">
-                            <input
-                              type="checkbox"
-                              checked={column.visible}
-                              onChange={() =>
+                          Reset
+                        </button>
+                      </div>
+                      {/* Said outright, because a vertical list moving things
+                        left and right is otherwise a guess. */}
+                      <p className="mb-2 text-xs text-zinc-600">
+                        Top to bottom is left to right in the table.
+                      </p>
+                      <ul className="max-h-64 space-y-0.5 overflow-y-auto pr-1">
+                        {columnLayout.map((column, index) => (
+                          <li
+                            key={column.key}
+                            className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-zinc-800/60"
+                          >
+                            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm text-zinc-300">
+                              <input
+                                type="checkbox"
+                                checked={column.visible}
+                                onChange={() =>
+                                  writeColumnLayout(
+                                    toggleColumn(columnLayout, column.key),
+                                  )
+                                }
+                                className="shrink-0 accent-indigo-600"
+                              />
+                              <span className="truncate">
+                                {COLUMN_LABELS[column.key]}
+                              </span>
+                            </label>
+                            <button
+                              onClick={() =>
                                 writeColumnLayout(
-                                  toggleColumn(columnLayout, column.key),
+                                  moveColumn(columnLayout, index, -1),
                                 )
                               }
-                              className="shrink-0 accent-indigo-600"
-                            />
-                            <span className="truncate">
-                              {COLUMN_LABELS[column.key]}
-                            </span>
-                          </label>
-                          <button
-                            onClick={() =>
-                              writeColumnLayout(
-                                moveColumn(columnLayout, index, -1),
-                              )
-                            }
-                            disabled={index === 0}
-                            title="Move left"
-                            className="shrink-0 px-1 text-xs text-zinc-500 transition-colors hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-zinc-800"
-                          >
-                            ▲
-                          </button>
-                          <button
-                            onClick={() =>
-                              writeColumnLayout(
-                                moveColumn(columnLayout, index, 1),
-                              )
-                            }
-                            disabled={index === columnLayout.length - 1}
-                            title="Move right"
-                            className="shrink-0 px-1 text-xs text-zinc-500 transition-colors hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-zinc-800"
-                          >
-                            ▼
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                              disabled={index === 0}
+                              title="Move left"
+                              className="shrink-0 px-1 text-xs text-zinc-500 transition-colors hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-zinc-800"
+                            >
+                              ▲
+                            </button>
+                            <button
+                              onClick={() =>
+                                writeColumnLayout(
+                                  moveColumn(columnLayout, index, 1),
+                                )
+                              }
+                              disabled={index === columnLayout.length - 1}
+                              title="Move right"
+                              className="shrink-0 px-1 text-xs text-zinc-500 transition-colors hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-zinc-800"
+                            >
+                              ▼
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
 
                 {/* Narrows which languages the per-language columns show
@@ -2111,9 +2168,8 @@ export default function VocabularyWordList({
                       <p className="mb-2 text-xs text-zinc-600">
                         Every column that answers per language — translations
                         included — shows and filters on only these, and words
-                        with nothing in them drop out of the table. Asking
-                        which words are <em>missing</em> a language still
-                        finds them.
+                        with nothing in them drop out of the table. Asking which
+                        words are <em>missing</em> a language still finds them.
                       </p>
 
                       {activeShownLanguages.length > 0 && (
@@ -2177,23 +2233,40 @@ export default function VocabularyWordList({
 
                 {/* Beside Columns rather than up with the List/Table
                     switch: all three shape the table itself, and the
-                    switch above chooses whether there is a table at all. */}
-                <button
-                  onClick={() => setWideTable((prev) => !prev)}
-                  aria-pressed={wideTable}
-                  title={
-                    wideTable
-                      ? "Back to the page's normal width"
-                      : "Let the table use the whole window"
-                  }
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                    wideTable
-                      ? "border-indigo-700 bg-indigo-950/60 text-indigo-300"
-                      : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
-                  }`}
-                >
-                  {wideTable ? "Narrow" : "Wide"}
-                </button>
+                    switch above chooses whether there is a table at all.
+
+                    Gone entirely while fullscreen (Question 401). Wide
+                    works by removing the page wrapper's max-width — but in
+                    fullscreen the browser has lifted this card out of the
+                    page altogether and sized it to the screen, so that
+                    wrapper isn't governing anything and there is no width
+                    left to win. The button did flip its own label, which is
+                    the worst version of the problem: it looked like it had
+                    done something.
+
+                    Hidden rather than disabled, because fullscreen is
+                    already the wider of the two and a control offering less
+                    than what you have is not worth the row space. Nothing
+                    is lost on the way out — wideTable keeps its value, so
+                    leaving fullscreen returns you to the width you had. */}
+                {!tableFullscreen && (
+                  <button
+                    onClick={() => setWideTable((prev) => !prev)}
+                    aria-pressed={wideTable}
+                    title={
+                      wideTable
+                        ? "Back to the page's normal width"
+                        : "Let the table use the whole window"
+                    }
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      wideTable
+                        ? "border-indigo-700 bg-indigo-950/60 text-indigo-300"
+                        : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
+                    }`}
+                  >
+                    {wideTable ? "Narrow" : "Wide"}
+                  </button>
+                )}
 
                 <button
                   onClick={toggleTableFullscreen}
@@ -2236,9 +2309,7 @@ export default function VocabularyWordList({
                           // outright (Question 327).
                           column.kind === "languages"
                           ? `${
-                              translationsMode === "missing"
-                                ? "Missing"
-                                : "Has"
+                              translationsMode === "missing" ? "Missing" : "Has"
                             }: ${Array.from(effectiveFilter(column.field))
                               .sort((a, b) => a.localeCompare(b))
                               .join(", ")}`
@@ -2273,7 +2344,22 @@ export default function VocabularyWordList({
                 // the table rather than scrolling the page, which is what
                 // keeps everything above them on screen while you read down
                 // a long list.
-                <div className="max-h-[65vh] overflow-auto">
+                // On the normal page a fixed cap, so the table doesn't
+                // swallow everything below it. In fullscreen it takes
+                // whatever height the controls above it didn't (Question
+                // 400).
+                //
+                // min-h-0 is not decoration: a flex item refuses to shrink
+                // below its content by default, so without it this grows to
+                // the full height of every row and the scrolling — the
+                // thing that makes the frozen header work — never starts.
+                <div
+                  className={
+                    tableFullscreen
+                      ? "min-h-0 flex-1 overflow-auto"
+                      : "max-h-[65vh] overflow-auto"
+                  }
+                >
                   <table className="min-w-full border-collapse border border-zinc-800 text-sm">
                     <thead>
                       {/* Each header cell carries its own background and its
@@ -2285,16 +2371,16 @@ export default function VocabularyWordList({
                           shadow is that missing bottom border, drawn by the
                           cell itself. */}
                       <tr className="bg-zinc-800">
-                        <th className="sticky top-0 z-10 border border-zinc-800 bg-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300 shadow-[inset_0_-1px_0_#27272a]">
+                        <th className="sticky top-0 z-10 border border-zinc-800 bg-zinc-800 px-2 py-2 text-left font-semibold text-zinc-300 shadow-[inset_0_-1px_0_#27272a]">
                           <span className="sr-only">Select</span>
                         </th>
-                        <th className="sticky top-0 z-10 border border-zinc-800 bg-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300 shadow-[inset_0_-1px_0_#27272a]">
+                        <th className="sticky top-0 z-10 border border-zinc-800 bg-zinc-800 px-2 py-2 text-left font-semibold text-zinc-300 shadow-[inset_0_-1px_0_#27272a]">
                           Word
                         </th>
                         {visibleColumns.map(({ key }) => (
                           <th
                             key={key}
-                            className="sticky top-0 z-10 border border-zinc-800 bg-zinc-800 px-3 py-2 text-left font-semibold text-zinc-300 shadow-[inset_0_-1px_0_#27272a]"
+                            className="sticky top-0 z-10 border border-zinc-800 bg-zinc-800 px-2 py-2 text-left font-semibold text-zinc-300 shadow-[inset_0_-1px_0_#27272a]"
                           >
                             {/* Only Added has no header filter — a date
                                 isn't a value picked from a list, the same
@@ -2315,7 +2401,7 @@ export default function VocabularyWordList({
                     <tbody>
                       {tableEntries.map((entry) => (
                         <tr key={entry.id} className="hover:bg-zinc-800/40">
-                          <td className="border border-zinc-800 px-3 py-2 align-top">
+                          <td className="border border-zinc-800 px-2 py-2 align-top">
                             <input
                               type="checkbox"
                               checked={selectedIds.has(entry.id)}
@@ -2324,7 +2410,7 @@ export default function VocabularyWordList({
                               className="accent-indigo-600"
                             />
                           </td>
-                          <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 align-top font-medium text-zinc-100">
+                          <td className="whitespace-nowrap border border-zinc-800 px-2 py-2 align-top font-medium text-zinc-100">
                             {entry.word}
                           </td>
                           {visibleColumns.map(({ key }) =>
@@ -2556,8 +2642,8 @@ export default function VocabularyWordList({
                         </button>
                       </div>
                       <p className="mt-1.5 text-xs text-zinc-600">
-                        Emptying one and saving removes it — the same way
-                        every other field here works.
+                        Emptying one and saving removes it — the same way every
+                        other field here works.
                       </p>
                     </div>
 
@@ -2750,10 +2836,12 @@ export default function VocabularyWordList({
                           // already fully shown by the tags above, and a
                           // heading over nothing reads as something missing
                           // rather than as something absent.
-                          const enrichedTranslations = entry.translations.filter(
-                            (translation) =>
-                              populatedTranslationFields(translation).length > 0,
-                          );
+                          const enrichedTranslations =
+                            entry.translations.filter(
+                              (translation) =>
+                                populatedTranslationFields(translation).length >
+                                0,
+                            );
                           // Headings appear only once there is more than one
                           // language to tell apart. A word enriched in its own
                           // language alone looks exactly as it did before this
@@ -2846,7 +2934,7 @@ export default function VocabularyWordList({
             <span className="text-xs font-semibold text-zinc-500">
               {openFilter === "language"
                 ? "Language"
-                : FILTER_BY_FIELD.get(openFilter)?.label ?? openFilter}
+                : (FILTER_BY_FIELD.get(openFilter)?.label ?? openFilter)}
             </span>
             {/* Same Clear affordance either way, just pointed at whichever
                 state this panel currently belongs to. */}
