@@ -444,7 +444,22 @@ export default function VocabularyShuffleSession({
           Back to dashboard
         </button>
 
-        <div className="overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900 shadow-2xl">
+        {/* A ceiling on the whole card, as a backstop (Question 386,
+            item 5). The real fix is the scrolling text box further down —
+            this is for the case that one can't cover: a narrow window where
+            the six buttons wrap onto three rows and push the card past the
+            screen anyway. Scrolling then is ugly; a Next button you cannot
+            reach at all is worse.
+
+            85vh rather than 95: the modal centres the card, so the leftover
+            is split top and bottom, and "Back to dashboard" is positioned
+            40px *above* the card. Much taller and that button is the thing
+            that goes off-screen instead.
+
+            overflow-y-auto rather than the overflow-hidden that was here —
+            it still clips children to the rounded corners, which is what
+            that was for. */}
+        <div className="max-h-[85vh] overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 shadow-2xl">
           <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-5 pb-3 pt-5">
             <span className="max-w-45 truncate text-xs font-medium text-zinc-400">
               {listTitle}
@@ -515,31 +530,57 @@ export default function VocabularyShuffleSession({
                 </div>
               </div>
 
+              {/* The bug this step exists for (Question 386, item 5): a
+                  card holding a whole paragraph grew until the buttons
+                  underneath it were off the bottom of the screen, with no
+                  way to scroll to them — so a long phrase in Reading
+                  Shuffle was a dead end you had to leave the page to escape.
+
+                  The cap goes on an inner box rather than on this one, and
+                  that is the part worth not "simplifying" later: this
+                  container centres its child, and a centred child that
+                  overflows spills equally past the top and the bottom.
+                  Scrolling cannot recover the top half — scrollTop has no
+                  negative side — so putting the scroll here would have left
+                  the first lines of a long phrase permanently unreachable.
+                  A bounded child never overflows its parent, so the
+                  centring stays honest and the scrolling happens inside.
+
+                  The cap is the card's own 85vh ceiling minus the furniture
+                  around it — header, progress bar, buttons, hints — because
+                  that furniture costs a fixed number of pixels rather than
+                  a share of the screen. A flat "half the viewport" looked
+                  right and quietly failed under about 620px tall, where
+                  212px of fixed chrome plus half the screen adds up to more
+                  than 85% of it, and the card would have started scrolling
+                  as a whole instead of just the phrase. */}
               <div className="flex min-h-35 items-center px-5 pb-2 pt-6">
-                {editing ? (
-                  <textarea
-                    ref={editRef}
-                    value={editText}
-                    onChange={(event) => setEditText(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        handleEditSave();
-                      }
-                      if (event.key === "Escape") {
-                        setEditing(false);
-                      }
-                    }}
-                    rows={3}
-                    className="w-full rounded-lg border border-indigo-500 bg-zinc-800 px-3 py-2 text-base text-zinc-100 outline-none resize-none"
-                  />
-                ) : (
-                  <p className="whitespace-pre-wrap text-xl font-medium leading-relaxed text-zinc-100">
-                    {type === "phrase" && current
-                      ? renderClickableText(current.text, handleWordClick)
-                      : current?.text}
-                  </p>
-                )}
+                <div className="max-h-[calc(85vh-14rem)] w-full overflow-y-auto">
+                  {editing ? (
+                    <textarea
+                      ref={editRef}
+                      value={editText}
+                      onChange={(event) => setEditText(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          handleEditSave();
+                        }
+                        if (event.key === "Escape") {
+                          setEditing(false);
+                        }
+                      }}
+                      rows={3}
+                      className="w-full rounded-lg border border-indigo-500 bg-zinc-800 px-3 py-2 text-base text-zinc-100 outline-none resize-none"
+                    />
+                  ) : (
+                    <p className="whitespace-pre-wrap text-xl font-medium leading-relaxed text-zinc-100">
+                      {type === "phrase" && current
+                        ? renderClickableText(current.text, handleWordClick)
+                        : current?.text}
+                    </p>
+                  )}
+                </div>
               </div>
 
               {confirmDelete && (
