@@ -5,6 +5,7 @@ import { readAndClearInlineListenCarry } from "@/lib/inline-listen-carry";
 import { buildParagraphs } from "@/lib/paragraph-sentences";
 import { parseAnnotated, stripAnnotations } from "@/lib/inline-annotations";
 import { guessLanguageCode } from "@/lib/language-codes";
+import { speakableText } from "@/lib/speech-text";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import {
   encodeInlineListenMetadata,
@@ -176,7 +177,7 @@ export default function InlineListenTool() {
       speakFrom(index + 1, playId);
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(spoken);
+    const utterance = new SpeechSynthesisUtterance(speakableText(spoken));
     const lang = guessLanguageCode(languageRef.current);
     if (lang) utterance.lang = lang;
     utterance.rate = rateRef.current;

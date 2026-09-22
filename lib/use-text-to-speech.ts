@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { splitIntoSentences } from "@/lib/sentence-split";
+import { speakableText } from "./speech-text";
 
 // Reading text aloud, as a hook (Question 290) — the mirror of
 // lib/use-speech-to-text.ts, and the half a voice chat needs to answer out
@@ -99,7 +100,7 @@ export function useTextToSpeech({
                 return;
             }
 
-            const utterance = new SpeechSynthesisUtterance(sentences[index]);
+            const utterance = new SpeechSynthesisUtterance(speakableText(sentences[index]));
             if (langRef.current) utterance.lang = langRef.current;
             utterance.rate = rateRef.current;
             utterance.onend = () => {

@@ -15,6 +15,7 @@ import { languageNameForCode } from "@/lib/language-codes";
 import { shuffle } from "@/lib/shuffle";
 import { tokenizeWords } from "@/lib/clickable-words";
 import { describeClientError } from "@/lib/client-error";
+import { speakableText } from "@/lib/speech-text";
 import KeyboardHints from "@/components/shared/keyboard-hints";
 
 type LookupResult = {
@@ -239,7 +240,7 @@ export default function VocabularyShuffleSession({
     setSpeechError(null);
     window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(lookup.word);
+    const utterance = new SpeechSynthesisUtterance(speakableText(lookup.word));
     utterance.lang = lookup.languageCode;
     utterance.onerror = () => {
       setSpeechError(

@@ -11,6 +11,7 @@ import {
 import { guessLanguageCode } from "@/lib/language-codes";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import { buildParagraphs } from "@/lib/paragraph-sentences";
+import { speakableText } from "@/lib/speech-text";
 import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
 
@@ -200,7 +201,7 @@ export default function ParallelListenTool() {
     currentIndexRef.current = index;
     const item = queue[index];
     setCurrent(item.position);
-    const utterance = new SpeechSynthesisUtterance(item.text);
+    const utterance = new SpeechSynthesisUtterance(speakableText(item.text));
     if (item.lang) utterance.lang = item.lang;
     utterance.rate = rateRef.current;
     utterance.onend = () => {

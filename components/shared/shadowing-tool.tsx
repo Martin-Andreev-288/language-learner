@@ -27,6 +27,7 @@ import {
 } from "@/lib/shadowing-check";
 import { NotePage } from "@/app/generated/prisma";
 import { describeClientError } from "@/lib/client-error";
+import { speakableText } from "@/lib/speech-text";
 import {
   SHADOWING_ATTEMPT_MAX_CHARACTERS,
   SHADOWING_TOPIC_MAX_CHARACTERS,
@@ -335,7 +336,7 @@ export default function ShadowingTool({
       return;
     }
     remainingRef.current = remaining;
-    const utterance = new SpeechSynthesisUtterance(current);
+    const utterance = new SpeechSynthesisUtterance(speakableText(current));
     const lang = guessLanguageCode(languageRef.current);
     if (lang) utterance.lang = lang;
     utterance.rate = rate;
