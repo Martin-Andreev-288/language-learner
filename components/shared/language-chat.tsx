@@ -553,7 +553,7 @@ export default function LanguageChat({
             </h1>
             <p className="mt-1 text-sm text-zinc-500">{config.description}</p>
           </div>
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <div>
               <label
                 htmlFor="chat-language"

@@ -437,9 +437,9 @@ export default function ParallelTranslateTool({
           </div>
 
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
-            <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <h2 className="text-lg font-semibold text-zinc-100">Output</h2>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">
                 <button
                   onClick={handleSaveToNote}
                   disabled={!outputText || savingNote}

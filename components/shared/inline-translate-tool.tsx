@@ -813,7 +813,7 @@ export default function InlineTranslateTool({
 
         {text && (
           <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
-            <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <h2 className="text-lg font-semibold text-zinc-100">
                 Click the words you don&apos;t know
               </h2>
@@ -878,9 +878,9 @@ export default function InlineTranslateTool({
 
         {result && (
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
-            <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <h2 className="text-lg font-semibold text-zinc-100">Result</h2>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">
                 <button
                   onClick={() => setShowTranslations((value) => !value)}
                   className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"

@@ -326,7 +326,7 @@ export default function CheckTool({ mode }: { mode: CheckMode }) {
             <h2 className="text-lg font-semibold text-zinc-100">
               Text
             </h2>
-            <div className="flex items-end gap-2">
+            <div className="flex flex-wrap items-end gap-2 whitespace-nowrap">
               {config.dictation && (
                 <>
                   <div>
@@ -443,7 +443,7 @@ export default function CheckTool({ mode }: { mode: CheckMode }) {
 
         {corrections && (
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
-            <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <h2 className="text-lg font-semibold text-zinc-100">
                 Result
               </h2>

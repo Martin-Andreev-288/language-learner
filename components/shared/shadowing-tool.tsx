@@ -926,7 +926,7 @@ export default function ShadowingTool({
               <span className="text-sm text-zinc-500">
                 Sentence {index + 1} of {sentences.length}
               </span>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-4">
                 {/* Here rather than on the paste screen, because this is
                     where you find out whether a passage was worth keeping —
                     you've just practised it (Question 360). */}
