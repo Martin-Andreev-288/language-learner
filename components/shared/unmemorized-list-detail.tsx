@@ -98,7 +98,7 @@ export default function UnmemorizedListDetail({
           All unmemorized lists
         </button>
 
-        <div className="mb-8 flex items-start justify-between gap-4">
+        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
             <span
               className={`mb-2 inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -145,7 +145,7 @@ export default function UnmemorizedListDetail({
             {cards.map((card) => (
               <div
                 key={card.id}
-                className="flex items-center justify-between gap-4 border-b border-zinc-800 px-4 py-3 last:border-b-0"
+                className="flex flex-col gap-2 border-b border-zinc-800 px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
               >
                 <p className="whitespace-pre-wrap text-sm text-zinc-200">
                   {card.text}
