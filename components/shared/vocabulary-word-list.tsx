@@ -1786,7 +1786,9 @@ export default function VocabularyWordList({
       // wants a permission this never asked for. Saying so is better than a
       // button that silently does nothing, which is indistinguishable from
       // a copy that worked.
-      setCopyError("Couldn't reach the clipboard — try again, or select the rows and press Ctrl+C.");
+      setCopyError(
+        "Couldn't reach the clipboard — try again, or select the rows and press Ctrl+C.",
+      );
     }
   }
 
@@ -2031,7 +2033,7 @@ export default function VocabularyWordList({
               since they can meet on a short window and the outer control
               should win. */}
           <div className="sticky top-0 z-20 mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 bg-zinc-900 pb-4">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-lg font-semibold text-zinc-100">
                 {entries.length} word{entries.length !== 1 ? "s" : ""}
               </h2>
@@ -2198,7 +2200,7 @@ export default function VocabularyWordList({
                   </span>
                 )}
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">
                 <button
                   onClick={() => setSelectedIds(new Set())}
                   className="rounded-md px-3 py-1 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
@@ -2859,7 +2861,7 @@ export default function VocabularyWordList({
                           })}
                         </div>
                       )}
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <LanguageCombobox
                           value={newTranslationLanguage}
                           onChange={setNewTranslationLanguage}
@@ -2875,7 +2877,7 @@ export default function VocabularyWordList({
                             setNewTranslationText(event.target.value)
                           }
                           placeholder="Translation"
-                          className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                          className="min-w-32 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
                         />
                         <button
                           onClick={addEditTranslation}
@@ -3015,7 +3017,7 @@ export default function VocabularyWordList({
                 ) : (
                   <div
                     key={entry.id}
-                    className="flex items-start justify-between gap-4 py-3"
+                    className="flex flex-wrap items-start justify-between gap-4 py-3"
                   >
                     <input
                       type="checkbox"
@@ -3031,7 +3033,7 @@ export default function VocabularyWordList({
                       title="Select"
                       className="mt-1 shrink-0 accent-indigo-600"
                     />
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-32 flex-1">
                       <span className="font-medium text-zinc-100">
                         {entry.word}
                       </span>
@@ -3150,7 +3152,7 @@ export default function VocabularyWordList({
                         own padding don't share a height, so top-aligning
                         them individually left the date sitting visibly
                         above the button glyphs (Question 246). */}
-                    <div className="flex shrink-0 items-center gap-1">
+                    <div className="ml-auto flex shrink-0 items-center gap-1">
                       <span className="text-xs text-zinc-600">
                         {formatDate(entry.firstSeen)}
                       </span>
