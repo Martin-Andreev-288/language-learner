@@ -134,10 +134,16 @@ type Props = {
 // since react-markdown renders plain elements with no styling of its own.
 const markdownComponents: Components = {
   h1: (props) => (
-    <h1 className="mb-2 mt-4 text-xl font-bold text-zinc-100 first:mt-0" {...props} />
+    <h1
+      className="mb-2 mt-4 text-xl font-bold text-zinc-100 first:mt-0"
+      {...props}
+    />
   ),
   h2: (props) => (
-    <h2 className="mb-2 mt-4 text-lg font-bold text-zinc-100 first:mt-0" {...props} />
+    <h2
+      className="mb-2 mt-4 text-lg font-bold text-zinc-100 first:mt-0"
+      {...props}
+    />
   ),
   h3: (props) => (
     <h3
@@ -146,9 +152,14 @@ const markdownComponents: Components = {
     />
   ),
   p: (props) => (
-    <p className="mb-3 text-sm leading-relaxed text-zinc-300 last:mb-0" {...props} />
+    <p
+      className="mb-3 text-sm leading-relaxed text-zinc-300 last:mb-0"
+      {...props}
+    />
   ),
-  strong: (props) => <strong className="font-semibold text-zinc-100" {...props} />,
+  strong: (props) => (
+    <strong className="font-semibold text-zinc-100" {...props} />
+  ),
   em: (props) => <em className="italic" {...props} />,
   a: (props) => (
     <a
@@ -159,10 +170,16 @@ const markdownComponents: Components = {
     />
   ),
   ul: (props) => (
-    <ul className="mb-3 ml-5 list-disc space-y-1 text-sm text-zinc-300" {...props} />
+    <ul
+      className="mb-3 ml-5 list-disc space-y-1 text-sm text-zinc-300"
+      {...props}
+    />
   ),
   ol: (props) => (
-    <ol className="mb-3 ml-5 list-decimal space-y-1 text-sm text-zinc-300" {...props} />
+    <ol
+      className="mb-3 ml-5 list-decimal space-y-1 text-sm text-zinc-300"
+      {...props}
+    />
   ),
   li: (props) => <li {...props} />,
   pre: (props) => (
@@ -236,8 +253,9 @@ export default function NoteDashboard({ page, data }: Props) {
   const [folderFormModal, setFolderFormModal] = useState<FolderFormModal>({
     open: false,
   });
-  const [deleteFolderModal, setDeleteFolderModal] =
-    useState<DeleteFolderModal>({ open: false });
+  const [deleteFolderModal, setDeleteFolderModal] = useState<DeleteFolderModal>(
+    { open: false },
+  );
   const [moveModal, setMoveModal] = useState<MoveModal>({ open: false });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
@@ -265,7 +283,9 @@ export default function NoteDashboard({ page, data }: Props) {
   const hasSearchMatch =
     visibleFolderIds.size > 0 ||
     notes.some((note) => note.title.toLowerCase().includes(normalizedSearch)) ||
-    folders.some((folder) => folder.name.toLowerCase().includes(normalizedSearch));
+    folders.some((folder) =>
+      folder.name.toLowerCase().includes(normalizedSearch),
+    );
   const isEmpty = notes.length === 0 && folders.length === 0;
 
   useEffect(() => {
@@ -591,12 +611,16 @@ export default function NoteDashboard({ page, data }: Props) {
               <button
                 type="button"
                 onClick={() =>
-                  setSortDirection((value) => (value === "asc" ? "desc" : "asc"))
+                  setSortDirection((value) =>
+                    value === "asc" ? "desc" : "asc",
+                  )
                 }
                 title={sortDirection === "asc" ? "Ascending" : "Descending"}
                 className="ml-2 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
               >
-                <ChevronDownIcon className={sortDirection === "asc" ? "rotate-180" : ""} />
+                <ChevronDownIcon
+                  className={sortDirection === "asc" ? "rotate-180" : ""}
+                />
               </button>
             </div>
           </div>
@@ -686,8 +710,8 @@ export default function NoteDashboard({ page, data }: Props) {
               onOpenNote={(note) => {
                 void getNote(note.id).then((full) => {
                   setPreviewMode(false);
-                setIsExpanded(false);
-                setIsFullscreen(false);
+                  setIsExpanded(false);
+                  setIsFullscreen(false);
                   setNoteEditorModal({
                     open: true,
                     mode: "edit",
@@ -749,146 +773,146 @@ export default function NoteDashboard({ page, data }: Props) {
       </div>
 
       {noteEditorModal.open && (
-          <Modal
-            onClose={() => setNoteEditorModal({ open: false })}
-            widthClassName={isExpanded ? "max-w-5xl" : "max-w-2xl"}
-          >
-            <h2 className="mb-5 text-lg font-semibold text-zinc-100">
-              {noteEditorModal.mode === "create" ? "New note" : "Edit note"}
-            </h2>
-            <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-400">
-              Title
+        <Modal
+          onClose={() => setNoteEditorModal({ open: false })}
+          widthClassName={isExpanded ? "max-w-5xl" : "max-w-2xl"}
+        >
+          <h2 className="mb-5 text-lg font-semibold text-zinc-100">
+            {noteEditorModal.mode === "create" ? "New note" : "Edit note"}
+          </h2>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-400">
+            Title
+          </label>
+          <input
+            autoFocus
+            type="text"
+            value={noteEditorModal.title}
+            onChange={(event) =>
+              setNoteEditorModal({
+                ...noteEditorModal,
+                title: event.target.value,
+              })
+            }
+            placeholder="e.g. Subjunctive mood notes"
+            className="mb-4 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+          />
+          <div className="mb-1 flex items-center justify-between">
+            <label className="block text-xs font-medium uppercase tracking-wider text-zinc-400">
+              Content{" "}
+              <span className="normal-case font-normal text-zinc-600">
+                (Markdown supported)
+              </span>
             </label>
-            <input
-              autoFocus
-              type="text"
-              value={noteEditorModal.title}
+            <div className="flex items-center gap-2">
+              <div className="flex gap-0.5 rounded-lg bg-zinc-800 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode(false)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    !previewMode
+                      ? "bg-indigo-600 text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
+                  }`}
+                >
+                  Write
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode(true)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    previewMode
+                      ? "bg-indigo-600 text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
+                  }`}
+                >
+                  Preview
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsExpanded((value) => !value)}
+                title={isExpanded ? "Collapse" : "Expand"}
+                className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+              >
+                {isExpanded ? <CollapseIcon /> : <ExpandIcon />}
+              </button>
+              {previewMode && (
+                <button
+                  type="button"
+                  onClick={toggleFullscreen}
+                  title="Fullscreen"
+                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+                >
+                  <FullscreenIcon />
+                </button>
+              )}
+            </div>
+          </div>
+          {previewMode ? (
+            <div
+              ref={previewRef}
+              className={`relative mb-5 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 ${
+                isFullscreen
+                  ? "h-screen p-10"
+                  : isExpanded
+                    ? "h-[65vh]"
+                    : "h-64"
+              }`}
+            >
+              {isFullscreen && (
+                <button
+                  type="button"
+                  onClick={toggleFullscreen}
+                  title="Exit fullscreen"
+                  className="fixed right-6 top-6 rounded-md bg-zinc-900/90 p-2 text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-white"
+                >
+                  <ExitFullscreenIcon />
+                </button>
+              )}
+              {noteEditorModal.content.trim() ? (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={markdownComponents}
+                >
+                  {noteEditorModal.content}
+                </ReactMarkdown>
+              ) : (
+                <p className="text-sm text-zinc-600">Nothing to preview yet.</p>
+              )}
+            </div>
+          ) : (
+            <textarea
+              value={noteEditorModal.content}
               onChange={(event) =>
                 setNoteEditorModal({
                   ...noteEditorModal,
-                  title: event.target.value,
+                  content: event.target.value,
                 })
               }
-              placeholder="e.g. Subjunctive mood notes"
-              className="mb-4 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+              placeholder="Write your note here… Markdown supported."
+              className={`mb-5 w-full resize-y rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500 ${
+                isExpanded ? "h-[65vh]" : "h-64"
+              }`}
             />
-            <div className="mb-1 flex items-center justify-between">
-              <label className="block text-xs font-medium uppercase tracking-wider text-zinc-400">
-                Content{" "}
-                <span className="normal-case font-normal text-zinc-600">
-                  (Markdown supported)
-                </span>
-              </label>
-              <div className="flex items-center gap-2">
-                <div className="flex gap-0.5 rounded-lg bg-zinc-800 p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setPreviewMode(false)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                      !previewMode
-                        ? "bg-indigo-600 text-white"
-                        : "text-zinc-500 hover:text-zinc-200"
-                    }`}
-                  >
-                    Write
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewMode(true)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                      previewMode
-                        ? "bg-indigo-600 text-white"
-                        : "text-zinc-500 hover:text-zinc-200"
-                    }`}
-                  >
-                    Preview
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsExpanded((value) => !value)}
-                  title={isExpanded ? "Collapse" : "Expand"}
-                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
-                >
-                  {isExpanded ? <CollapseIcon /> : <ExpandIcon />}
-                </button>
-                {previewMode && (
-                  <button
-                    type="button"
-                    onClick={toggleFullscreen}
-                    title="Fullscreen"
-                    className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
-                  >
-                    <FullscreenIcon />
-                  </button>
-                )}
-              </div>
-            </div>
-            {previewMode ? (
-              <div
-                ref={previewRef}
-                className={`relative mb-5 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 ${
-                  isFullscreen
-                    ? "h-screen p-10"
-                    : isExpanded
-                      ? "h-[65vh]"
-                      : "h-64"
-                }`}
-              >
-                {isFullscreen && (
-                  <button
-                    type="button"
-                    onClick={toggleFullscreen}
-                    title="Exit fullscreen"
-                    className="fixed right-6 top-6 rounded-md bg-zinc-900/90 p-2 text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-white"
-                  >
-                    <ExitFullscreenIcon />
-                  </button>
-                )}
-                {noteEditorModal.content.trim() ? (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={markdownComponents}
-                  >
-                    {noteEditorModal.content}
-                  </ReactMarkdown>
-                ) : (
-                  <p className="text-sm text-zinc-600">Nothing to preview yet.</p>
-                )}
-              </div>
-            ) : (
-              <textarea
-                value={noteEditorModal.content}
-                onChange={(event) =>
-                  setNoteEditorModal({
-                    ...noteEditorModal,
-                    content: event.target.value,
-                  })
-                }
-                placeholder="Write your note here… Markdown supported."
-                className={`mb-5 w-full resize-y rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500 ${
-                  isExpanded ? "h-[65vh]" : "h-64"
-                }`}
-              />
-            )}
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setNoteEditorModal({ open: false })}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={submitNoteEditorModal}
-                disabled={isBusy || !noteEditorModal.title.trim()}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {noteEditorModal.mode === "create" ? "Create" : "Save"}
-              </button>
-            </div>
-          </Modal>
+          )}
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setNoteEditorModal({ open: false })}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitNoteEditorModal}
+              disabled={isBusy || !noteEditorModal.title.trim()}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {noteEditorModal.mode === "create" ? "Create" : "Save"}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {deleteNoteModal.open && (
@@ -936,7 +960,10 @@ export default function NoteDashboard({ page, data }: Props) {
             type="text"
             value={folderFormModal.name}
             onChange={(event) =>
-              setFolderFormModal({ ...folderFormModal, name: event.target.value })
+              setFolderFormModal({
+                ...folderFormModal,
+                name: event.target.value,
+              })
             }
             onKeyDown={(event) =>
               event.key === "Enter" && submitFolderFormModal()
@@ -1129,14 +1156,17 @@ function FolderSection(props: FolderSectionProps) {
 
   const isSearching = searchTerm.length > 0;
   const folderId = folder?.id ?? null;
-  const folderNameMatches = !!folder && folder.name.toLowerCase().includes(searchTerm);
+  const folderNameMatches =
+    !!folder && folder.name.toLowerCase().includes(searchTerm);
   const showAllHere = forceShowAll || folderNameMatches;
   const childFolders = (childrenMap.get(folderId) ?? []).filter(
     (child) => !isSearching || showAllHere || visibleFolderIds.has(child.id),
   );
   const directNotes = (notesMap.get(folderId) ?? []).filter(
     (note) =>
-      !isSearching || showAllHere || note.title.toLowerCase().includes(searchTerm),
+      !isSearching ||
+      showAllHere ||
+      note.title.toLowerCase().includes(searchTerm),
   );
   const isCollapsed = isSearching
     ? false
@@ -1163,7 +1193,7 @@ function FolderSection(props: FolderSectionProps) {
             event.preventDefault();
             onDropTarget(folder.id);
           }}
-          className={`group relative mb-3 flex items-center gap-2 rounded-lg px-3 py-2.5 transition-colors ${
+          className={`group relative mb-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 transition-colors ${
             isBeingDragged ? "opacity-50" : ""
           } ${
             isDropTarget
@@ -1180,14 +1210,14 @@ function FolderSection(props: FolderSectionProps) {
             <ChevronDownIcon className={isCollapsed ? "-rotate-90" : ""} />
           </button>
           <FolderIcon className="shrink-0 text-zinc-500" />
-          <span className="min-w-0 flex-1 truncate font-medium text-zinc-200">
+          <span className="min-w-24 flex-1 truncate font-medium text-zinc-200">
             {folder.name}
           </span>
           <span className="shrink-0 text-xs text-zinc-600">
             {childFolders.length} folder{childFolders.length !== 1 ? "s" : ""} ·{" "}
             {directNotes.length} note{directNotes.length !== 1 ? "s" : ""}
           </span>
-          <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <div className="flex shrink-0 gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100">
             <button
               type="button"
               title="New subfolder"
@@ -1242,7 +1272,9 @@ function FolderSection(props: FolderSectionProps) {
                   onOpen={() => onOpenNote(note)}
                   onDelete={() => onDeleteNote(note)}
                   onMove={() => onMoveNote(note)}
-                  onDragStart={() => onDragStartItem({ kind: "note", id: note.id })}
+                  onDragStart={() =>
+                    onDragStartItem({ kind: "note", id: note.id })
+                  }
                   onDragEnd={onDragEndItem}
                   onListenAgain={
                     canListenAgain?.(note) && onListenAgain
@@ -1312,7 +1344,7 @@ function NoteCard({
         isDragging ? "opacity-50" : ""
       }`}
     >
-      <div className="absolute right-3 top-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="absolute right-3 top-3 flex gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100">
         {onListenAgain && (
           <button
             type="button"
