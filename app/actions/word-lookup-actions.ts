@@ -78,7 +78,7 @@ Write the definition in ${answerLanguage}. The example sentences are NOT to be t
     let result: z.infer<typeof lookupSchema>;
     try {
         const response = await generateText({
-            model: google("gemini-3.6-flash"),
+            model: google("gemini-3.8-flash"),
             output: Output.object({ schema: lookupSchema }),
             prompt: `A language learner clicked on the word "${trimmedWord}" while reading this phrase:
 """

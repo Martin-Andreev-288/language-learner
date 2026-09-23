@@ -359,8 +359,8 @@ export async function enrichVocabularyEntries(
         ]
             .filter(Boolean)
             .join(", and one for ")}. Copy each language name exactly as written above. Do not add a form for any other language.${enrichedLanguageCount > 1
-            ? " Keep every list short — two examples and three collocations per form is plenty, since you are answering for several languages at once."
-            : ""
+                ? " Keep every list short — two examples and three collocations per form is plenty, since you are answering for several languages at once."
+                : ""
         }`
         : "";
 
@@ -382,7 +382,7 @@ export async function enrichVocabularyEntries(
     let output: { results: WordResult[] };
     try {
         const response = await generateText({
-            model: google("gemini-3.6-flash"),
+            model: google("gemini-3.8-flash"),
             output: Output.object({ schema: resultSchema }),
             prompt: `A language learner is studying these words. Each is listed with the language it's written in:
 ${wordList}

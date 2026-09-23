@@ -103,7 +103,7 @@ export async function generateShadowingPassage(
     let output: GeneratedPassage;
     try {
         const result = await generateText({
-            model: google("gemini-3.6-flash"),
+            model: google("gemini-3.8-flash"),
             // Structured rather than plain text, and not for the usual
             // reason: one field would be no harder to parse than a bare
             // string, but a bare string tends to arrive wearing "Here's a
@@ -265,7 +265,7 @@ export async function checkShadowingAttempt(
     let output: ShadowingCheck;
     try {
         const result = await generateText({
-            model: google("gemini-3.6-flash"),
+            model: google("gemini-3.8-flash"),
             output: Output.object({ schema: attemptSchema }),
             prompt: `${languageLine}Someone learning a language is shadowing: they listened to one sentence and repeated it out loud. Their attempt was captured by the browser's speech recognition, so it reaches you as text.
 

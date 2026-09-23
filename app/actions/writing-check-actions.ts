@@ -66,7 +66,7 @@ export async function checkWriting(
     let output: z.infer<typeof checkSchema>;
     try {
         const result = await generateText({
-            model: google("gemini-3.6-flash"),
+            model: google("gemini-3.8-flash"),
             output: Output.object({ schema: checkSchema }),
             prompt: `${languageLine}You are reviewing a piece of writing for mistakes — grammar, word choice, clarity, or phrasing that reads as incorrect or awkward, not only strict grammar rules.
 

@@ -93,7 +93,7 @@ export async function translateMarkedPhrases(
     let answers: { translations: { language: string; text: string }[] }[];
     try {
         const result = await generateText({
-            model: google("gemini-3.6-flash"),
+            model: google("gemini-3.8-flash"),
             output: Output.array({
                 element: z.object({
                     translations: z.array(
