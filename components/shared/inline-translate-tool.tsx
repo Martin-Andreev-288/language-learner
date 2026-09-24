@@ -834,7 +834,25 @@ export default function InlineTranslateTool({
                 ) : (
                   <>{markedIndices.size} marked</>
                 )}{" "}
-                · right-click a word for a quick translation
+                {/* Two hints, one rule, chosen by CSS rather than by asking
+                    the browser what it is. A phone has no right mouse
+                    button, and the popup is reached by holding a word
+                    instead — a difference nobody would guess at, and the
+                    only place it could be stated is here, since a `title`
+                    tooltip never appears on a touch screen.
+
+                    Deliberately not a device check in JavaScript: this
+                    component is server-rendered, so a check that only the
+                    client can answer renders one hint on the server and the
+                    other on hydration — the mismatch Question 389 already
+                    cost us once. Both spans are in the markup either way;
+                    the media query only decides which one is painted. */}
+                <span className="hidden [@media(hover:hover)]:inline">
+                  · right-click a word for a quick translation
+                </span>
+                <span className="[@media(hover:hover)]:hidden">
+                  · tap to mark, press and hold for a quick translation
+                </span>
               </span>
             </div>
             <p className="whitespace-pre-wrap text-lg leading-relaxed text-zinc-100">
@@ -847,7 +865,7 @@ export default function InlineTranslateTool({
                     onContextMenu={(event) =>
                       handleWordRightClick(event, token.text, index)
                     }
-                    title="Left-click: mark for batch translation. Right-click: translate just this word."
+                    title="Click or tap to mark it for batch translation. Right-click, or press and hold, to translate just this word."
                     className={`cursor-pointer rounded p-0 transition-colors ${
                       markedIndices.has(index)
                         ? "bg-indigo-600/40 font-semibold text-indigo-200 underline decoration-indigo-400 decoration-2 underline-offset-2"
