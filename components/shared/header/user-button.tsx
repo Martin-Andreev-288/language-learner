@@ -72,7 +72,13 @@ export default function UserButton({
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+        // Opens away from whichever edge the avatar is near. On desktop the
+        // avatar is at the far right of the header, so the menu hangs
+        // leftwards; in the mobile panel it sits at the left, where hanging
+        // leftwards would put 256px of menu off the screen. The two
+        // placements never share a width — this one is md+ only, that one
+        // below md — so the breakpoint alone tells them apart.
+        <div className="absolute left-0 mt-2 w-64 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50 md:left-auto md:right-0">
           {/* User Info */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-sm font-medium text-gray-900 truncate">{name}</p>

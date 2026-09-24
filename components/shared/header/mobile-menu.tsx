@@ -34,7 +34,7 @@ export default function MobileMenu({
       {/* Mobile Hamburger Button */}
       <button
         onClick={toggleMobileMenu}
-        className="flex flex-col items-center justify-center gap-1.5 rounded-lg p-2 transition-colors duration-200 hover:bg-gray-700 md:hidden"
+        className="flex flex-col items-center justify-center gap-1.5 self-start rounded-lg p-2 transition-colors duration-200 hover:bg-gray-700 md:hidden"
         aria-label="Toggle navigation menu"
         aria-expanded={isMobileMenuOpen}
       >
@@ -55,9 +55,11 @@ export default function MobileMenu({
         />
       </button>
 
-      {/* Mobile Navigation Menu */}
+      {/* Mobile Navigation Menu — full width, so in the header's wrapping
+          row it drops onto its own line below the title and button rather
+          than sitting beside them. */}
       <nav
-        className={`overflow-hidden transition-all duration-300 ease-in-out md:hidden ${
+        className={`w-full overflow-hidden transition-all duration-300 ease-in-out md:hidden ${
           isMobileMenuOpen ? "max-h-128 opacity-100" : "max-h-0 opacity-0"
         }`}
       >
