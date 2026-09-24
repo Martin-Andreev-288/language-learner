@@ -16,6 +16,7 @@ import { shuffle } from "@/lib/shuffle";
 import { tokenizeWords } from "@/lib/clickable-words";
 import { describeClientError } from "@/lib/client-error";
 import { speakableText } from "@/lib/speech-text";
+import { isTouchScreen } from "@/lib/is-touch-screen";
 import KeyboardHints from "@/components/shared/keyboard-hints";
 
 type LookupResult = {
@@ -563,7 +564,17 @@ export default function VocabularyShuffleSession({
                       value={editText}
                       onChange={(event) => setEditText(event.target.value)}
                       onKeyDown={(event) => {
-                        if (event.key === "Enter" && !event.shiftKey) {
+                        // Enter saves only where Shift+Enter can be typed
+                        // for a line break. A phone keyboard has no Shift+
+                        // Enter, so there Enter saving left no way to break
+                        // a line at all — and a phone user reaches for the
+                        // Save button anyway. So on a touch screen Enter
+                        // does what it does in any other text box.
+                        if (
+                          event.key === "Enter" &&
+                          !event.shiftKey &&
+                          !isTouchScreen()
+                        ) {
                           event.preventDefault();
                           handleEditSave();
                         }
@@ -647,12 +658,25 @@ export default function VocabularyShuffleSession({
                   </button>
 
                   {editing ? (
-                    <button
-                      onClick={handleEditSave}
-                      className="flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-600"
-                    >
-                      Save
-                    </button>
+                    <>
+                      <button
+                        onClick={handleEditSave}
+                        className="flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-600"
+                      >
+                        Save
+                      </button>
+                      {/* Escape was the only way out of an edit, and a
+                          phone has no Escape key — so on a phone an edit
+                          you'd changed your mind about couldn't be
+                          abandoned, only saved. */}
+                      <button
+                        onClick={() => setEditing(false)}
+                        title="Shortcut: Esc"
+                        className="flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+                      >
+                        Cancel
+                      </button>
+                    </>
                   ) : (
                     <button
                       onClick={handleStartEdit}
@@ -705,16 +729,28 @@ export default function VocabularyShuffleSession({
               {/* Listed rather than left in the buttons' tooltips
                   (Question 386, item 1). Ordered by how often you'd reach
                   for them, not alphabetically or by keyboard position. */}
+              {/* While editing, the card's own shortcuts are switched off
+                  (the key handler returns early), so listing them would
+                  describe keys that do nothing. The edit keys replace them
+                  — and they were never written down anywhere before. */}
               <KeyboardHints
                 className="px-5 pb-5"
-                hints={[
-                  { keys: ["←", "→"], label: "move" },
-                  { keys: ["Space"], label: "next" },
-                  { keys: ["M"], label: "memorized" },
-                  { keys: ["F"], label: "favourite" },
-                  { keys: ["E"], label: "edit" },
-                  { keys: ["B"], label: "back" },
-                ]}
+                hints={
+                  editing
+                    ? [
+                        { keys: ["Enter"], label: "save" },
+                        { keys: ["Shift + Enter"], label: "new line" },
+                        { keys: ["Esc"], label: "cancel" },
+                      ]
+                    : [
+                        { keys: ["←", "→"], label: "move" },
+                        { keys: ["Space"], label: "next" },
+                        { keys: ["M"], label: "memorized" },
+                        { keys: ["F"], label: "favourite" },
+                        { keys: ["E"], label: "edit" },
+                        { keys: ["B"], label: "back" },
+                      ]
+                }
               />
             </>
           )}

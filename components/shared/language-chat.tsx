@@ -23,6 +23,7 @@ import {
 } from "@/lib/language-chat-draft";
 import { describeClientError } from "@/lib/client-error";
 import { guessLanguageCode } from "@/lib/language-codes";
+import { isTouchScreen } from "@/lib/is-touch-screen";
 import { useSpeechToText } from "@/lib/use-speech-to-text";
 import { useTextToSpeech } from "@/lib/use-text-to-speech";
 import MicIcon from "@/components/shared/mic-icon";
@@ -964,14 +965,20 @@ export default function LanguageChat({
                 message grows the box instead of scrolling sideways out of
                 sight (Question 294). Enter still sends, since this is a
                 chat; Shift+Enter is there for anyone who wants a line
-                break. */}
+                break — except on a touch screen, which has no Shift+Enter
+                to reach for, so there Enter breaks the line instead and
+                sending is left to the button beside it (Question 435). */}
             <textarea
               ref={inputRef}
               rows={1}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !isTouchScreen()
+                ) {
                   event.preventDefault();
                   sendCurrentMessage();
                 }
