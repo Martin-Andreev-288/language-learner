@@ -784,13 +784,20 @@ export default function ShadowingTool({
                 means no particular level, not an average one.
               </p>
 
+              {/* Each label may wrap its select onto the line below it, and
+                  neither may be wider than this box. A <select> sizes itself
+                  to its longest option — "Medium (6 to 8 sentences)" — and
+                  nothing capped that, so on a phone three of these ran
+                  27-73px past the box and the page scrolled sideways
+                  (Question 437). Where a field fits beside its label it
+                  still sits there, exactly as before. */}
               <div className="flex flex-wrap gap-3">
-                <label className="flex items-center gap-1.5 text-sm text-zinc-400">
+                <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
                   Level
                   <select
                     value={level}
                     onChange={(event) => setLevel(event.target.value)}
-                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                    className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
                   >
                     <option value="">Any</option>
                     {SHADOWING_LEVELS.map((value) => (
@@ -801,12 +808,12 @@ export default function ShadowingTool({
                   </select>
                 </label>
 
-                <label className="flex items-center gap-1.5 text-sm text-zinc-400">
+                <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
                   Style
                   <select
                     value={register}
                     onChange={(event) => setRegister(event.target.value)}
-                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                    className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
                   >
                     {SHADOWING_REGISTERS.map((value) => (
                       <option key={value} value={value}>
@@ -820,12 +827,12 @@ export default function ShadowingTool({
                     there were two of them (Question 372). Both say what
                     they measure now, rather than one of them assuming it's
                     the only length anyone meant. */}
-                <label className="flex items-center gap-1.5 text-sm text-zinc-400">
+                <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
                   Passage length
                   <select
                     value={length}
                     onChange={(event) => setLength(event.target.value)}
-                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                    className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
                   >
                     {SHADOWING_LENGTHS.map((item) => (
                       <option key={item.value} value={item.value}>
@@ -835,12 +842,12 @@ export default function ShadowingTool({
                   </select>
                 </label>
 
-                <label className="flex items-center gap-1.5 text-sm text-zinc-400">
+                <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
                   Sentence length
                   <select
                     value={sentenceLength}
                     onChange={(event) => setSentenceLength(event.target.value)}
-                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                    className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
                   >
                     {SHADOWING_SENTENCE_LENGTHS.map((item) => (
                       <option key={item.value} value={item.value}>
