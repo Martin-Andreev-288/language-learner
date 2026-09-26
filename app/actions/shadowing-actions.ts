@@ -103,7 +103,7 @@ export async function generateShadowingPassage(
     let output: GeneratedPassage;
     try {
         const result = await generateText({
-            model: google("gemini-3.8-flash"),
+            model: google("gemini-3.5-flash-lite"),
             // Structured rather than plain text, and not for the usual
             // reason: one field would be no harder to parse than a bare
             // string, but a bare string tends to arrive wearing "Here's a

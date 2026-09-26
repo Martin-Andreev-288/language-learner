@@ -56,7 +56,7 @@ export async function translateChatMessage(
 
     try {
         const result = await generateText({
-            model: google("gemini-3.8-flash"),
+            model: google("gemini-3.5-flash-lite"),
             prompt: `Translate the message below into ${targetLanguageName}.
 
 It is a single turn from a language-practice conversation${origin}, spoken to a learner. Translate it naturally rather than word for word, keep its tone and any question it asks, and return only the translation itself — no notes, no labels, no surrounding quotation marks, and no commentary about the translation.
