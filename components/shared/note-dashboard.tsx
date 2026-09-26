@@ -261,6 +261,10 @@ export default function NoteDashboard({ page, data }: Props) {
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
+  // Set when fullscreen is asked for from Write mode, where the element to
+  // enlarge has not been rendered yet. The effect below does the asking
+  // once Preview has put it on screen.
+  const [pendingFullscreen, setPendingFullscreen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -298,12 +302,33 @@ export default function NoteDashboard({ page, data }: Props) {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
+  // Deliberately an effect rather than a second call inside the click
+  // handler: previewRef is null until Preview renders it, so asking in the
+  // same tick as setPreviewMode(true) asks about an element that does not
+  // exist yet. The browser still counts this as user-initiated — a state
+  // update and its effect run well inside the few seconds a click stays
+  // "active" — so it is not blocked as an unprompted fullscreen request.
+  useEffect(() => {
+    if (!pendingFullscreen || !previewMode) return;
+    setPendingFullscreen(false);
+    void previewRef.current?.requestFullscreen();
+  }, [pendingFullscreen, previewMode]);
+
   function toggleFullscreen() {
     if (document.fullscreenElement) {
       void document.exitFullscreen();
-    } else {
-      void previewRef.current?.requestFullscreen();
+      return;
     }
+    // From Write mode there is nothing rendered to enlarge, so switch to
+    // Preview and let the effect above finish the job. Previously the
+    // button simply wasn't offered here, which made fullscreen reachable
+    // only if you already knew to press Preview first (Question 441).
+    if (!previewMode) {
+      setPreviewMode(true);
+      setPendingFullscreen(true);
+      return;
+    }
+    void previewRef.current?.requestFullscreen();
   }
 
   // A note saved by Parallel Listen's, Inline Listen's, or the chat's own
@@ -836,16 +861,22 @@ export default function NoteDashboard({ page, data }: Props) {
               >
                 {isExpanded ? <CollapseIcon /> : <ExpandIcon />}
               </button>
-              {previewMode && (
-                <button
-                  type="button"
-                  onClick={toggleFullscreen}
-                  title="Fullscreen"
-                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
-                >
-                  <FullscreenIcon />
-                </button>
-              )}
+              {/* Offered in Write mode too, not just Preview. A long note is
+                  exactly the one you would want to read full-screen, and
+                  hiding the button behind Preview meant the feature was
+                  invisible unless you happened to switch first. */}
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                title={
+                  previewMode
+                    ? "Fullscreen"
+                    : "Fullscreen (switches to Preview)"
+                }
+                className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+              >
+                <FullscreenIcon />
+              </button>
             </div>
           </div>
           {previewMode ? (
