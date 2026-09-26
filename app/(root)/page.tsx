@@ -15,13 +15,14 @@ export default async function Home() {
   if (session) {
     return (
       <div className="w-full">
-        <div className="mx-auto max-w-4xl px-8 py-16">
-          {/* Welcome Section */}
-          <div className="mb-12 text-center">
-            <h1 className="mb-3 text-4xl font-bold text-[#2c3e50]">
+        <div className="mx-auto max-w-4xl px-4 py-16 sm:px-8">
+          {/* Welcome Section — on the same translucent panel as the guest
+              hero below, for the same reason (Question 443). */}
+          <div className="mb-12 rounded-2xl bg-white/80 px-5 py-8 text-center shadow-lg ring-1 ring-white/60 backdrop-blur-md sm:px-8">
+            <h1 className="mb-3 text-3xl font-bold text-[#2c3e50] sm:text-4xl">
               Welcome back, {session.user?.name} 👋
             </h1>
-            <p className="text-lg text-[#5a6c7d]">
+            <p className="text-lg text-[#4a5a69]">
               What would you like to work on today?
             </p>
           </div>
@@ -62,27 +63,35 @@ export default async function Home() {
   // ─── Guest View: Marketing / Feature Showcase ───
   return (
     <div className="w-full">
-      <div className="mx-auto max-w-4xl px-8 py-16">
-        {/* Hero Section */}
-        <div className="mb-16 text-center">
-          <h1 className="mb-6 text-5xl font-bold text-[#2c3e50] drop-shadow-sm">
+      <div className="mx-auto max-w-4xl px-4 py-16 sm:px-8">
+        {/* Hero Section — on a panel of its own (Question 443). The page
+            background is a busy illustration, and the subtitle and the
+            "try Shadowing" line are grey text at body size: straight onto
+            the picture, parts of both disappeared into it. The feature
+            cards further down never had the problem because they sit on
+            white, so the hero gets the same kind of surface. Translucent
+            and blurred rather than solid, so the illustration still shows
+            through — softened behind the text instead of competing with
+            it. */}
+        <div className="mb-16 rounded-2xl bg-white/80 px-5 py-10 text-center shadow-xl ring-1 ring-white/60 backdrop-blur-md sm:px-8">
+          <h1 className="mb-4 text-3xl font-bold text-balance text-[#2c3e50] sm:text-[2.75rem] sm:leading-tight">
             📚 {APP_NAME}
           </h1>
-          <p className="mx-auto mb-8 max-w-2xl text-xl text-[#5a6c7d] leading-relaxed">
+          <p className="mx-auto mb-8 max-w-2xl text-lg leading-relaxed text-[#4a5a69] sm:text-xl">
             {APP_DESCRIPTION}
           </p>
 
           {/* Call to Action Buttons */}
-          <div className="flex flex-wrap justify-center gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-center sm:gap-4">
             <Link
               href="/sign-up"
-              className="rounded-lg bg-linear-to-br from-[#667eea] to-[#764ba2] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
+              className="rounded-lg bg-linear-to-br from-[#667eea] to-[#764ba2] px-8 py-4 text-center text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
             >
               Create a free account
             </Link>
             <Link
               href="/sign-in"
-              className="rounded-lg bg-linear-to-br from-[#f093fb] to-[#f5576c] px-8 py-4 text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
+              className="rounded-lg bg-linear-to-br from-[#f093fb] to-[#f5576c] px-8 py-4 text-center text-lg font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
             >
               Sign In
             </Link>
@@ -96,7 +105,7 @@ export default async function Home() {
               first" path this page had. This is what puts one back, and it
               is a better one — the Analyzer counted words, while this is the
               app actually doing the thing it is for. */}
-          <p className="mt-6 text-sm text-[#5a6c7d]">
+          <p className="mt-8 border-t border-gray-200/80 pt-6 text-sm text-[#4a5a69]">
             Or{" "}
             <Link
               href="/speaking/shadowing"
