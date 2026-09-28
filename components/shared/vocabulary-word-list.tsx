@@ -2599,7 +2599,14 @@ export default function VocabularyWordList({
                       : "max-h-[65vh] overflow-auto"
                   }
                 >
-                  <table className="min-w-full border-collapse border border-zinc-800 text-sm">
+                  {/* A size smaller on a touch screen (Question 438). Every cell
+                      inherits its size from here, so this one class shrinks
+                      the headers and the rows together. Keyed on touch
+                      rather than on width because the case this is for is a
+                      phone turned sideways, which is 740-915px wide — past
+                      md, so a width breakpoint would miss exactly it, while
+                      a desktop window of any size keeps text-sm. */}
+                  <table className="min-w-full border-collapse border border-zinc-800 text-sm pointer-coarse:text-xs">
                     <thead>
                       {/* Each header cell carries its own background and its
                           own bottom edge, and both are needed. A sticky cell
