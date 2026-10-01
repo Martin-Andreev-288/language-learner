@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { auth } from "@/auth";
 import FeedbackForm from "@/components/shared/feedback-form";
 
 // The contact page (Questions 394-397).
@@ -24,7 +25,11 @@ export const metadata: Metadata = {
   title: "Contact",
 };
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  // Read, not required — the route stays open to everyone, as above. It is
+  // only here to key the form below.
+  const session = await auth();
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-12 sm:px-8 sm:py-16">
       {/* The heading lives inside the card now (Question 397).
@@ -67,7 +72,14 @@ export default function ContactPage() {
           </div>
 
           <div className="mt-8">
-            <FeedbackForm />
+            {/* Keyed on who is signed in, so the form starts clean whenever
+                that changes (Question 444). Signing out re-renders this page
+                in place, and without a key React keeps the form it already
+                had — the "Thank you" panel, and behind "Send another" the
+                name and email the form deliberately holds on to, all still
+                there for whoever uses the browser next. A new key is React's
+                own way of saying "this is a different form now". */}
+            <FeedbackForm key={session?.user?.id ?? "signed-out"} />
           </div>
         </div>
       </div>
