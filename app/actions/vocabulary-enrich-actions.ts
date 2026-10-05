@@ -382,7 +382,7 @@ export async function enrichVocabularyEntries(
     let output: { results: WordResult[] };
     try {
         const response = await generateText({
-            model: google("gemini-3.8-flash"),
+            model: google("gemini-3.5-flash-lite"),
             output: Output.object({ schema: resultSchema }),
             prompt: `A language learner is studying these words. Each is listed with the language it's written in:
 ${wordList}

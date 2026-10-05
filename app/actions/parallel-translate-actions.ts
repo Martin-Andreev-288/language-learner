@@ -44,7 +44,7 @@ export async function translateSentences(
     let translations: string[];
     try {
         const result = await generateText({
-            model: google("gemini-3.8-flash"),
+            model: google("gemini-3.5-flash-lite"),
             output: Output.array({ element: z.string() }),
             prompt: `You are translating a passage into ${targetLanguageName}, one sentence at a time.
 

@@ -265,7 +265,7 @@ export async function checkShadowingAttempt(
     let output: ShadowingCheck;
     try {
         const result = await generateText({
-            model: google("gemini-3.8-flash"),
+            model: google("gemini-3.5-flash-lite"),
             output: Output.object({ schema: attemptSchema }),
             prompt: `${languageLine}Someone learning a language is shadowing: they listened to one sentence and repeated it out loud. Their attempt was captured by the browser's speech recognition, so it reaches you as text.
 
