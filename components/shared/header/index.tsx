@@ -5,13 +5,28 @@ import { APP_NAME } from "@/lib/constants";
 import NavLinks from "./nav-links";
 import UserButton from "./user-button";
 import MobileMenu from "./mobile-menu";
+import NavHeightSync from "./nav-height-sync";
 
 const Header = async () => {
   const session = await auth();
   const defaultTranslateLanguage = await getDefaultTranslateLanguage();
 
   return (
-    <header className="bg-gray-800 text-white shadow-lg">
+    // Sticky, so the sections are one click away however far down a long
+    // page you are (Question 454 in video directions.md). Only the header:
+    // the tip strip above it scrolls away, since it is read once, not used.
+    // z-40 keeps it over the page and its own sticky bars, and under the
+    // app's popups and dialogs, which are all z-50.
+    //
+    // Only on a screen at least 32rem tall. A phone held sideways is about
+    // 390px tall, and at that width the title wraps to four lines, so a
+    // frozen header would cover nearly half of it for good. There it
+    // scrolls away as it always did.
+    <header
+      data-site-nav
+      className="top-0 z-40 bg-gray-800 text-white shadow-lg [@media(min-height:32rem)]:sticky"
+    >
+      <NavHeightSync />
       {/* Wraps below md for one reason: MobileMenu renders its button and
           its panel as two siblings in this row, so without a second line the
           panel sat *beside* the title — an invisible column when closed that
@@ -47,10 +62,10 @@ const Header = async () => {
         <div className="hidden md:block">
           {session ? (
             <UserButton
-                name={session.user?.name}
-                email={session.user?.email}
-                defaultTranslateLanguage={defaultTranslateLanguage}
-              />
+              name={session.user?.name}
+              email={session.user?.email}
+              defaultTranslateLanguage={defaultTranslateLanguage}
+            />
           ) : (
             <div className="flex items-center gap-2">
               <Link

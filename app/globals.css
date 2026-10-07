@@ -9,6 +9,28 @@
   box-sizing: border-box;
 }
 
+/* The navbar stays at the top while the page scrolls (video directions.md,
+   Question 454 from), so anything else that sticks to the top, or that the page
+   scrolls into view, has to start below it. Its real height is kept here by
+   components/shared/header/nav-height-sync.tsx — it changes when the title
+   wraps on a phone and when the phone menu opens. 4.5rem is the desktop
+   row, for the first paint before that has run. */
+:root {
+  --nav-height: 4.5rem;
+}
+
+/* Below 32rem of height the navbar is not sticky (see the header), so
+   nothing covers the top of the screen. */
+@media (height < 32rem) {
+  :root {
+    --nav-height: 0px;
+  }
+}
+
+html {
+  scroll-padding-top: var(--nav-height);
+}
+
 body {
   margin: 0;
   min-width: 320px;

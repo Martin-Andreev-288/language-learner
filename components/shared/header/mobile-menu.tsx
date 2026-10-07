@@ -58,9 +58,17 @@ export default function MobileMenu({
       {/* Mobile Navigation Menu — full width, so in the header's wrapping
           row it drops onto its own line below the title and button rather
           than sitting beside them. */}
+      {/* Open, it is capped to the screen and scrolls inside itself. The
+          header is sticky, so a menu taller than the screen — a phone held
+          sideways — would otherwise have its lower links stuck below the
+          bottom edge, out of reach of any scrolling. 6rem is the title row
+          above it at its tallest; deliberately not --nav-height, which
+          includes this menu and would chase its own value. */}
       <nav
-        className={`w-full overflow-hidden transition-all duration-300 ease-in-out md:hidden ${
-          isMobileMenuOpen ? "max-h-128 opacity-100" : "max-h-0 opacity-0"
+        className={`w-full transition-all duration-300 ease-in-out md:hidden ${
+          isMobileMenuOpen
+            ? "max-h-[min(32rem,calc(100dvh-6rem))] overflow-y-auto opacity-100"
+            : "max-h-0 overflow-hidden opacity-0"
         }`}
       >
         <div className="flex flex-col gap-1 border-t border-gray-700 px-4 py-3">
