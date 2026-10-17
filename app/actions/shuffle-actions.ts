@@ -182,6 +182,31 @@ export async function createShuffleListWithCards(
     });
 }
 
+// What the home page's Continue panel needs to work out which lists are
+// due: both kinds of list in one query, with their cards counted rather
+// than loaded the way the dashboard loads them.
+export async function getShuffleReviewSummary() {
+    const userId = await requireUserId();
+
+    const lists = await prisma.shuffleList.findMany({
+        where: { userId },
+        orderBy: { title: "asc" },
+        select: {
+            id: true,
+            title: true,
+            type: true,
+            reviewCount: true,
+            lastReviewedAt: true,
+            _count: { select: { cards: true } },
+        },
+    });
+
+    return lists.map(({ _count, ...list }) => ({
+        ...list,
+        cardCount: _count.cards,
+    }));
+}
+
 export async function getShuffleDashboard(type: ShuffleListType) {
     const userId = await requireUserId();
 

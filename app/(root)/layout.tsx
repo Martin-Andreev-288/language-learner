@@ -2,6 +2,7 @@ import Header from "@/components/shared/header";
 import Footer from "@/components/footer";
 import TipBanner from "@/components/shared/tip-banner";
 import VideoGuideLink from "@/components/shared/video-guide-link";
+import LastToolRecorder from "@/components/shared/last-tool-recorder";
 import { pickTip } from "@/lib/learning-tips";
 
 export default function RootLayout({
@@ -22,6 +23,7 @@ export default function RootLayout({
       <TipBanner initialTip={pickTip()} />
       <Header />
       <VideoGuideLink />
+      <LastToolRecorder />
       <div className="flex-1 wrapper">{children}</div>
       <Footer />
     </div>

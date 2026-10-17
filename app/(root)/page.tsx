@@ -1,7 +1,11 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { APP_NAME, APP_DESCRIPTION } from "@/lib/constants";
 import { auth } from "@/auth";
 import { ALL_FEATURES } from "@/lib/feature-sections";
+import { LAST_TOOL_COOKIE, toolForPath } from "@/lib/last-tool";
+import { getShuffleReviewSummary } from "@/app/actions/shuffle-actions";
+import ContinuePanel from "@/components/shared/continue-panel";
 
 // Both views are built from lib/feature-sections.ts rather than from lists
 // written out here (Question 379). The signed-in cards and the guest
@@ -13,6 +17,18 @@ export default async function Home() {
 
   // ─── Authenticated View: Dashboard ───
   if (session) {
+    // The panel is an extra. If its query fails, the page still shows the
+    // cards, just without due lists, rather than an error in place of the
+    // whole home page.
+    const [reviewLists, cookieStore] = await Promise.all([
+      getShuffleReviewSummary().catch(() => []),
+      cookies(),
+    ]);
+    // Run back through toolForPath rather than used as it is: the cookie
+    // can say anything, and only a real tool's address is ever linked.
+    const lastToolHref = cookieStore.get(LAST_TOOL_COOKIE)?.value;
+    const lastTool = lastToolHref ? toolForPath(lastToolHref) : null;
+
     return (
       <div className="w-full">
         <div className="mx-auto max-w-4xl px-4 py-16 sm:px-8">
@@ -26,6 +42,8 @@ export default async function Home() {
               What would you like to work on today?
             </p>
           </div>
+
+          <ContinuePanel lists={reviewLists} lastTool={lastTool} />
 
           {/* Quick-Access Feature Cards */}
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
