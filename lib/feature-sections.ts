@@ -232,7 +232,7 @@ export const STANDALONE_FEATURES: FeatureSection[] = [
         emoji: "📓",
         gradient: "from-[#fa709a] to-[#fee140]",
         description:
-            "Every note from every tool, in one place — grammar, vocabulary, and anything else worth keeping.",
+            "Notes on anything that doesn't belong to a section — grammar, vocabulary, whatever else is worth keeping.",
         tools: [],
     },
 ];
