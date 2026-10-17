@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   deleteShuffleCard,
-  markShuffleListReviewed,
+  markShuffleListsReviewed,
   toggleShuffleCardFavorite,
   toggleShuffleCardMemorized,
   updateShuffleCardText,
@@ -69,6 +69,11 @@ type Props = {
   listTitle: string;
   cards: ReviewCard[];
   initialFilter?: ShuffleFilter;
+  // The lists that "Mark as reviewed" records: the one list, or every list
+  // in a due or hand-picked review. Empty for Review All, which spans every
+  // list and so has no button — marking all of them would reset the
+  // schedule of lists that were never actually due.
+  reviewListIds: string[];
   // Which language a lookup's definition comes back in. Empty means the
   // model's own default, which is English — what this page did before.
   defaultTranslateLanguage: string;
@@ -100,6 +105,7 @@ export default function VocabularyShuffleSession({
   listTitle,
   cards: initialCards,
   initialFilter = "unmemorized",
+  reviewListIds,
   defaultTranslateLanguage,
 }: Props) {
   const router = useRouter();
@@ -372,9 +378,9 @@ export default function VocabularyShuffleSession({
   }
 
   function handleMarkReviewed() {
-    if (listId === "all" || reviewMarked) return;
+    if (reviewListIds.length === 0 || reviewMarked) return;
 
-    void markShuffleListReviewed(listId);
+    void markShuffleListsReviewed(reviewListIds);
     setReviewMarked(true);
   }
 
@@ -492,7 +498,7 @@ export default function VocabularyShuffleSession({
                     {totalInFilter !== 1 ? "s" : ""}.
                   </p>
                   <div className="mt-2 flex items-center gap-3">
-                    {listId !== "all" && (
+                    {reviewListIds.length > 0 && (
                       <button
                         onClick={handleMarkReviewed}
                         disabled={reviewMarked}

@@ -22,6 +22,7 @@ import {
   getDescendantFolderIds,
   getVisibleFolderIds,
 } from "@/lib/folder-tree";
+import { daysUntilDue } from "@/lib/shuffle-schedule";
 
 type ShuffleType = "word" | "phrase";
 
@@ -104,6 +105,12 @@ type Props = {
   data: DashboardData;
 };
 
+// "Due" covers today and overdue alike: either way the list is waiting.
+function formatDue(daysLeft: number) {
+  if (daysLeft <= 0) return "Due";
+  return `Due in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`;
+}
+
 function formatReviewDate(date: string | Date) {
   const parsed = new Date(date);
   const day = String(parsed.getDate()).padStart(2, "0");
@@ -172,6 +179,23 @@ export default function VocabularyShuffleDashboard({
 
   const { folders, lists, totals } = data;
   const label = type === "word" ? "word" : "phrase";
+  // An empty list has nothing to review, so it is never due and never the
+  // "next" one either.
+  const now = new Date();
+  const scheduledLists = lists
+    .filter((list) => list.counts.total > 0)
+    .map((list) => ({ list, daysLeft: daysUntilDue(list, now) }));
+  const dueLists = scheduledLists
+    .filter(({ daysLeft }) => daysLeft <= 0)
+    .map(({ list }) => list);
+  const dueCardCount = dueLists.reduce(
+    (sum, list) => sum + list.counts.total,
+    0,
+  );
+  const nextDueInDays =
+    scheduledLists.length > 0
+      ? Math.min(...scheduledLists.map(({ daysLeft }) => daysLeft))
+      : null;
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const isSearching = normalizedSearch.length > 0;
   const visibleFolderIds = getVisibleFolderIds(folders, lists, searchTerm);
@@ -472,6 +496,48 @@ export default function VocabularyShuffleDashboard({
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <button
               type="button"
+              disabled={dueLists.length === 0}
+              // Every card, memorized ones included: going back over what
+              // you already know is what the spacing is for, and a list
+              // that is fully memorized would otherwise open empty.
+              onClick={() =>
+                router.push(
+                  `${reviewBasePath}/all?filter=all&lists=${dueLists.map((list) => list.id).join(",")}`,
+                )
+              }
+              className="group flex flex-col justify-between rounded-xl border border-sky-500/40 bg-sky-950/40 p-5 text-left transition-colors hover:bg-sky-950/70 disabled:cursor-default disabled:border-zinc-800 disabled:bg-zinc-900/60"
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <ClockIcon
+                  className={
+                    dueLists.length > 0 ? "text-sky-300" : "text-zinc-500"
+                  }
+                />
+                <span
+                  className={`font-semibold ${
+                    dueLists.length > 0 ? "text-sky-300" : "text-zinc-400"
+                  }`}
+                >
+                  Review due
+                </span>
+              </div>
+              <p className="text-sm text-zinc-400">
+                {dueLists.length > 0 ? (
+                  <>
+                    {dueLists.length} list{dueLists.length !== 1 ? "s" : ""}{" "}
+                    due · {dueCardCount} {label}
+                    {dueCardCount !== 1 ? "s" : ""}
+                  </>
+                ) : nextDueInDays !== null ? (
+                  `Nothing due · next ${formatDue(nextDueInDays).toLowerCase()}`
+                ) : (
+                  "Nothing due"
+                )}
+              </p>
+            </button>
+
+            <button
+              type="button"
               onClick={() => router.push(`${reviewBasePath}/all`)}
               className="group flex flex-col justify-between rounded-xl border border-indigo-500/50 bg-indigo-950/50 p-5 text-left transition-colors hover:bg-indigo-950/80"
             >
@@ -679,6 +745,7 @@ export default function VocabularyShuffleDashboard({
               onToggleListSelection={toggleListSelection}
               folderSubtreeListIds={folderSubtreeListIds}
               onToggleFolderSelection={toggleFolderSelection}
+              now={now}
             />
           </>
         )}
@@ -1144,6 +1211,7 @@ type FolderSectionProps = {
   onToggleListSelection: (listId: string) => void;
   folderSubtreeListIds: Map<string, string[]>;
   onToggleFolderSelection: (folderId: string) => void;
+  now: Date;
 };
 
 function FolderSection(props: FolderSectionProps) {
@@ -1178,6 +1246,7 @@ function FolderSection(props: FolderSectionProps) {
     onToggleListSelection,
     folderSubtreeListIds,
     onToggleFolderSelection,
+    now,
   } = props;
 
   const isSearching = searchTerm.length > 0;
@@ -1317,6 +1386,7 @@ function FolderSection(props: FolderSectionProps) {
                   key={list.id}
                   list={list}
                   label={label}
+                  daysLeft={daysUntilDue(list, now)}
                   isDragging={
                     dragItem?.kind === "list" && dragItem.id === list.id
                   }
@@ -1352,6 +1422,7 @@ function FolderSection(props: FolderSectionProps) {
 function ListCard({
   list,
   label,
+  daysLeft,
   isDragging,
   isSelected,
   onOpen,
@@ -1365,6 +1436,7 @@ function ListCard({
 }: {
   list: DashboardList;
   label: string;
+  daysLeft: number;
   isDragging: boolean;
   isSelected: boolean;
   onOpen: () => void;
@@ -1480,6 +1552,15 @@ function ListCard({
         reviews: {list.reviewCount} · last:{" "}
         {list.lastReviewedAt ? formatReviewDate(list.lastReviewedAt) : "-"}
       </p>
+      {list.counts.total > 0 && (
+        <p
+          className={`mt-1 text-xs ${
+            daysLeft <= 0 ? "font-medium text-sky-300" : "text-zinc-500"
+          }`}
+        >
+          {formatDue(daysLeft)}
+        </p>
+      )}
     </div>
   );
 }
@@ -1556,6 +1637,27 @@ function LayersIcon({ className }: { className?: string }) {
       />
       <path
         d="M2 10.5 7.5 13.5 13 10.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ClockIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 15 15"
+      fill="none"
+      className={className}
+    >
+      <circle cx="7.5" cy="7.5" r="5.75" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M7.5 4.5v3l2 1.5"
         stroke="currentColor"
         strokeWidth="1.6"
         strokeLinecap="round"

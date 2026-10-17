@@ -76,6 +76,9 @@ export default async function VocabularyShuffleReviewPage({
       dashboardPath="/vocabulary/shuffle"
       listTitle={listTitle}
       initialFilter={initialFilter}
+      reviewListIds={
+        selectedListIds ? reviewData.listIds : listId === "all" ? [] : [listId]
+      }
       defaultTranslateLanguage={defaultTranslateLanguage}
       cards={reviewData.cards.map((card) => ({
         id: card.id,

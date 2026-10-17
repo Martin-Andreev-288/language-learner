@@ -94,13 +94,17 @@ export async function deleteShuffleList(listId: string) {
     });
 }
 
-export async function markShuffleListReviewed(listId: string) {
+// Takes several ids because a review can span several lists — the due ones,
+// or a hand-picked selection — and marking it reviewed is what moves each of
+// them along the schedule in lib/shuffle-schedule.ts. Ids the user doesn't
+// own are skipped by the userId filter rather than trusted.
+export async function markShuffleListsReviewed(listIds: string[]) {
     const userId = await requireUserId();
 
-    await requireOwnedList(userId, listId);
+    if (listIds.length === 0) return;
 
-    return prisma.shuffleList.update({
-        where: { id: listId },
+    await prisma.shuffleList.updateMany({
+        where: { id: { in: listIds }, userId },
         data: {
             reviewCount: { increment: 1 },
             lastReviewedAt: new Date(),

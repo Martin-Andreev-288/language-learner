@@ -10,7 +10,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/app/actions/shuffle-actions", () => ({
   deleteShuffleCard: vi.fn(() => Promise.resolve()),
-  markShuffleListReviewed: vi.fn(() => Promise.resolve()),
+  markShuffleListsReviewed: vi.fn(() => Promise.resolve()),
   toggleShuffleCardFavorite: vi.fn(() => Promise.resolve()),
   toggleShuffleCardMemorized: vi.fn(() => Promise.resolve()),
   updateShuffleCardText: vi.fn(() => Promise.resolve()),
@@ -55,6 +55,7 @@ function renderSession() {
   render(
     <VocabularyShuffleSession
       listId="list-1"
+      reviewListIds={["list-1"]}
       type="word"
       dashboardPath="/vocabulary/shuffle"
       listTitle="Test list"
