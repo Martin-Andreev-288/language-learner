@@ -620,7 +620,7 @@ export default function VocabularyWordList({
   const [languageFilters, setLanguageFilters] = useState<Set<string>>(
     () => new Set(),
   );
-  const [languagesOpen, setLanguagesOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [enrichmentFilter, setEnrichmentFilter] =
     useState<EnrichmentFilter>("all");
   // List stays the default: it's the everyday view, and Table only earns
@@ -709,7 +709,7 @@ export default function VocabularyWordList({
   // Wraps the button as well as the panel, so clicking the button counts as
   // inside: otherwise mousedown would close the panel a moment before the
   // click reopened it, and the button would never close what it opened.
-  const languagePanelRef = useRef<HTMLDivElement>(null);
+  const filtersPanelRef = useRef<HTMLDivElement>(null);
   const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   // Only one row editable at a time — same one-card-at-a-time principle
@@ -1299,19 +1299,19 @@ export default function VocabularyWordList({
     };
   }, [openFilter]);
 
-  // Same treatment for the language panel, minus the scroll handling: this
-  // one is positioned against its own button rather than at fixed page
+  // Same treatment for the Filters panel, minus the scroll handling: this
+  // one is positioned against the toolbar rather than at fixed page
   // coordinates, so it travels with the toolbar instead of detaching.
   useEffect(() => {
-    if (!languagesOpen) return;
+    if (!filtersOpen) return;
 
     function close(event: Event) {
       const target = event.target as Node;
-      if (languagePanelRef.current?.contains(target)) return;
-      setLanguagesOpen(false);
+      if (filtersPanelRef.current?.contains(target)) return;
+      setFiltersOpen(false);
     }
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setLanguagesOpen(false);
+      if (event.key === "Escape") setFiltersOpen(false);
     }
 
     document.addEventListener("mousedown", close);
@@ -1320,7 +1320,7 @@ export default function VocabularyWordList({
       document.removeEventListener("mousedown", close);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [languagesOpen]);
+  }, [filtersOpen]);
 
   useEffect(() => {
     if (!shownLanguagesOpen) return;
@@ -1412,15 +1412,19 @@ export default function VocabularyWordList({
   const chosenLanguages = availableLanguages.filter((lang) =>
     languageFilters.has(lang),
   );
-  // The button says what it's filtering to while it's closed — one or two
-  // names outright, a count past that, since three or more names would
-  // stretch the toolbar and wrap it.
-  const languageFilterLabel =
-    chosenLanguages.length === 0
-      ? "All languages"
-      : chosenLanguages.length <= 2
-        ? chosenLanguages.join(", ")
-        : `${chosenLanguages.length} languages`;
+  // How many of the filters behind the Filters button are hiding words
+  // right now, shown on the button so a shorter list never looks like
+  // missing words. Sort lives in the same panel but isn't counted: it
+  // reorders the list without hiding anything from it.
+  const activeFilterCount =
+    (chosenLanguages.length > 0 ? 1 : 0) + (enrichmentFilter !== "all" ? 1 : 0);
+  const filtersChanged = activeFilterCount > 0 || sortBy !== "recent";
+
+  function resetFilters() {
+    setLanguageFilters(new Set());
+    setEnrichmentFilter("all");
+    setSortBy("recent");
+  }
 
   // Language is an exact match ticked in its own panel, not part of the free
   // -text search — searching "En" as text used to also match any word
@@ -2031,8 +2035,13 @@ export default function VocabularyWordList({
 
               Above the table's own frozen header in the stacking order,
               since they can meet on a short window and the outer control
-              should win. */}
-          <div className="sticky top-0 z-20 mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 bg-zinc-900 pb-4">
+              should win.
+
+              Stuck just under the navbar rather than at 0: the navbar is
+              sticky too (Question 14 in video directions.md) and sits above
+              this in the stacking order, so at 0 this bar would slide
+              underneath it and the search box would disappear. */}
+          <div className="sticky top-(--nav-height) z-20 mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 bg-zinc-900 pb-4">
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-lg font-semibold text-zinc-100">
                 {entries.length} word{entries.length !== 1 ? "s" : ""}
@@ -2107,78 +2116,144 @@ export default function VocabularyWordList({
                 placeholder="Search word or translation…"
                 className="w-48 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
               />
-              {/* Checkboxes in a panel rather than a native multi-select:
-                  that one needs ctrl-click to reach a second value and shows
-                  no ticks, which makes it a poor neighbour to the column
-                  filters already looking like this. Borrowed look, its own
-                  state — this filter belongs to both views, while the column
-                  filters belong to Table alone. */}
-              <div className="relative" ref={languagePanelRef}>
+              {/* Language, enrichment and sort behind one button, so the
+                  toolbar shows search and this button instead of four
+                  controls side by side. Nothing was removed: all three are
+                  one click away, and the count on the button says when any
+                  of them is hiding words.
+
+                  The wrapper holds the button and the panel, so a click on
+                  either counts as inside, but isn't positioned itself: the
+                  panel is placed against the sticky toolbar instead, so it
+                  opens at the toolbar's right edge and stays inside the card
+                  on a phone, wherever the button has wrapped to.
+
+                  Languages are checkboxes rather than a native
+                  multi-select: that one needs ctrl-click to reach a second
+                  value and shows no ticks, which makes it a poor neighbour
+                  to the column filters already looking like this. */}
+              <div ref={filtersPanelRef}>
                 <button
-                  onClick={() => setLanguagesOpen((prev) => !prev)}
-                  aria-expanded={languagesOpen}
+                  onClick={() => setFiltersOpen((prev) => !prev)}
+                  aria-expanded={filtersOpen}
                   className={`rounded-lg border bg-zinc-800 px-3 py-1.5 text-sm outline-none transition-colors hover:border-zinc-500 ${
-                    chosenLanguages.length > 0
+                    activeFilterCount > 0
                       ? "border-indigo-700 text-indigo-300"
                       : "border-zinc-700 text-zinc-200"
                   }`}
                 >
-                  {languageFilterLabel}
+                  Filters
+                  {activeFilterCount > 0 && ` · ${activeFilterCount}`}
                   <span className="ml-1.5 text-zinc-500">▾</span>
                 </button>
 
-                {languagesOpen && (
-                  <div className="absolute left-0 top-full z-40 mt-1 max-h-72 w-56 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 py-1 shadow-2xl">
-                    <div className="flex items-center justify-between gap-2 px-3 py-1">
-                      <span className="text-xs font-semibold text-zinc-500">
-                        Languages
+                {filtersOpen && (
+                  <div className="absolute right-0 top-full z-40 mt-1 w-72 max-w-full rounded-lg border border-zinc-700 bg-zinc-900 py-2 shadow-2xl">
+                    {availableLanguages.length > 0 && (
+                      <>
+                        <div className="flex items-center justify-between gap-2 px-3 py-1">
+                          <span className="text-xs font-semibold text-zinc-500">
+                            Languages
+                          </span>
+                          {chosenLanguages.length > 0 && (
+                            <button
+                              onClick={() => setLanguageFilters(new Set())}
+                              className="text-xs text-zinc-500 transition-colors hover:text-red-400"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                        <div className="max-h-48 overflow-y-auto">
+                          {availableLanguages.map((lang) => (
+                            <label
+                              key={lang}
+                              className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={languageFilters.has(lang)}
+                                onChange={() => toggleLanguageFilter(lang)}
+                                className="shrink-0 accent-indigo-600"
+                              />
+                              <span className="truncate">{lang}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    <div
+                      className="mt-1 border-t border-zinc-800 px-3 pt-2"
+                      title="Filter by whether a word has any generated information yet"
+                    >
+                      <span className="mb-1.5 block text-xs font-semibold text-zinc-500">
+                        Information
                       </span>
-                      {chosenLanguages.length > 0 && (
+                      <div className="flex overflow-hidden rounded-md border border-zinc-700">
+                        {(
+                          [
+                            ["all", "All"],
+                            ["enriched", "Added"],
+                            ["plain", "Not yet"],
+                          ] as const
+                        ).map(([value, optionLabel]) => (
+                          <button
+                            key={value}
+                            onClick={() => setEnrichmentFilter(value)}
+                            aria-pressed={enrichmentFilter === value}
+                            className={`flex-1 px-2 py-1 text-xs font-medium transition-colors ${
+                              enrichmentFilter === value
+                                ? "bg-indigo-600 text-white"
+                                : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                            }`}
+                          >
+                            {optionLabel}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-2 border-t border-zinc-800 px-3 pt-2">
+                      <span className="mb-1.5 block text-xs font-semibold text-zinc-500">
+                        Sort
+                      </span>
+                      <div className="flex overflow-hidden rounded-md border border-zinc-700">
+                        {(
+                          [
+                            ["recent", "Recently added"],
+                            ["alphabetical", "A–Z"],
+                          ] as const
+                        ).map(([value, optionLabel]) => (
+                          <button
+                            key={value}
+                            onClick={() => setSortBy(value)}
+                            aria-pressed={sortBy === value}
+                            className={`flex-1 px-2 py-1 text-xs font-medium transition-colors ${
+                              sortBy === value
+                                ? "bg-indigo-600 text-white"
+                                : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                            }`}
+                          >
+                            {optionLabel}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {filtersChanged && (
+                      <div className="mt-2 border-t border-zinc-800 px-3 pt-2 text-right">
                         <button
-                          onClick={() => setLanguageFilters(new Set())}
+                          onClick={resetFilters}
                           className="text-xs text-zinc-500 transition-colors hover:text-red-400"
                         >
-                          Clear
+                          Reset all
                         </button>
-                      )}
-                    </div>
-                    {availableLanguages.map((lang) => (
-                      <label
-                        key={lang}
-                        className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={languageFilters.has(lang)}
-                          onChange={() => toggleLanguageFilter(lang)}
-                          className="shrink-0 accent-indigo-600"
-                        />
-                        <span className="truncate">{lang}</span>
-                      </label>
-                    ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-              <select
-                value={enrichmentFilter}
-                onChange={(event) =>
-                  setEnrichmentFilter(event.target.value as EnrichmentFilter)
-                }
-                title="Filter by whether a word has any generated information yet"
-                className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
-              >
-                <option value="all">Enriched &amp; not</option>
-                <option value="enriched">Enriched only</option>
-                <option value="plain">Not yet enriched</option>
-              </select>
-              <select
-                value={sortBy}
-                onChange={(event) => setSortBy(event.target.value as SortBy)}
-                className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
-              >
-                <option value="recent">Recently added</option>
-                <option value="alphabetical">A–Z</option>
-              </select>
             </div>
           </div>
 
