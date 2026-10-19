@@ -4,6 +4,7 @@ import { featureTool } from "@/lib/feature-sections";
 import { getShuffleFolderTree } from "@/app/actions/shuffle-folder-actions";
 import { ShuffleListType } from "@/app/generated/prisma";
 import VocabularyShuffleDashboard from "@/components/shared/vocabulary-shuffle-dashboard";
+import { shuffleReviewBasePath } from "@/lib/shuffle-sides";
 
 const tool = featureTool("/vocabulary/shuffle");
 
@@ -24,7 +25,7 @@ export default async function VocabularyShufflePage() {
   return (
     <VocabularyShuffleDashboard
       type="word"
-      reviewBasePath="/vocabulary/shuffle/review"
+      reviewBasePath={shuffleReviewBasePath("word")}
       data={tree}
     />
   );

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { SHUFFLE_SIDES } from "@/lib/shuffle-sides";
 import {
   appendCardsToShuffleList,
   createShuffleListWithCards,
@@ -110,12 +111,7 @@ export default function UnmemorizedGroups({
     });
   }
 
-  const backPath =
-    typeFilter === "word"
-      ? "/vocabulary/shuffle"
-      : typeFilter === "phrase"
-        ? "/reading/shuffle"
-        : "/";
+  const backPath = typeFilter ? SHUFFLE_SIDES[typeFilter].href : "/";
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">

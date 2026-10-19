@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { VIDEO_GUIDES, videoGuideTitle } from "./video-guides";
 import { FEATURE_SECTIONS, STANDALONE_FEATURES } from "./feature-sections";
+import { SHUFFLE_SIDES } from "./shuffle-sides";
 
 // The video list is written separately from feature-sections.ts on purpose
 // (see the top of video-guides.ts), which means the one failure it invites
@@ -27,7 +28,13 @@ describe("VIDEO_GUIDES", () => {
     });
 
     it("only lists real pages, so a mistyped address can't hide", () => {
-        const known = new Set(["/", ...pageHrefs]);
+        // The phrases side of Shuffle is a real page without being a tool
+        // of its own, so it is added here rather than counted as a typo.
+        const known = new Set([
+            "/",
+            ...pageHrefs,
+            ...Object.values(SHUFFLE_SIDES).map((side) => side.href),
+        ]);
         const unknown = Object.keys(VIDEO_GUIDES).filter(
             (href) => !known.has(href),
         );

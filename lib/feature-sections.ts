@@ -48,15 +48,8 @@ export const FEATURE_SECTIONS: FeatureSection[] = [
         emoji: "📖",
         gradient: "from-[#667eea] to-[#764ba2]",
         description:
-            "Translate passages, work through sentence lists, and keep notes on what you read.",
+            "Translate passages side by side or word by word, and keep notes on what you read.",
         tools: [
-            {
-                href: "/reading/shuffle",
-                label: "Reading Shuffle",
-                authName: "Reading Shuffle",
-                description:
-                    "Create sentence lists, group them by topics, and review them in randomized order.",
-            },
             {
                 href: "/reading/parallel-translate",
                 label: "Parallel Translate",
@@ -118,7 +111,7 @@ export const FEATURE_SECTIONS: FeatureSection[] = [
         emoji: "📝",
         gradient: "from-[#4facfe] to-[#00f2fe]",
         description:
-            "Keep every word you are learning in one place, and review it in randomized order.",
+            "Keep every word and phrase you are learning in one place, and review them in randomized order.",
         tools: [
             {
                 href: "/vocabulary/word-list",
@@ -129,10 +122,10 @@ export const FEATURE_SECTIONS: FeatureSection[] = [
             },
             {
                 href: "/vocabulary/shuffle",
-                label: "Vocab Shuffle",
-                authName: "Vocabulary Shuffle",
+                label: "Shuffle",
+                authName: "Shuffle",
                 description:
-                    "Create word lists, group them by topics, and review them in randomized order.",
+                    "Create lists of words or phrases, group them by topic, and review them in randomized order.",
             },
             {
                 href: "/vocabulary/notes",

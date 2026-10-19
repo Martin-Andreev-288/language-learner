@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { shuffleReviewBasePath } from "@/lib/shuffle-sides";
 import {
   appendCardsToShuffleList,
   deleteShuffleCard,
@@ -45,10 +46,7 @@ export default function UnmemorizedListDetail({
   const backPath = typeFilter
     ? `/unmemorized?type=${typeFilter}`
     : "/unmemorized";
-  const reviewPath =
-    list.type === "word"
-      ? `/vocabulary/shuffle/review/${list.id}`
-      : `/reading/shuffle/review/${list.id}`;
+  const reviewPath = `${shuffleReviewBasePath(list.type)}/${list.id}`;
 
   async function handleAppend() {
     if (isBusy || !itemsText.trim()) return;

@@ -49,7 +49,7 @@ describe("ContinuePanel", () => {
     expect(screen.getByText("Food, Travel")).toBeInTheDocument();
 
     const phrases = screen.getByText("1 phrase list due · 1 phrase").closest("a");
-    expect(phrases).toHaveAttribute("href", "/reading/shuffle");
+    expect(phrases).toHaveAttribute("href", "/vocabulary/shuffle/phrases");
   });
 
   it("never offers an empty list, even one that was never reviewed", () => {

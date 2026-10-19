@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   appendCardsToShuffleList,
@@ -23,6 +24,7 @@ import {
   getVisibleFolderIds,
 } from "@/lib/folder-tree";
 import { daysUntilDue } from "@/lib/shuffle-schedule";
+import { SHUFFLE_SIDES, type ShuffleSide } from "@/lib/shuffle-sides";
 
 type ShuffleType = "word" | "phrase";
 
@@ -104,6 +106,9 @@ type Props = {
   reviewBasePath: string;
   data: DashboardData;
 };
+
+// One menu entry, Vocabulary → Shuffle, and this switch to choose the side.
+const SIDE_ORDER: ShuffleSide[] = ["word", "phrase"];
 
 // "Due" covers today and overdue alike: either way the list is waiting.
 function formatDue(daysLeft: number) {
@@ -453,10 +458,30 @@ export default function VocabularyShuffleDashboard({
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-5xl px-6 py-10">
+        <nav
+          aria-label="Words or phrases"
+          className="mb-5 inline-flex rounded-lg bg-zinc-800 p-0.5"
+        >
+          {SIDE_ORDER.map((side) => (
+            <Link
+              key={side}
+              href={SHUFFLE_SIDES[side].href}
+              aria-current={side === type ? "page" : undefined}
+              className={`rounded-md px-4 py-1.5 text-xs font-medium transition-colors ${
+                side === type
+                  ? "bg-indigo-600 text-white"
+                  : "text-zinc-400 hover:text-zinc-100"
+              }`}
+            >
+              {SHUFFLE_SIDES[side].label}
+            </Link>
+          ))}
+        </nav>
+
         <div className="mb-8 flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              {type === "word" ? "Vocab Shuffle" : "Phrase Shuffle"}
+              {SHUFFLE_SIDES[type].heading}
             </h1>
             <p className="mt-1 text-sm text-zinc-500">
               {totals.lists} list{totals.lists !== 1 ? "s" : ""} ·{" "}

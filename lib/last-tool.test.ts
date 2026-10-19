@@ -17,8 +17,18 @@ describe("toolForPath", () => {
     it("counts a page under a tool as that tool", () => {
         expect(toolForPath("/vocabulary/shuffle/review/abc123")).toEqual({
             href: "/vocabulary/shuffle",
-            name: "Vocab Shuffle",
+            name: "Shuffle",
         });
+        // The phrases side has no menu entry of its own; it is Shuffle too.
+        expect(toolForPath("/vocabulary/shuffle/phrases")?.href).toBe(
+            "/vocabulary/shuffle",
+        );
+    });
+
+    // The address the phrases side had before it moved into Vocabulary. A
+    // cookie saved back then must not link to it.
+    it("no longer knows the old phrases address", () => {
+        expect(toolForPath("/reading/shuffle")).toBeNull();
     });
 
     it("ignores the home page and the section pages", () => {

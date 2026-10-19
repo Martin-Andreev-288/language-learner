@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { isDue } from "@/lib/shuffle-schedule";
+import { SHUFFLE_SIDES } from "@/lib/shuffle-sides";
 import type { LastTool } from "@/lib/last-tool";
 
 export type ContinueList = {
@@ -18,8 +19,8 @@ export type ContinueList = {
 // the page marks each due list and has its own Review due card for the
 // all-at-once case.
 const LIST_KINDS = [
-  { type: "word", noun: "word", dashboardPath: "/vocabulary/shuffle" },
-  { type: "phrase", noun: "phrase", dashboardPath: "/reading/shuffle" },
+  { type: "word", noun: "word", dashboardPath: SHUFFLE_SIDES.word.href },
+  { type: "phrase", noun: "phrase", dashboardPath: SHUFFLE_SIDES.phrase.href },
 ] as const;
 
 function plural(count: number, noun: string) {

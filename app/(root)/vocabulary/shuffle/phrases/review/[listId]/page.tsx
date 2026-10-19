@@ -1,12 +1,18 @@
 import { auth } from "@/auth";
 import { getDefaultTranslateLanguage } from "@/app/actions/user-actions";
 import AuthPrompt from "@/components/shared/auth-prompt";
+import { featureTool } from "@/lib/feature-sections";
 import {
   getShuffleDashboard,
   getShuffleReviewCards,
 } from "@/app/actions/shuffle-actions";
 import { ShuffleListType } from "@/app/generated/prisma";
 import VocabularyShuffleSession from "@/components/shared/vocabulary-shuffle-session";
+import { SHUFFLE_SIDES } from "@/lib/shuffle-sides";
+
+// The same entry the menu and the Shuffle page read, rather than a second
+// copy of the name here that would have to be remembered at every rename.
+const tool = featureTool("/vocabulary/shuffle");
 
 type Props = {
   params: Promise<{ listId: string }>;
@@ -26,7 +32,7 @@ function normalizeFilter(filter?: string) {
   return "unmemorized" as const;
 }
 
-export default async function ReadingShuffleReviewPage({
+export default async function PhraseShuffleReviewPage({
   params,
   searchParams,
 }: Props) {
@@ -35,8 +41,8 @@ export default async function ReadingShuffleReviewPage({
   if (!session) {
     return (
       <AuthPrompt
-        featureName="Reading Shuffle"
-        description="Create sentence lists, group them by topics, and review them in randomized order."
+        featureName={tool.authName}
+        description={tool.description}
       />
     );
   }
@@ -67,13 +73,13 @@ export default async function ReadingShuffleReviewPage({
     : listId === "all"
       ? "All Phrase Lists"
       : (dashboard.lists.find((list) => list.id === listId)?.title ??
-        "Reading Shuffle");
+        SHUFFLE_SIDES.phrase.heading);
 
   return (
     <VocabularyShuffleSession
       listId={listId}
       type="phrase"
-      dashboardPath="/reading/shuffle"
+      dashboardPath={SHUFFLE_SIDES.phrase.href}
       listTitle={listTitle}
       initialFilter={initialFilter}
       reviewListIds={
