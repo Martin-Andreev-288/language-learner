@@ -111,7 +111,7 @@ export const FEATURE_SECTIONS: FeatureSection[] = [
         emoji: "📝",
         gradient: "from-[#4facfe] to-[#00f2fe]",
         description:
-            "Keep every word and phrase you are learning in one place, and review them in randomized order.",
+            "Keep every word and phrase you are learning in one place, and practise them as flashcards.",
         tools: [
             {
                 href: "/vocabulary/word-list",
@@ -122,10 +122,10 @@ export const FEATURE_SECTIONS: FeatureSection[] = [
             },
             {
                 href: "/vocabulary/shuffle",
-                label: "Shuffle",
-                authName: "Shuffle",
+                label: "Flashcards",
+                authName: "Flashcards",
                 description:
-                    "Create lists of words or phrases, group them by topic, and review them in randomized order.",
+                    "Make lists of words or phrases, group them by topic, and go through them one card at a time, in random order, marking what you've memorized.",
             },
             {
                 href: "/vocabulary/notes",

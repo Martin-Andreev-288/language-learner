@@ -28,7 +28,7 @@ describe("VIDEO_GUIDES", () => {
     });
 
     it("only lists real pages, so a mistyped address can't hide", () => {
-        // The phrases side of Shuffle is a real page without being a tool
+        // The phrases side of Flashcards is a real page without being a tool
         // of its own, so it is added here rather than counted as a typo.
         const known = new Set([
             "/",
@@ -51,7 +51,8 @@ describe("VIDEO_GUIDES", () => {
 
 describe("videoGuideTitle", () => {
     it("matches the address exactly", () => {
-        expect(videoGuideTitle("/vocabulary/shuffle")).toBe("Shuffle");
+        expect(videoGuideTitle("/vocabulary/shuffle")).toBe("Flashcards");
+        expect(videoGuideTitle("/vocabulary/shuffle/phrases")).toBe("Flashcards");
         // A review session lives under the dashboard's address but gets no
         // link of its own — the place a link would most get in the way.
         expect(videoGuideTitle("/vocabulary/shuffle/review/abc")).toBeUndefined();

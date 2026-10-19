@@ -31,7 +31,7 @@ describe("ContinuePanel", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("counts the due lists of each kind and opens that Shuffle page", () => {
+  it("counts the due lists of each kind and opens that Flashcards page", () => {
     render(
       <ContinuePanel
         lists={[

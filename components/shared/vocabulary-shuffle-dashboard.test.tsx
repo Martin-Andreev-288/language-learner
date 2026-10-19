@@ -12,7 +12,7 @@ vi.mock("@/app/actions/shuffle-actions", () => ({}));
 vi.mock("@/app/actions/shuffle-folder-actions", () => ({}));
 
 import VocabularyShuffleDashboard from "./vocabulary-shuffle-dashboard";
-import { SHUFFLE_SIDES, shuffleReviewBasePath } from "@/lib/shuffle-sides";
+import { shuffleReviewBasePath } from "@/lib/shuffle-sides";
 
 // The Words | Phrases switch is the only way to the phrases side: since it
 // moved into Vocabulary it has no menu entry of its own. So both links have
@@ -58,10 +58,21 @@ describe("VocabularyShuffleDashboard", () => {
     );
   });
 
-  it("heads each side with its own name", () => {
-    renderSide("phrase");
-    expect(
-      screen.getByRole("heading", { level: 1, name: SHUFFLE_SIDES.phrase.heading }),
-    ).toHaveTextContent("Phrase Shuffle");
+  // The heading is the menu entry's own name, so the page and the menu say
+  // the same thing, on either side.
+  it("heads both sides with the menu's name for the page", () => {
+    for (const side of ["word", "phrase"] as const) {
+      const { unmount } = render(
+        <VocabularyShuffleDashboard
+          type={side}
+          reviewBasePath={shuffleReviewBasePath(side)}
+          data={emptyData}
+        />,
+      );
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Flashcards" }),
+      ).toBeInTheDocument();
+      unmount();
+    }
   });
 });

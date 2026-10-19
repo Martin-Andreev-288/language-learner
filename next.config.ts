@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // The phrases side of Shuffle moved from Reading into Vocabulary, so the
+  // The phrases side of Flashcards moved from Reading into Vocabulary, so the
   // old addresses send you on rather than to a 404: a bookmark, or a link
   // saved in a note or sent in a message. Anything after the "?" (a Review
   // due link carries the lists it opens) goes along.

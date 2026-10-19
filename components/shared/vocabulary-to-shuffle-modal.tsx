@@ -5,7 +5,7 @@ import { getShuffleLists } from "@/app/actions/shuffle-actions";
 import { ShuffleListType } from "@/app/generated/prisma";
 import { describeClientError } from "@/lib/client-error";
 
-// Sending words from Vocabulary into a Vocab Shuffle list (Question 306).
+// Sending words from Vocabulary into a Flashcards list (Question 306).
 //
 // A separate modal rather than more buttons in the word list's toolbar,
 // because this asks a question that needs an answer before anything can
@@ -141,7 +141,7 @@ export default function VocabularyToShuffleModal({
         onClick={(event) => event.stopPropagation()}
       >
         <h3 className="text-lg font-semibold text-zinc-100">
-          Send to Vocab Shuffle
+          Send to Flashcards
         </h3>
         <p className="mt-1 text-sm text-zinc-500">
           {wordCount} word{wordCount !== 1 ? "s" : ""} — each becomes its own

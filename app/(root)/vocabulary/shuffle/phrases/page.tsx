@@ -6,9 +6,9 @@ import { ShuffleListType } from "@/app/generated/prisma";
 import VocabularyShuffleDashboard from "@/components/shared/vocabulary-shuffle-dashboard";
 import { shuffleReviewBasePath } from "@/lib/shuffle-sides";
 
-// The phrases side of Vocabulary → Shuffle. It has no menu entry of its own;
-// the Words | Phrases switch on the page is the way here, so it shares the
-// Shuffle entry's name and description.
+// The phrases side of Vocabulary → Flashcards. It has no menu entry of its
+// own; the Words | Phrases switch on the page is the way here, so it shares
+// the Flashcards entry's name and description.
 const tool = featureTool("/vocabulary/shuffle");
 
 export default async function PhraseShufflePage() {

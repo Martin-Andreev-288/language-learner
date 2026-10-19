@@ -6,7 +6,7 @@
 // for confirmation. That is the wrong way round, and the reason this
 // exists: the point of a shortcut is to not reach for the mouse.
 //
-// Shared by Vocab Shuffle, Phrase Shuffle and Shadowing rather than
+// Shared by Flashcards and Shadowing rather than
 // written out three times, so a key that changes is corrected once and the
 // three screens can't drift into describing themselves differently.
 

@@ -14,7 +14,7 @@ export type ContinueList = {
   cardCount: number;
 };
 
-// Each row opens that Shuffle page rather than a review of every due list
+// Each row opens that Flashcards page rather than a review of every due list
 // at once: you may want them one at a time, in an order of your own, and
 // the page marks each due list and has its own Review due card for the
 // all-at-once case.
@@ -31,7 +31,7 @@ function plural(count: number, noun: string) {
 // the same six cards the menu already has. The cards stay, below this.
 //
 // A client component only for the clock: which lists are due is counted in
-// the viewer's own time zone, the same way the Shuffle page counts it, so
+// the viewer's own time zone, the same way the Flashcards page counts it, so
 // the two never disagree about what is due today.
 //
 // Shows nothing at all when nothing is due and no tool has been used yet,

@@ -26,7 +26,7 @@ export default async function UnmemorizedPage({ searchParams }: Props) {
     return (
       <AuthPrompt
         featureName="Unmemorized"
-        description="Review everything that is still not memorized across your shuffle lists."
+        description="Review everything that is still not memorized across your flashcard lists."
       />
     );
   }

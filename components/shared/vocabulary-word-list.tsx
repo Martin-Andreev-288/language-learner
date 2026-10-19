@@ -1928,7 +1928,7 @@ export default function VocabularyWordList({
           <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
             Words{" "}
             <span className="normal-case font-normal text-zinc-600">
-              (one per line — same as Vocab Shuffle)
+              (one per line — same as Flashcards)
             </span>
           </label>
           <textarea
@@ -2215,7 +2215,7 @@ export default function VocabularyWordList({
                   }}
                   className="rounded-md bg-zinc-800 px-3 py-1 text-sm font-semibold text-zinc-200 transition-colors hover:bg-zinc-700"
                 >
-                  Send to Vocab Shuffle…
+                  Send to Flashcards…
                 </button>
                 <button
                   onClick={() => {

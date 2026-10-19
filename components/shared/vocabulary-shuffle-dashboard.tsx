@@ -25,6 +25,7 @@ import {
 } from "@/lib/folder-tree";
 import { daysUntilDue } from "@/lib/shuffle-schedule";
 import { SHUFFLE_SIDES, type ShuffleSide } from "@/lib/shuffle-sides";
+import { featureTool } from "@/lib/feature-sections";
 
 type ShuffleType = "word" | "phrase";
 
@@ -107,8 +108,11 @@ type Props = {
   data: DashboardData;
 };
 
-// One menu entry, Vocabulary → Shuffle, and this switch to choose the side.
+// One menu entry, Vocabulary → Flashcards, and this switch to choose the
+// side. The heading is that entry's own name, read from the same place, so
+// the two can't drift apart.
 const SIDE_ORDER: ShuffleSide[] = ["word", "phrase"];
+const HEADING = featureTool("/vocabulary/shuffle").label;
 
 // "Due" covers today and overdue alike: either way the list is waiting.
 function formatDue(daysLeft: number) {
@@ -481,7 +485,7 @@ export default function VocabularyShuffleDashboard({
         <div className="mb-8 flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              {SHUFFLE_SIDES[type].heading}
+              {HEADING}
             </h1>
             <p className="mt-1 text-sm text-zinc-500">
               {totals.lists} list{totals.lists !== 1 ? "s" : ""} ·{" "}

@@ -24,7 +24,7 @@ function belongsTo(pathname: string, href: string) {
 }
 
 // Which tool an address belongs to: the tool's own page or anything under
-// it, so a Shuffle review counts as that Shuffle. Section pages, the home
+// it, so a Flashcards review counts as Flashcards. Section pages, the home
 // page and unknown addresses give null, and so never replace the last real
 // tool. The href returned is always the tool's own, never the address
 // passed in — which is what makes it safe to use on a cookie's value.

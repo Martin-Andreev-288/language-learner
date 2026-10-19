@@ -17,9 +17,9 @@ describe("toolForPath", () => {
     it("counts a page under a tool as that tool", () => {
         expect(toolForPath("/vocabulary/shuffle/review/abc123")).toEqual({
             href: "/vocabulary/shuffle",
-            name: "Shuffle",
+            name: "Flashcards",
         });
-        // The phrases side has no menu entry of its own; it is Shuffle too.
+        // The phrases side has no menu entry of its own; it is Flashcards too.
         expect(toolForPath("/vocabulary/shuffle/phrases")?.href).toBe(
             "/vocabulary/shuffle",
         );

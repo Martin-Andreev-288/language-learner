@@ -10,7 +10,7 @@ import { ShuffleListType } from "@/app/generated/prisma";
 import VocabularyShuffleSession from "@/components/shared/vocabulary-shuffle-session";
 import { SHUFFLE_SIDES } from "@/lib/shuffle-sides";
 
-// The same entry the menu and the Shuffle page read, rather than a second
+// The same entry the menu and the Flashcards page read, rather than a second
 // copy of the name here that would have to be remembered at every rename.
 const tool = featureTool("/vocabulary/shuffle");
 
@@ -73,7 +73,7 @@ export default async function PhraseShuffleReviewPage({
     : listId === "all"
       ? "All Phrase Lists"
       : (dashboard.lists.find((list) => list.id === listId)?.title ??
-        SHUFFLE_SIDES.phrase.heading);
+        tool.label);
 
   return (
     <VocabularyShuffleSession
