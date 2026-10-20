@@ -17,6 +17,7 @@ import {
   unmarkedReason,
 } from "@/lib/correction-spans";
 import MarkedText from "@/components/shared/marked-text";
+import TextChanges from "@/components/shared/text-changes";
 
 // One tool behind both Writing Check and Speak Check (Question 285). They
 // were the same code — the same action, the same correction rendering, the
@@ -98,6 +99,11 @@ export default function CheckTool({ mode }: { mode: CheckMode }) {
   const [corrections, setCorrections] = useState<Correction[] | null>(null);
   const [correctedText, setCorrectedText] = useState<string | null>(null);
   const [flashedIndex, setFlashedIndex] = useState<number | null>(null);
+  // Whether the fully corrected text is shown with its changes marked. Off
+  // by default, so the corrected text first reads as clean text you could
+  // copy, and kept between checks, since it's a way of reading rather than
+  // something about one particular result.
+  const [showChanges, setShowChanges] = useState(false);
   const flashResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [savingNote, setSavingNote] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
@@ -421,11 +427,37 @@ export default function CheckTool({ mode }: { mode: CheckMode }) {
 
                 {correctedText && (
                   <div className="mt-4">
-                    <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      Fully corrected
-                    </p>
-                    <p className="whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm leading-relaxed text-emerald-100">
-                      {correctedText}
+                    <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        Fully corrected
+                      </p>
+                      {/* Compares against the text as it was checked, not
+                          the box above, which you may have edited since. */}
+                      <label className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200">
+                        <input
+                          type="checkbox"
+                          checked={showChanges}
+                          onChange={(event) =>
+                            setShowChanges(event.target.checked)
+                          }
+                          className="accent-indigo-600"
+                        />
+                        Show changes
+                      </label>
+                    </div>
+                    <p
+                      className={`whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm leading-relaxed ${
+                        showChanges ? "text-zinc-200" : "text-emerald-100"
+                      }`}
+                    >
+                      {showChanges ? (
+                        <TextChanges
+                          before={checkedText}
+                          after={correctedText}
+                        />
+                      ) : (
+                        correctedText
+                      )}
                     </p>
                   </div>
                 )}
