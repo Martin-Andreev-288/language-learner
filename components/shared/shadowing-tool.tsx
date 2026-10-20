@@ -40,6 +40,7 @@ import {
   SHADOWING_LEVELS,
   SHADOWING_REGISTERS,
   SHADOWING_SENTENCE_LENGTHS,
+  describeShadowingOptions,
 } from "@/lib/shadowing-generation";
 
 // How long the loop waits after a sentence has finished playing before
@@ -144,6 +145,11 @@ export default function ShadowingTool({
   // something to generate another of. Kept through hand-edits on purpose:
   // tweaking a generated passage doesn't make the next one the first one.
   const [hasGenerated, setHasGenerated] = useState(false);
+  // Whether the generator's fields are unfolded. Folded by default: the
+  // line that stands in for them already says what is set, and four menus
+  // plus a text box were most of what made this page look busy before you
+  // had done anything on it.
+  const [optionsOpen, setOptionsOpen] = useState(false);
   // Auto-advance (Question 376). Off until asked for: a page that starts
   // moving on its own the first time you open it would be a worse first
   // impression than one that waits to be told.
@@ -776,104 +782,137 @@ export default function ShadowingTool({
                 they have defaults because a dropdown can't be empty, not
                 because those answers were assumed (Question 357). */}
             <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
-              <p className="mb-1 text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <p className="mb-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
                 Generate a passage
               </p>
-              <p className="mb-3 text-xs text-zinc-600">
-                Leave anything blank and it won&apos;t be asked for — no level
-                means no particular level, not an average one.
-              </p>
 
-              {/* Each label may wrap its select onto the line below it, and
-                  neither may be wider than this box. A <select> sizes itself
-                  to its longest option — "Medium (6 to 8 sentences)" — and
-                  nothing capped that, so on a phone three of these ran
-                  27-73px past the box and the page scrolled sideways
-                  (Question 437). Where a field fits beside its label it
-                  still sits there, exactly as before. */}
-              <div className="flex flex-wrap gap-3">
-                <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
-                  Level
-                  <select
-                    value={level}
-                    onChange={(event) => setLevel(event.target.value)}
-                    className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
-                  >
-                    <option value="">Any</option>
-                    {SHADOWING_LEVELS.map((value) => (
-                      <option key={value} value={value}>
-                        {value}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              {/* The fields fold away behind one line that says what they
+                  are set to, so the page opens on a language box, this line,
+                  Generate and the passage, rather than on six controls. The
+                  line is also what a guest reads now instead of the menus
+                  themselves: it names the same settings, which is what the
+                  menus being on show for a guest was meant to do. */}
+              <button
+                type="button"
+                onClick={() => setOptionsOpen((open) => !open)}
+                aria-expanded={optionsOpen}
+                aria-controls="shadowing-generator-options"
+                className="flex w-full items-start gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-left text-sm transition-colors hover:border-zinc-600"
+              >
+                <span className="shrink-0 font-medium text-zinc-300">
+                  Options
+                </span>
+                <span className="min-w-0 flex-1 text-zinc-500">
+                  {describeShadowingOptions({
+                    level,
+                    register,
+                    length,
+                    sentenceLength,
+                    topic,
+                  }).join(" · ")}
+                </span>
+                <span aria-hidden className="shrink-0 text-zinc-500">
+                  {optionsOpen ? "▴" : "▾"}
+                </span>
+              </button>
 
-                <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
-                  Style
-                  <select
-                    value={register}
-                    onChange={(event) => setRegister(event.target.value)}
-                    className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
-                  >
-                    {SHADOWING_REGISTERS.map((value) => (
-                      <option key={value} value={value}>
-                        {value}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              {optionsOpen && (
+                <div id="shadowing-generator-options" className="mt-3">
+                  <p className="mb-3 text-xs text-zinc-600">
+                    Leave anything blank and it won&apos;t be asked for — no level
+                    means no particular level, not an average one.
+                  </p>
 
-                {/* "Length" on its own stopped being a usable label once
-                    there were two of them (Question 372). Both say what
-                    they measure now, rather than one of them assuming it's
-                    the only length anyone meant. */}
-                <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
-                  Passage length
-                  <select
-                    value={length}
-                    onChange={(event) => setLength(event.target.value)}
-                    className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
-                  >
-                    {SHADOWING_LENGTHS.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label} ({item.sentences} sentences)
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  {/* Each label may wrap its select onto the line below it, and
+                      neither may be wider than this box. A <select> sizes itself
+                      to its longest option — "Medium (6 to 8 sentences)" — and
+                      nothing capped that, so on a phone three of these ran
+                      27-73px past the box and the page scrolled sideways
+                      (Question 437). Where a field fits beside its label it
+                      still sits there, exactly as before. */}
+                  <div className="flex flex-wrap gap-3">
+                    <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
+                      Level
+                      <select
+                        value={level}
+                        onChange={(event) => setLevel(event.target.value)}
+                        className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                      >
+                        <option value="">Any</option>
+                        {SHADOWING_LEVELS.map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
-                <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
-                  Sentence length
-                  <select
-                    value={sentenceLength}
-                    onChange={(event) => setSentenceLength(event.target.value)}
-                    className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
-                  >
-                    {SHADOWING_SENTENCE_LENGTHS.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label} ({item.words} words)
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+                    <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
+                      Style
+                      <select
+                        value={register}
+                        onChange={(event) => setRegister(event.target.value)}
+                        className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                      >
+                        {SHADOWING_REGISTERS.map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
-              <input
-                type="text"
-                value={topic}
-                onChange={(event) => setTopic(event.target.value)}
-                maxLength={SHADOWING_TOPIC_MAX_CHARACTERS}
-                placeholder={
-                  'Topic or notes (optional) \u2014 e.g. ordering at a bakery, or "keep it in the past tense"'
-                }
-                className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
-              />
+                    {/* "Length" on its own stopped being a usable label once
+                        there were two of them (Question 372). Both say what
+                        they measure now, rather than one of them assuming it's
+                        the only length anyone meant. */}
+                    <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
+                      Passage length
+                      <select
+                        value={length}
+                        onChange={(event) => setLength(event.target.value)}
+                        className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                      >
+                        {SHADOWING_LENGTHS.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label} ({item.sentences} sentences)
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
-              {/* The settings above stay visible and usable to a guest
-                  even though the button below them doesn't. They are what
-                  explain the feature — a Level, a Style, a Length and a
-                  topic box say what generating a passage would do far
-                  better than a sentence about it would. */}
+                    <label className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-zinc-400">
+                      Sentence length
+                      <select
+                        value={sentenceLength}
+                        onChange={(event) => setSentenceLength(event.target.value)}
+                        className="max-w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 outline-none transition-colors focus:border-indigo-500"
+                      >
+                        {SHADOWING_SENTENCE_LENGTHS.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label} ({item.words} words)
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={topic}
+                    onChange={(event) => setTopic(event.target.value)}
+                    maxLength={SHADOWING_TOPIC_MAX_CHARACTERS}
+                    placeholder={
+                      'Topic or notes (optional) \u2014 e.g. ordering at a bakery, or "keep it in the past tense"'
+                    }
+                    className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+                  />
+                </div>
+              )}
+
+              {/* The settings stay usable to a guest even though the button
+                  below them doesn't: they explain the feature better than a
+                  sentence about it would. */}
               {isAuthenticated ? (
                 <button
                   onClick={handleGenerate}

@@ -134,3 +134,45 @@ export interface GeneratedPassage {
     // voice the browser defaults to, which is the wrong one by definition.
     language: string;
 }
+
+// The one line the generator shows while its fields are folded away
+// (item 4 in directions2.md): what a click on Generate would ask for right
+// now, so the settings never have to be opened just to be checked. Every
+// part names what it measures — "Medium passage · Short sentences", never a
+// bare "Medium · Short" — and an empty level says so rather than vanishing,
+// because "no particular level" is itself a choice (Question 356).
+const TOPIC_PREVIEW_CHARACTERS = 40;
+
+export function describeShadowingOptions(options: {
+    level: string;
+    register: string;
+    length: string;
+    sentenceLength: string;
+    topic: string;
+}): string[] {
+    const lengthLabel =
+        SHADOWING_LENGTHS.find((item) => item.value === options.length)?.label ??
+        options.length;
+    const sentenceLabel =
+        SHADOWING_SENTENCE_LENGTHS.find(
+            (item) => item.value === options.sentenceLength,
+        )?.label ?? options.sentenceLength;
+
+    const parts = [
+        options.level || "Any level",
+        options.register,
+        `${lengthLabel} passage`,
+        `${sentenceLabel} sentences`,
+    ];
+
+    const topic = options.topic.trim();
+    if (topic) {
+        parts.push(
+            topic.length > TOPIC_PREVIEW_CHARACTERS
+                ? `“${topic.slice(0, TOPIC_PREVIEW_CHARACTERS - 1).trimEnd()}…”`
+                : `“${topic}”`,
+        );
+    }
+
+    return parts;
+}
