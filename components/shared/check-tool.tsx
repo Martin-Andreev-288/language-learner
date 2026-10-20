@@ -11,6 +11,12 @@ import MicIcon from "@/components/shared/mic-icon";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import { guessLanguageCode } from "@/lib/language-codes";
 import { useSpeechToText } from "@/lib/use-speech-to-text";
+import {
+  correctionBadges,
+  findCorrectionSpans,
+  unmarkedReason,
+} from "@/lib/correction-spans";
+import MarkedText from "@/components/shared/marked-text";
 
 // One tool behind both Writing Check and Speak Check (Question 285). They
 // were the same code — the same action, the same correction rendering, the
@@ -65,77 +71,6 @@ type Correction = {
   corrected: string;
   explanation: string;
 };
-
-type CorrectionSpan = {
-  start: number;
-  end: number; // exclusive
-  index: number; // index into the corrections array
-};
-
-// Finds each correction's `original` text inside the checked passage, so it
-// can be highlighted in place. Not every correction is guaranteed to match —
-// the model doesn't always quote the source verbatim — so this only returns
-// the ones that do, in reading order, with overlapping matches dropped
-// (first-found wins) rather than rendered as broken, nested highlights.
-function findCorrectionSpans(
-  checkedText: string,
-  corrections: Correction[],
-): CorrectionSpan[] {
-  const found: CorrectionSpan[] = [];
-
-  corrections.forEach((correction, index) => {
-    if (!correction.original) return;
-    const start = checkedText.indexOf(correction.original);
-    if (start === -1) return;
-    found.push({ start, end: start + correction.original.length, index });
-  });
-
-  found.sort((a, b) => a.start - b.start);
-
-  const spans: CorrectionSpan[] = [];
-  let lastEnd = -1;
-  for (const span of found) {
-    if (span.start >= lastEnd) {
-      spans.push(span);
-      lastEnd = span.end;
-    }
-  }
-
-  return spans;
-}
-
-function renderHighlightedText(
-  checkedText: string,
-  spans: CorrectionSpan[],
-  badgeByCorrectionIndex: Map<number, number>,
-  onSpanClick: (correctionIndex: number) => void,
-) {
-  const nodes: React.ReactNode[] = [];
-  let cursor = 0;
-
-  spans.forEach((span) => {
-    if (span.start > cursor) {
-      nodes.push(checkedText.slice(cursor, span.start));
-    }
-    nodes.push(
-      <mark
-        key={span.start}
-        onClick={() => onSpanClick(span.index)}
-        title={`Correction ${badgeByCorrectionIndex.get(span.index)}`}
-        className="cursor-pointer rounded bg-red-500/25 px-0.5 text-red-200 underline decoration-red-500 decoration-2 underline-offset-2 transition-colors hover:bg-red-500/40"
-      >
-        {checkedText.slice(span.start, span.end)}
-      </mark>,
-    );
-    cursor = span.end;
-  });
-
-  if (cursor < checkedText.length) {
-    nodes.push(checkedText.slice(cursor));
-  }
-
-  return nodes;
-}
 
 // The point of saving this isn't "here's your fixed text" — correctedText
 // already covers that — it's a record of what was actually wrong and why,
@@ -301,9 +236,7 @@ export default function CheckTool({ mode }: { mode: CheckMode }) {
   const spans = corrections
     ? findCorrectionSpans(checkedText, corrections)
     : [];
-  const badgeByCorrectionIndex = new Map(
-    spans.map((span, i) => [span.index, i + 1]),
-  );
+  const badgeByCorrectionIndex = correctionBadges(spans);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -478,12 +411,12 @@ export default function CheckTool({ mode }: { mode: CheckMode }) {
             ) : (
               <>
                 <p className="whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm leading-relaxed text-zinc-200">
-                  {renderHighlightedText(
-                    checkedText,
-                    spans,
-                    badgeByCorrectionIndex,
-                    handleSpanClick,
-                  )}
+                  <MarkedText
+                    text={checkedText}
+                    spans={spans}
+                    badges={badgeByCorrectionIndex}
+                    onMarkClick={handleSpanClick}
+                  />
                 </p>
 
                 {correctedText && (
@@ -529,10 +462,7 @@ export default function CheckTool({ mode }: { mode: CheckMode }) {
                         </p>
                         {!badge && (
                           <p className="mt-2 text-xs text-zinc-600">
-                            Not shown highlighted
-                            above — the wording
-                            didn&apos;t match the
-                            original text exactly.
+                            {unmarkedReason(checkedText, correction.original)}
                           </p>
                         )}
                       </li>

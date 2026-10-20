@@ -22,6 +22,12 @@ import {
   type TranslationState,
 } from "@/lib/language-chat-draft";
 import { describeClientError } from "@/lib/client-error";
+import {
+  correctionBadges,
+  findCorrectionSpans,
+  unmarkedReason,
+} from "@/lib/correction-spans";
+import MarkedText from "@/components/shared/marked-text";
 import { guessLanguageCode } from "@/lib/language-codes";
 import { isTouchScreen } from "@/lib/is-touch-screen";
 import { useSpeechToText } from "@/lib/use-speech-to-text";
@@ -105,6 +111,13 @@ export default function LanguageChat({
     () => initial?.feedback ?? new Map(),
   );
   const [openFeedback, setOpenFeedback] = useState<Set<string>>(new Set());
+  // Which correction was just pointed at by clicking its mark, as
+  // "messageId:index", so its line under the message lights up briefly —
+  // the same answer Writing Check gives to "which explanation is this?".
+  const [flashedCorrection, setFlashedCorrection] = useState<string | null>(
+    null,
+  );
+  const flashResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Which note this conversation is saved to, once it has been saved at
   // all — or the note it was resumed from. Saving again updates that note
   // rather than creating a second copy of the same, still-growing
@@ -352,6 +365,15 @@ export default function LanguageChat({
         message: describeClientError(err, "Couldn't check that message."),
       });
     }
+  }
+
+  function flashCorrection(messageId: string, index: number) {
+    document
+      .getElementById(`chat-correction-${messageId}-${index}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    setFlashedCorrection(`${messageId}:${index}`);
+    if (flashResetRef.current) clearTimeout(flashResetRef.current);
+    flashResetRef.current = setTimeout(() => setFlashedCorrection(null), 1500);
   }
 
   function toggleFeedback(id: string) {
@@ -649,6 +671,14 @@ export default function LanguageChat({
                 const expanded = openFeedback.has(message.id);
                 const mistakes =
                   state?.status === "done" ? state.corrections : [];
+                // Only a message of yours ever has corrections, and only
+                // its own text is what they quote — so this is the text to
+                // mark, not whatever the reply said.
+                const spans =
+                  mistakes.length > 0
+                    ? findCorrectionSpans(messageText(message), mistakes)
+                    : [];
+                const badges = correctionBadges(spans);
                 const translation = translations.get(message.id);
                 const translationOpen = openTranslations.has(message.id);
 
@@ -707,10 +737,11 @@ export default function LanguageChat({
                       </div>
                     </div>
 
-                    {/* Expanded corrections use Writing Check's own card
-                        styling — struck-through original, correction, then
-                        the explanation — rather than a second look for the
-                        same information. */}
+                    {/* Expanded corrections look the way Writing Check's do:
+                        your own words first, with each mistake marked and
+                        numbered in place, then the numbered explanations —
+                        struck-through original, correction, why. One look
+                        for the same information wherever it appears. */}
                     {expanded && state?.status === "done" && (
                       <div className="mt-2 flex justify-end">
                         <div className="w-[85%] rounded-lg border border-zinc-800 bg-zinc-950 p-3">
@@ -719,21 +750,61 @@ export default function LanguageChat({
                               Nothing to correct here ✅
                             </p>
                           ) : (
-                            <ul className="space-y-3">
-                              {mistakes.map((correction, index) => (
-                                <li key={index}>
-                                  <p className="text-sm text-red-400 line-through decoration-red-500/60">
-                                    {correction.original}
-                                  </p>
-                                  <p className="mt-0.5 text-sm font-medium text-emerald-400">
-                                    {correction.corrected}
-                                  </p>
-                                  <p className="mt-1 text-sm text-zinc-400">
-                                    {correction.explanation}
-                                  </p>
-                                </li>
-                              ))}
-                            </ul>
+                            <>
+                              {spans.length > 0 && (
+                                <p className="mb-3 whitespace-pre-wrap rounded-md border border-zinc-800 bg-zinc-900 p-2.5 text-sm leading-relaxed text-zinc-200">
+                                  <MarkedText
+                                    text={messageText(message)}
+                                    spans={spans}
+                                    badges={badges}
+                                    onMarkClick={(index) =>
+                                      flashCorrection(message.id, index)
+                                    }
+                                  />
+                                </p>
+                              )}
+                              <ul className="space-y-2">
+                                {mistakes.map((correction, index) => {
+                                  const badge = badges.get(index);
+                                  return (
+                                    <li
+                                      key={index}
+                                      id={`chat-correction-${message.id}-${index}`}
+                                      className={`-mx-2 rounded-md px-2 py-1 transition-colors ${
+                                        flashedCorrection === `${message.id}:${index}`
+                                          ? "bg-indigo-950/60 ring-1 ring-indigo-500"
+                                          : ""
+                                      }`}
+                                    >
+                                      <div className="flex items-start gap-2">
+                                        {badge && (
+                                          <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-500/30 text-xs font-bold text-red-200">
+                                            {badge}
+                                          </span>
+                                        )}
+                                        <p className="text-sm text-red-400 line-through decoration-red-500/60">
+                                          {correction.original}
+                                        </p>
+                                      </div>
+                                      <p className="mt-0.5 text-sm font-medium text-emerald-400">
+                                        {correction.corrected}
+                                      </p>
+                                      <p className="mt-1 text-sm text-zinc-400">
+                                        {correction.explanation}
+                                      </p>
+                                      {!badge && spans.length > 0 && (
+                                        <p className="mt-1 text-xs text-zinc-600">
+                                          {unmarkedReason(
+                                            messageText(message),
+                                            correction.original,
+                                          )}
+                                        </p>
+                                      )}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </>
                           )}
                         </div>
                       </div>
