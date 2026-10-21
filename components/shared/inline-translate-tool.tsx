@@ -16,9 +16,11 @@ import { createNote } from "@/app/actions/note-actions";
 import { addVocabularyEntries } from "@/app/actions/vocabulary-entry-actions";
 import { NotePage } from "@/app/generated/prisma";
 import {
+  EMPTY_DRAFT as EMPTY_INLINE_DRAFT,
   readInlineTranslateDraft,
   writeInlineTranslateDraft,
 } from "@/lib/inline-translate-draft";
+import { useInBrowser } from "@/lib/use-in-browser";
 import { writeInlineListenCarry } from "@/lib/inline-listen-carry";
 import { describeClientError } from "@/lib/client-error";
 import {
@@ -138,10 +140,30 @@ function getResultText(result: TranslatedResult, showTranslations: boolean) {
   return output;
 }
 
+// Drawn first as for a first visit, then — once in the browser — again with
+// this tab's draft, so a full page load matches the server's page instead
+// of contradicting it (see lib/use-in-browser.ts).
 export default function InlineTranslateTool({
   defaultTranslateLanguage,
 }: {
   defaultTranslateLanguage: string;
+}) {
+  const inBrowser = useInBrowser();
+  return (
+    <InlineTranslateScreen
+      key={inBrowser ? "browser" : "server"}
+      restoreDraft={inBrowser}
+      defaultTranslateLanguage={defaultTranslateLanguage}
+    />
+  );
+}
+
+function InlineTranslateScreen({
+  defaultTranslateLanguage,
+  restoreDraft,
+}: {
+  defaultTranslateLanguage: string;
+  restoreDraft: boolean;
 }) {
   const router = useRouter();
   // Restored from the last session's draft, if there is one — read once,
@@ -153,7 +175,9 @@ export default function InlineTranslateTool({
   // deriving every other initial value from that one snapshot still avoids
   // parsing the same JSON — and re-running tokenizeWords/groupMarkedRuns —
   // once per field for no reason.
-  const [initialDraft] = useState(() => readInlineTranslateDraft());
+  const [initialDraft] = useState(() =>
+    restoreDraft ? readInlineTranslateDraft() : EMPTY_INLINE_DRAFT,
+  );
   const [text, setText] = useState(() => initialDraft.text);
   const [sourceLanguage, setSourceLanguage] = useState(
     () => initialDraft.sourceLanguage,
@@ -214,7 +238,12 @@ export default function InlineTranslateTool({
   // scratch. Clearing already goes through this same path — handleClear
   // resets text/markedIndices/result, which lands here as an empty draft,
   // same as before.
+  //
+  // Never from the first, server-matching draw: it has no draft in it, and
+  // saving it would overwrite the real draft with an empty page a moment
+  // before the browser draw reads it back.
   useEffect(() => {
+    if (!restoreDraft) return;
     writeInlineTranslateDraft({
       text,
       sourceLanguage,
@@ -222,7 +251,7 @@ export default function InlineTranslateTool({
       markedIndices: Array.from(markedIndices),
       translations: result ? Array.from(result.translations.entries()) : [],
     });
-  }, [text, sourceLanguage, targetLanguages, markedIndices, result]);
+  }, [restoreDraft, text, sourceLanguage, targetLanguages, markedIndices, result]);
 
   // Left-click dismisses the popup when it lands outside it; right-clicks
   // are left alone here since onContextMenu already replaces the popup's

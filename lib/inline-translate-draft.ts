@@ -28,7 +28,7 @@ export interface InlineTranslateDraft {
   translations: DraftTranslation[];
 }
 
-const EMPTY_DRAFT: InlineTranslateDraft = {
+export const EMPTY_DRAFT: InlineTranslateDraft = {
   text: "",
   sourceLanguage: "",
   targetLanguages: [],

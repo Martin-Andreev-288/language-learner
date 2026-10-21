@@ -22,6 +22,7 @@ import {
   type TranslationState,
 } from "@/lib/language-chat-draft";
 import { describeClientError } from "@/lib/client-error";
+import { useInBrowser } from "@/lib/use-in-browser";
 import {
   correctionBadges,
   findCorrectionSpans,
@@ -43,12 +44,35 @@ const AUTO_SEND_AFTER_SILENCE_MS = 2500;
 // growing further.
 const INPUT_MAX_HEIGHT_PX = 140;
 
+// Drawn first as for a first visit, then — once in the browser — again with
+// this tab's conversation, so a full page load matches the server's page
+// instead of contradicting it (see lib/use-in-browser.ts).
 export default function LanguageChat({
   mode,
   defaultTranslateLanguage,
 }: {
   mode: ChatMode;
   defaultTranslateLanguage: string;
+}) {
+  const inBrowser = useInBrowser();
+  return (
+    <LanguageChatScreen
+      key={inBrowser ? "browser" : "server"}
+      restoreDraft={inBrowser}
+      mode={mode}
+      defaultTranslateLanguage={defaultTranslateLanguage}
+    />
+  );
+}
+
+function LanguageChatScreen({
+  mode,
+  defaultTranslateLanguage,
+  restoreDraft,
+}: {
+  mode: ChatMode;
+  defaultTranslateLanguage: string;
+  restoreDraft: boolean;
 }) {
   const config = CHAT_MODES[mode];
 
@@ -64,7 +88,12 @@ export default function LanguageChat({
   //
   // Both are read under this chat's own key, so the written and spoken
   // conversations can never surface in each other's page.
+  //
+  // Neither is read in the first, server-matching draw: the carry clears
+  // itself when read, so reading it there would hand the conversation to a
+  // screen about to be replaced and leave nothing for the real one.
   const [initial] = useState(() => {
+    if (!restoreDraft) return null;
     const carry = readAndClearChatCarry(mode);
     if (carry) return carry;
     return readChatDraft(mode);
@@ -169,8 +198,12 @@ export default function LanguageChat({
   // every token, and serializing the whole conversation that often would be
   // pure waste. Once streaming settles, `busy` flips and this runs with the
   // finished message, so nothing is missed by waiting.
+  //
+  // Never from the first, server-matching draw: it has no conversation in
+  // it, so it would clear the stored one a moment before the browser draw
+  // reads it back.
   useEffect(() => {
-    if (busy) return;
+    if (!restoreDraft || busy) return;
     if (messages.length === 0) {
       // Nothing worth restoring — and leaving a stale draft behind would
       // resurrect a conversation the user has already cleared.
@@ -189,6 +222,7 @@ export default function LanguageChat({
       speechRate,
     });
   }, [
+    restoreDraft,
     mode,
     speakReplies,
     autoSend,

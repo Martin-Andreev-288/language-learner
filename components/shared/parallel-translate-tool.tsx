@@ -7,6 +7,11 @@ import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
 import { translateSentences } from "@/app/actions/parallel-translate-actions";
 import { writeCarriedColumns } from "@/lib/parallel-listen-carry";
+import {
+  readParallelTranslateDraft,
+  writeParallelTranslateDraft,
+} from "@/lib/parallel-translate-draft";
+import { useInBrowser } from "@/lib/use-in-browser";
 import { describeClientError } from "@/lib/client-error";
 import { PARALLEL_TRANSLATE_MAX_CHARACTERS } from "@/lib/limits";
 import CharacterCount from "@/components/shared/character-count";
@@ -92,23 +97,65 @@ function makeColumn(name = ""): LanguageColumn {
   return { id: nextColumnId, name, text: "", collapsed: false };
 }
 
+// Drawn first as for a first visit, then — once in the browser — again with
+// this tab's draft, so a full page load matches the server's page instead
+// of contradicting it (see lib/use-in-browser.ts). The key makes the second
+// draw a fresh screen, which is what lets it read the draft as its initial
+// state.
 export default function ParallelTranslateTool({
   defaultTranslateLanguage,
 }: {
   defaultTranslateLanguage: string;
+}) {
+  const inBrowser = useInBrowser();
+  return (
+    <ParallelTranslateScreen
+      key={inBrowser ? "browser" : "server"}
+      restoreDraft={inBrowser}
+      defaultTranslateLanguage={defaultTranslateLanguage}
+    />
+  );
+}
+
+function ParallelTranslateScreen({
+  defaultTranslateLanguage,
+  restoreDraft,
+}: {
+  defaultTranslateLanguage: string;
+  restoreDraft: boolean;
 }) {
   const router = useRouter();
   // Only the first column starts filled in (Question 302). The second is
   // left empty deliberately: which column is the *source* here is decided
   // by whichever one you type into, so filling both in advance would be
   // guessing at something the page works out for itself.
-  const [columns, setColumns] = useState<LanguageColumn[]>(() => [
-    makeColumn(defaultTranslateLanguage),
-    makeColumn(),
-  ]);
-  const [outputFormat, setOutputFormat] = useState<OutputFormat>("markdown");
-  const [outputText, setOutputText] = useState("");
-  const [preview, setPreview] = useState<PreviewData | null>(null);
+  //
+  // Unless this tab has a draft to come back to: then the columns, the view
+  // and the last aligned result are restored as they were left, read once
+  // as the initial state itself, the way Inline Translate restores its own.
+  const [initialDraft] = useState(() =>
+    restoreDraft ? readParallelTranslateDraft() : null,
+  );
+  const [columns, setColumns] = useState<LanguageColumn[]>(() =>
+    initialDraft
+      ? initialDraft.columns.map((column) => ({
+          ...makeColumn(column.name),
+          text: column.text,
+          collapsed: column.collapsed,
+        }))
+      : [makeColumn(defaultTranslateLanguage), makeColumn()],
+  );
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>(
+    () => initialDraft?.outputFormat ?? "markdown",
+  );
+  const [outputText, setOutputText] = useState(
+    () => initialDraft?.result?.text ?? "",
+  );
+  const [preview, setPreview] = useState<PreviewData | null>(() =>
+    initialDraft?.result
+      ? { rows: initialDraft.result.rows, names: initialDraft.result.names }
+      : null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -123,6 +170,27 @@ export default function ParallelTranslateTool({
   // Set by the Align button only, so the page scrolls to the result when
   // you asked for it, not every time a column is moved or removed.
   const scrollToResultRef = useRef(false);
+
+  // Keeps this tab's draft in step with the screen. Clear lands here too, as
+  // an all-empty draft, which the next visit treats as no draft at all.
+  //
+  // Never from the server-matching first render: that one is drawn without
+  // the draft, and saving it would overwrite the draft with an empty page a
+  // moment before the browser render reads it back.
+  useEffect(() => {
+    if (!restoreDraft) return;
+    writeParallelTranslateDraft({
+      columns: columns.map(({ name, text, collapsed }) => ({
+        name,
+        text,
+        collapsed,
+      })),
+      outputFormat,
+      result: preview
+        ? { text: outputText, rows: preview.rows, names: preview.names }
+        : null,
+    });
+  }, [restoreDraft, columns, outputFormat, outputText, preview]);
 
   useEffect(() => {
     if (!preview || !scrollToResultRef.current) return;
