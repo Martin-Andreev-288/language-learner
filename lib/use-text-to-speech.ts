@@ -44,7 +44,10 @@ export interface UseTextToSpeech {
     // first client render onward.
     supported: boolean;
     speaking: boolean;
-    speak: (text: string) => void;
+    // `lang` overrides the hook's own language for this one run — for a page
+    // whose texts are in several languages at once, like a Parallel
+    // Translate table, where each column is spoken in its own.
+    speak: (text: string, lang?: string) => void;
     stop: () => void;
 }
 
@@ -71,6 +74,9 @@ export function useTextToSpeech({
     // Read inside callbacks bound when a run started, so they see current
     // values rather than whatever was set at the time.
     const langRef = useRef(lang);
+    // The language of the run in progress, fixed when it starts, so every
+    // sentence of one run is spoken in the same voice.
+    const runLangRef = useRef(lang);
     const rateRef = useRef(rate);
     const onFinishedRef = useRef(onFinished);
     // Chaining needs to call itself; a ref is how that's done without the
@@ -101,7 +107,7 @@ export function useTextToSpeech({
             }
 
             const utterance = new SpeechSynthesisUtterance(speakableText(sentences[index]));
-            if (langRef.current) utterance.lang = langRef.current;
+            if (runLangRef.current) utterance.lang = runLangRef.current;
             utterance.rate = rateRef.current;
             utterance.onend = () => {
                 if (runIdRef.current !== runId) return;
@@ -137,7 +143,7 @@ export function useTextToSpeech({
     }, []);
 
     const speak = useCallback(
-        (text: string) => {
+        (text: string, langForThisRun?: string) => {
             if (typeof window === "undefined" || !("speechSynthesis" in window)) {
                 return;
             }
@@ -157,6 +163,7 @@ export function useTextToSpeech({
             window.speechSynthesis.cancel();
             window.speechSynthesis.resume();
             const runId = ++runIdRef.current;
+            runLangRef.current = langForThisRun ?? langRef.current;
             setSpeaking(true);
             speakFromRef.current(sentences, 0, runId);
         },

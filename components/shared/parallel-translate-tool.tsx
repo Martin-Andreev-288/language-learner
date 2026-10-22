@@ -12,6 +12,8 @@ import {
   writeParallelTranslateDraft,
 } from "@/lib/parallel-translate-draft";
 import { useInBrowser } from "@/lib/use-in-browser";
+import { useTextToSpeech } from "@/lib/use-text-to-speech";
+import { guessLanguageCode } from "@/lib/language-codes";
 import { describeClientError } from "@/lib/client-error";
 import { PARALLEL_TRANSLATE_MAX_CHARACTERS } from "@/lib/limits";
 import CharacterCount from "@/components/shared/character-count";
@@ -167,6 +169,18 @@ function ParallelTranslateScreen({
   // and folded again by Clear: the table is what the page is for.
   const [exportOpen, setExportOpen] = useState(false);
   const resultRef = useRef<HTMLDivElement>(null);
+  // Which sentence is being read out, as "row:column", so that one is
+  // highlighted and a second click on it stops it.
+  const [hearingCell, setHearingCell] = useState<string | null>(null);
+  // The browser's own voices, through the same hook the voice chat speaks
+  // with. Each sentence is spoken in its own column's language, so the
+  // language goes in per click rather than once for the page.
+  const {
+    supported: canHear,
+    speaking,
+    speak,
+    stop: stopSpeaking,
+  } = useTextToSpeech({ onFinished: () => setHearingCell(null) });
   // Set by the Align button only, so the page scrolls to the result when
   // you asked for it, not every time a column is moved or removed.
   const scrollToResultRef = useRef(false);
@@ -198,7 +212,59 @@ function ParallelTranslateScreen({
     resultRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   }, [preview]);
 
+  function stopHearing() {
+    stopSpeaking();
+    setHearingCell(null);
+  }
+
+  function handleHear(rowIdx: number, colIdx: number, text: string) {
+    // Dragging across a sentence to copy part of it ends in a click too;
+    // that one is for the selection, not for listening.
+    if (window.getSelection()?.toString()) return;
+
+    const cell = `${rowIdx}:${colIdx}`;
+    if (speaking && hearingCell === cell) {
+      stopHearing();
+      return;
+    }
+    setHearingCell(cell);
+    speak(text, guessLanguageCode(preview?.names[colIdx] ?? ""));
+  }
+
+  // A sentence you can click to hear. Plain text where the browser has no
+  // voices at all, and kept as text rather than a <button> either way, so
+  // part of a sentence can still be selected and copied by dragging.
+  function hearable(text: string, rowIdx: number, colIdx: number) {
+    if (!canHear || !text) return text;
+    const cell = `${rowIdx}:${colIdx}`;
+    const active = speaking && hearingCell === cell;
+    const language = preview?.names[colIdx];
+    return (
+      <span
+        role="button"
+        tabIndex={0}
+        aria-pressed={active}
+        onClick={() => handleHear(rowIdx, colIdx, text)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            handleHear(rowIdx, colIdx, text);
+          }
+        }}
+        title={active ? "Stop" : language ? `Hear it in ${language}` : "Hear it"}
+        className={`-mx-0.5 cursor-pointer rounded px-0.5 outline-none transition-colors hover:bg-indigo-600/20 hover:text-indigo-100 focus-visible:ring-1 focus-visible:ring-indigo-500 ${
+          active ? "bg-indigo-600/30 text-indigo-100" : ""
+        }`}
+      >
+        {text}
+      </span>
+    );
+  }
+
   function runFormat(nextColumns: LanguageColumn[], format: OutputFormat) {
+    // A new alignment can move every sentence to another cell, so whatever
+    // was being read out no longer belongs to the cell it was marked in.
+    stopHearing();
     const parsed = parseColumns(nextColumns);
     if (!parsed) {
       setOutputText("");
@@ -386,6 +452,7 @@ function ParallelTranslateScreen({
     setError(null);
     setCopySuccess(false);
     setExportOpen(false);
+    stopHearing();
   }
 
   return (
@@ -497,9 +564,16 @@ function ParallelTranslateScreen({
             className="mt-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6"
           >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-zinc-100">
-                Aligned sentences
-              </h2>
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-100">
+                  Aligned sentences
+                </h2>
+                {canHear && (
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Click a sentence to hear it.
+                  </p>
+                )}
+              </div>
               <div
                 role="group"
                 aria-label="How to show them"
@@ -543,7 +617,7 @@ function ParallelTranslateScreen({
                               {name}:{" "}
                             </span>
                           )}
-                          {text}
+                          {hearable(text, rowIdx, colIdx)}
                         </p>
                       );
                     })}
@@ -650,7 +724,7 @@ function ParallelTranslateScreen({
                                 isCollapsed ? "bg-zinc-800/60" : ""
                               }`}
                             >
-                              {isCollapsed ? "" : text}
+                              {isCollapsed ? "" : hearable(text, rowIdx, colIdx)}
                             </td>
                           );
                         })}
@@ -740,6 +814,12 @@ function ParallelTranslateScreen({
               Click &quot;Align sentences&quot;. The sentences appear side by
               side in a table below; switch to &quot;Vertical&quot; to see
               each group one under the other instead.
+            </li>
+            <li>
+              Click any sentence to hear it read aloud in its column&apos;s
+              language, and click it again to stop. Name the columns for
+              this: an unnamed one is read in your browser&apos;s default
+              voice.
             </li>
             <li>
               Reorder, collapse, or remove a column directly from the table
