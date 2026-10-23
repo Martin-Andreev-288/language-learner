@@ -90,7 +90,7 @@ interface RecognitionStopReason {
 
 // "no-speech" and "aborted" are absent on purpose — both are handled before
 // this is ever reached, since neither is something to tell the user about.
-function describeRecognitionError(code: string): RecognitionStopReason {
+function describeRecognitionError(code: string, startLabel: string): RecognitionStopReason {
     switch (code) {
         case "not-allowed":
         case "service-not-allowed":
@@ -116,7 +116,7 @@ function describeRecognitionError(code: string): RecognitionStopReason {
                 : {
                       kind: "notice",
                       message:
-                          "Dictation stopped — the speech service ended the session. Press Dictate to carry on.",
+                          `Dictation stopped — the speech service ended the session. Press ${startLabel} to carry on.`,
                   };
         case "language-not-supported":
             return {
@@ -149,6 +149,11 @@ export interface UseSpeechToTextOptions {
     // its own, so there is exactly one copy of the text and it lives with
     // the field the user can edit.
     onFinalResult: (text: string) => void;
+    // What the page's start button is called, for the messages that say how
+    // to carry on. "Dictate" is Speak Check's and the chats'; Shadowing's
+    // says Record, and a message naming a button that isn't on the page
+    // reads as a broken one (Question 38).
+    startLabel?: string;
 }
 
 export interface UseSpeechToText {
@@ -173,6 +178,7 @@ export interface UseSpeechToText {
 export function useSpeechToText({
     lang,
     onFinalResult,
+    startLabel = "Dictate",
 }: UseSpeechToTextOptions): UseSpeechToText {
     // Read as an external value rather than held as state, which is exactly
     // what this is: a fact about the browser that React doesn't own and that
@@ -207,11 +213,13 @@ export function useSpeechToText({
     // value rather than whatever it was when listening began — the same
     // reason Shadowing Practice keeps its language in a ref.
     const langRef = useRef(lang);
+    const startLabelRef = useRef(startLabel);
     const onFinalResultRef = useRef(onFinalResult);
 
     useEffect(() => {
         langRef.current = lang;
-    }, [lang]);
+        startLabelRef.current = startLabel;
+    }, [lang, startLabel]);
 
     useEffect(() => {
         onFinalResultRef.current = onFinalResult;
@@ -245,10 +253,12 @@ export function useSpeechToText({
     const armIdleTimer = useCallback(() => {
         clearIdleTimer();
         idleTimerRef.current = setTimeout(() => {
+            // A dictation already ended has no pause to report.
+            if (!wantListeningRef.current) return;
             finishListening({
                 kind: "notice",
                 message:
-                    "Dictation stopped after a long pause — press Dictate to carry on.",
+                    `Dictation stopped after a long pause — press ${startLabelRef.current} to carry on.`,
             });
         }, IDLE_STOP_AFTER_MS);
     }, [clearIdleTimer, finishListening]);
@@ -293,7 +303,11 @@ export function useSpeechToText({
             }
             // Anything heard at all — even a word still being revised —
             // means this isn't silence, so the idle countdown starts over.
-            if (finalChunk || interim) armIdleTimer();
+            // Only while a dictation is wanted, though: the browser sends
+            // the last words a moment *after* Stop, and re-arming then left
+            // a countdown running past the end, which 45 seconds later
+            // announced a "long pause" stop nobody had made (Question 37).
+            if ((finalChunk || interim) && wantListeningRef.current) armIdleTimer();
             if (finalChunk) onFinalResultRef.current(finalChunk);
             setInterimTranscript(interim);
         };
@@ -305,7 +319,14 @@ export function useSpeechToText({
             if (event.error === "no-speech" || event.error === "aborted") {
                 return;
             }
-            finishListening(describeRecognitionError(event.error));
+            // A failure of a session you had already ended is nothing to
+            // report: you pressed Stop, and that is how it ended. Chrome's
+            // speech service can still send one while it closes — "network"
+            // most often — and it read as "Dictation stopped — the speech
+            // service ended the session" under an attempt that had gone
+            // perfectly well (Question 38).
+            if (!wantListeningRef.current) return;
+            finishListening(describeRecognitionError(event.error, startLabelRef.current));
         };
 
         recognition.onend = () => {
@@ -330,7 +351,7 @@ export function useSpeechToText({
             finishListening({
                 kind: "notice",
                 message:
-                    "Dictation stopped — press Dictate to start listening again.",
+                    `Dictation stopped — press ${startLabelRef.current} to start listening again.`,
             });
         }
     }, [armIdleTimer, finishListening]);
