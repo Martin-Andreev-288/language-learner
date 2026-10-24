@@ -133,8 +133,13 @@ export default function LanguageCombobox({
     // simpler and less jarring than chasing the input with a reposition on
     // every scroll frame. Capture phase, since a scrolling ancestor's event
     // doesn't bubble to window.
+    //
+    // Resize as well — and a resize comes from the window, which isn't a
+    // node of the page, so contains() would throw on it. On a phone that is
+    // every time the keyboard opens for the field (Question 46).
     function handleScroll(event: Event) {
-      if (dropdownRef.current?.contains(event.target as Node)) return;
+      const target = event.target;
+      if (target instanceof Node && dropdownRef.current?.contains(target)) return;
       setOpen(false);
       setTypedSinceOpen(false);
     }
