@@ -68,6 +68,38 @@ function getSpeechRecognition(): SpeechRecognitionConstructor | null {
     );
 }
 
+// What is new in a piece of dictation, given what this session has already
+// written: the piece, minus any words at its start that repeat the end of
+// what came before (Question 58).
+//
+// Needed on Android only. There the browser hands the speech to the
+// phone's own recognition service, which, in continuous dictation, sends
+// each new piece with the earlier words of the same sentence again —
+// "il", "il y", "il y a", "il y a le problème" — where Chrome on a
+// computer sends "il", " y", " a", " le problème". Added to the text box
+// one after another, those became "il il y il y a il y a le problème".
+//
+// Compared word by word, ignoring case and punctuation, so "problème" and
+// "Problème." count as the same word. The one thing it can't tell apart is
+// a word you really did say twice across two pieces — "il y a, il y a" —
+// which is why it is used on Android only, where the repeats are the rule.
+export function wordsNotYetWritten(writtenSoFar: string, piece: string): string {
+    const wordsOf = (value: string) => value.trim().split(/\s+/).filter(Boolean);
+    const key = (word: string) => word.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+    const before = wordsOf(writtenSoFar);
+    const next = wordsOf(piece);
+    for (let overlap = Math.min(before.length, next.length); overlap > 0; overlap--) {
+        const tail = before.slice(before.length - overlap);
+        if (tail.every((word, i) => key(word) === key(next[i]))) {
+            return next.slice(overlap).join(" ");
+        }
+    }
+    return next.join(" ");
+}
+
+const repeatsEarlierWords = () =>
+    typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+
 // How long a stretch of pure silence ends a dictation deliberately.
 //
 // This exists because of what happens without it. A long dictation is really
@@ -287,6 +319,12 @@ export function useSpeechToText({
         // user then edits, not a ranked list to choose between.
         recognition.maxAlternatives = 1;
 
+        // On Android, what this session has written so far, so a piece that
+        // repeats it can be cut back to its new words (see
+        // wordsNotYetWritten). Per session: a new one starts afresh.
+        const cutRepeats = repeatsEarlierWords();
+        let writtenThisSession = "";
+
         recognition.onresult = (event) => {
             let finalChunk = "";
             let interim = "";
@@ -296,7 +334,15 @@ export function useSpeechToText({
                 const result = event.results[i];
                 const transcript = result[0]?.transcript ?? "";
                 if (result.isFinal) {
-                    finalChunk += transcript;
+                    if (cutRepeats) {
+                        const fresh = wordsNotYetWritten(writtenThisSession, transcript);
+                        if (fresh) {
+                            finalChunk = finalChunk ? `${finalChunk} ${fresh}` : fresh;
+                            writtenThisSession = `${writtenThisSession} ${fresh}`;
+                        }
+                    } else {
+                        finalChunk += transcript;
+                    }
                 } else {
                     interim += transcript;
                 }

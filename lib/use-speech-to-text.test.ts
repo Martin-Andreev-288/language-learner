@@ -2,7 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useSpeechToText } from "./use-speech-to-text";
+import { useSpeechToText, wordsNotYetWritten } from "./use-speech-to-text";
 
 // What the hook says when a dictation ends without you (Questions 37 and
 // 38). The browser's speech recognition is a stand-in that delivers results
@@ -95,5 +95,69 @@ describe("useSpeechToText's failures", () => {
     act(() => FakeRecognition.last!.fail("network"));
     expect(result.current.notice).toBeNull();
     expect(result.current.error).toBeNull();
+  });
+});
+
+// Question 58: on Android, each new piece of dictation repeats the earlier
+// words of the same sentence. This is the sequence from that screenshot.
+const androidPieces = [
+  "bonjour",
+  "bonjour comment",
+  "comment ça va",
+  "il",
+  "il y",
+  "il y a",
+  "il y a le",
+  "il y a le problème",
+  "il y a le problème",
+];
+
+describe("wordsNotYetWritten", () => {
+  it("cuts each piece back to its new words", () => {
+    let written = "";
+    const added: string[] = [];
+    for (const piece of androidPieces) {
+      const fresh = wordsNotYetWritten(written, piece);
+      if (fresh) {
+        added.push(fresh);
+        written = `${written} ${fresh}`;
+      }
+    }
+    expect(added.join(" ")).toBe("bonjour comment ça va il y a le problème");
+  });
+
+  it("ignores case and punctuation when comparing", () => {
+    expect(wordsNotYetWritten("Il y a le", "il y a le Problème.")).toBe("Problème.");
+  });
+
+  it("keeps a piece that repeats nothing, and drops one that only repeats", () => {
+    expect(wordsNotYetWritten("bonjour", "merci beaucoup")).toBe("merci beaucoup");
+    expect(wordsNotYetWritten("il y a le problème", "le problème")).toBe("");
+  });
+});
+
+describe("useSpeechToText on Android", () => {
+  const setUserAgent = (value: string) =>
+    Object.defineProperty(window.navigator, "userAgent", { value, configurable: true });
+  afterEach(() => {
+    delete (window.navigator as unknown as { userAgent?: string }).userAgent;
+  });
+
+  function dictate() {
+    const onFinalResult = vi.fn();
+    const { result } = renderHook(() => useSpeechToText({ lang: "fr-FR", onFinalResult }));
+    act(() => result.current.start());
+    for (const piece of androidPieces) act(() => FakeRecognition.last!.say(piece));
+    return onFinalResult.mock.calls.map(([chunk]) => chunk).join(" ");
+  }
+
+  it("writes each word once, though the phone repeats them", () => {
+    setUserAgent("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36");
+    expect(dictate()).toBe("bonjour comment ça va il y a le problème");
+  });
+
+  it("leaves a computer's pieces exactly as they come", () => {
+    setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36");
+    expect(dictate()).toBe(androidPieces.join(" "));
   });
 });
