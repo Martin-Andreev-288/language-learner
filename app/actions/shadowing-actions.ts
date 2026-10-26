@@ -17,6 +17,13 @@ import {
 } from "@/lib/shadowing-check";
 import { splitIntoSentences } from "@/lib/sentence-split";
 import {
+    cleanSoundsCheck,
+    soundsPrompt,
+    soundsSchema,
+    soundsUploadProblem,
+    type SoundsCheck,
+} from "@/lib/shadowing-sounds";
+import {
     DEFAULT_SHADOWING_LENGTH,
     DEFAULT_SHADOWING_REGISTER,
     DEFAULT_SHADOWING_SENTENCE_LENGTH,
@@ -191,6 +198,13 @@ const differenceSchema = z.object({
         ),
 });
 
+// How long either half of an attempt's check may take before it gives up
+// (item 10, iteration 4). Both usually answer in a few seconds; without a
+// limit, a request that hangs leaves the page on "Checking what you said…"
+// until the host ends the request. Twenty seconds is several times the
+// usual wait, and short enough that "Try again" comes while you still care.
+const CHECK_TIMEOUT_MS = 20_000;
+
 const attemptSchema = z.object({
     verdict: z
         .enum(["match", "close", "off"])
@@ -252,7 +266,7 @@ export async function checkShadowingAttempt(
     if (isWordPerfect(trimmedTarget, trimmedAttempt)) {
         return actionOk({
             verdict: "match",
-            summary: "Word for word — that is exactly the sentence.",
+            summary: "Every word of the sentence was understood.",
             differences: [],
         });
     }
@@ -266,6 +280,7 @@ export async function checkShadowingAttempt(
     try {
         const result = await generateText({
             model: google("gemini-3.5-flash-lite"),
+            abortSignal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
             output: Output.object({ schema: attemptSchema }),
             prompt: `${languageLine}Someone learning a language is shadowing: they listened to one sentence and repeated it out loud. Their attempt was captured by the browser's speech recognition, so it reaches you as text.
 
@@ -301,4 +316,61 @@ ${trimmedAttempt}
     }
 
     return actionOk(output);
+}
+
+// Checks the *sounds* of one spoken attempt (item 10 in directions2.md): the
+// recording itself goes to the model, not the words the browser made of it,
+// because those words have already been corrected — "mude" arrives as
+// "müde". What it can and can't tell you is set out in
+// lib/shadowing-sounds.ts.
+//
+// The same small model as everything else in this app: the tests behind
+// this feature found it the only one that never reported a wrong sound in
+// correct speech, which matters more here than catching every mistake.
+//
+// Takes FormData because a recording is binary: up to about 384 KB of WAV,
+// which a server action accepts within its 1 MB limit. Nothing is kept —
+// the sound is read, sent on, and dropped when the request ends.
+//
+// Returns failures rather than throwing them, so the message survives a
+// production build — see lib/action-result.ts.
+export async function checkShadowingSounds(
+    form: FormData,
+): Promise<ActionResult<SoundsCheck>> {
+    const session = await auth();
+    if (!session?.user?.id) {
+        throw new Error("Unauthorized");
+    }
+
+    const audio = form.get("audio");
+    const sentence = String(form.get("sentence") ?? "").trim();
+    const language = String(form.get("language") ?? "").trim();
+    if (!(audio instanceof Blob)) {
+        return actionError("Nothing was recorded — try recording again.");
+    }
+
+    const bytes = new Uint8Array(await audio.arrayBuffer());
+    const problem = soundsUploadProblem({ bytes, sentence });
+    if (problem) return actionError(problem);
+
+    try {
+        const result = await generateText({
+            model: google("gemini-3.5-flash-lite"),
+            abortSignal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+            output: Output.object({ schema: soundsSchema }),
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: soundsPrompt(sentence, language) },
+                        { type: "file", data: bytes, mediaType: "audio/wav" },
+                    ],
+                },
+            ],
+        });
+        return actionOk(cleanSoundsCheck(result.output));
+    } catch (err) {
+        console.error("checkShadowingSounds failed:", err);
+        return actionError(describeAiError(err, "Sounds check").message);
+    }
 }

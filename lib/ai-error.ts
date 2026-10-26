@@ -7,8 +7,21 @@ import { APICallError, LoadAPIKeyError, RetryError } from "ai";
  * failure. Always log the original `err` server-side too; this only covers
  * what's shown to the user.
  */
+const isTimeout = (value: unknown) =>
+    typeof value === "object" &&
+    value !== null &&
+    "name" in value &&
+    (value.name === "TimeoutError" || value.name === "AbortError");
+
 export function describeAiError(err: unknown, serviceLabel: string): Error {
     const cause = RetryError.isInstance(err) ? err.lastError : err;
+
+    // Cut short by the caller's own time limit (AbortSignal.timeout): the
+    // model never answered, which is a different thing to say from "couldn't
+    // reach it", and one the person can act on by trying again.
+    if (isTimeout(cause)) {
+        return new Error(`The ${serviceLabel.toLowerCase()} took too long to answer — try again.`);
+    }
 
     if (LoadAPIKeyError.isInstance(cause)) {
         return new Error(

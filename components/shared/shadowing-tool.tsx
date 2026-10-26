@@ -14,12 +14,24 @@ import {
 import { createNote } from "@/app/actions/note-actions";
 import {
   checkShadowingAttempt,
+  checkShadowingSounds,
   generateShadowingPassage,
 } from "@/app/actions/shadowing-actions";
 import MicIcon from "@/components/shared/mic-icon";
 import SignInToUse from "@/components/shared/sign-in-to-use";
 import KeyboardHints from "@/components/shared/keyboard-hints";
 import { useSpeechToText } from "@/lib/use-speech-to-text";
+import {
+  useSoundRecorder,
+  type RecordedSound,
+} from "@/lib/use-sound-recorder";
+import {
+  combineFindings,
+  sameWordsIgnoringMarks,
+  SHADOWING_SOUNDS_PAGE_NOTE,
+  type SoundsCheck,
+} from "@/lib/shadowing-sounds";
+import type { ActionResult } from "@/lib/action-result";
 import {
   isWordPerfect,
   SHADOWING_CHECK_CAVEAT,
@@ -30,6 +42,7 @@ import { describeClientError } from "@/lib/client-error";
 import { speakableText } from "@/lib/speech-text";
 import {
   SHADOWING_ATTEMPT_MAX_CHARACTERS,
+  SHADOWING_SOUNDS_MAX_SECONDS,
   SHADOWING_TOPIC_MAX_CHARACTERS,
 } from "@/lib/limits";
 import {
@@ -54,13 +67,28 @@ import {
 // way the gap means the only thing it could usefully mean: how long you get
 // to say it back.
 const AUTO_ADVANCE_GAPS = [3, 5, 8, 12] as const;
+// Below this loudest sample, from 0 to 1, a recording counts as silent.
+const SILENT_PEAK = 0.01;
+
+// The words half's answer when every word was there, given here rather than
+// asked for: there is nothing a model could add to it.
+const ALL_WORDS_UNDERSTOOD: ShadowingCheck = {
+  verdict: "match",
+  summary: "Every word of the sentence was understood.",
+  differences: [],
+};
 const DEFAULT_AUTO_ADVANCE_GAP = 5;
 
 // How each verdict presents itself (Question 373). Out here rather than
 // inline so the three stay side by side and readable as a set — and worded
-// as descriptions rather than marks: "Word for word" says what happened,
-// where "Excellent" would be praise for having been understood by a
-// transcriber, which is not the same achievement.
+// as descriptions rather than marks: "All words understood" says what
+// happened, where "Excellent" would be praise for having been understood by
+// a transcriber, which is not the same achievement. It used to say "Word
+// for word", which read as "you said it perfectly" — the very claim a
+// transcript can't make, since the browser corrects the sounds it hears.
+// How it sounded is the sounds check's part of the result (item 10), in
+// the same box; "understood" rather than "heard", because being understood
+// is all a transcript can vouch for.
 //
 // All three are phrases rather than single words, and that is a rule now
 // rather than a coincidence (Question 375). The middle one used to be the
@@ -70,7 +98,7 @@ const DEFAULT_AUTO_ADVANCE_GAP = 5;
 // sits where instructions sit, so none of these may be shortened to one.
 const VERDICT_STYLES = {
   match: {
-    label: "Word for word",
+    label: "All words understood",
     className: "border-emerald-800 bg-emerald-950/40 text-emerald-300",
   },
   close: {
@@ -169,6 +197,26 @@ export default function ShadowingTool({
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<ShadowingCheck | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
+  // The sounds check (item 10): the same attempt, judged from its recording
+  // rather than from the words the browser made of it. One press asks both,
+  // but each keeps its own state, because either request can fail without
+  // the other — and there is no sounds half at all without a recording.
+  const [soundsResult, setSoundsResult] = useState<SoundsCheck | null>(null);
+  const [soundsError, setSoundsError] = useState<string | null>(null);
+  // Bumped by every new attempt and every move to another sentence, so a
+  // check that answers after its attempt was replaced keeps nothing.
+  const checkRunRef = useRef(0);
+  // The recording the automatic check last started on: one check per
+  // recording, however many times the page draws after it.
+  const checkedSoundRef = useRef<RecordedSound | null>(null);
+  // Read after the sounds half has answered, seconds after the check began
+  // — by when the browser's last words may have arrived (see runCheck).
+  const attemptRef = useRef("");
+  // Set when an attempt is thrown away rather than stopped — cancelled, or
+  // left for another sentence — until the next one starts: the browser
+  // still sends the last words a moment after, and an attempt thrown away
+  // must not come back as one to check.
+  const discardingRef = useRef(false);
   const [savingNote, setSavingNote] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
@@ -209,6 +257,7 @@ export default function ShadowingTool({
   // it. Capped so a microphone left running can't build a string the check
   // would then refuse.
   const handleFinalResult = useCallback((spoken: string) => {
+    if (discardingRef.current) return;
     setAttempt((prev) => {
       const joined = prev ? `${prev.replace(/\s+$/, "")} ${spoken}` : spoken;
       return joined.length <= SHADOWING_ATTEMPT_MAX_CHARACTERS
@@ -220,12 +269,41 @@ export default function ShadowingTool({
   const {
     supported: recordingSupported,
     listening,
-    interimTranscript,
     error: recordingError,
     notice: recordingNotice,
     start: startListening,
     stop: stopListening,
-  } = useSpeechToText({ lang: langCode, onFinalResult: handleFinalResult });
+  } = useSpeechToText({
+    lang: langCode,
+    onFinalResult: handleFinalResult,
+    startLabel: "Record",
+  });
+
+  const {
+    supported: soundSupported,
+    recording: soundRecording,
+    preparing: soundPreparing,
+    sound,
+    tooLong: soundTooLong,
+    start: startSound,
+    stop: stopSound,
+    clear: clearSound,
+  } = useSoundRecorder();
+
+  // The sound is recorded exactly while the speech recognition listens —
+  // started and stopped by the same change — so both always cover the same
+  // attempt, however listening ends: the button, R or Escape, or the
+  // recogniser stopping by itself. If recording the sound isn't possible,
+  // nothing here waits for it; there is just no sounds check to offer.
+  //
+  // Signed in only (Answer 44). A guest has no sounds check, so recording
+  // their sound opened a second microphone stream for nothing — and on a
+  // phone that can't share its microphone between two listeners, the one
+  // thing it could do was get in the way of the recording that works.
+  useEffect(() => {
+    if (listening && isAuthenticated) startSound();
+    else stopSound();
+  }, [listening, isAuthenticated, startSound, stopSound]);
 
   // A language is required here, where playback treats it as optional, and
   // the difference is real rather than an oversight: playback without one
@@ -233,13 +311,54 @@ export default function ShadowingTool({
   // without one transcribes your French as English words and then reports
   // every single one of them as a difference.
   const canRecord = recordingSupported && langCode !== undefined;
+  // The recording, if there is one worth sending: a near-silent one is not
+  // (Question 46). The line is low on purpose — the quietest of the test
+  // takes, with no gain from the browser, still peaked at four times it.
+  const audibleSound = sound && sound.peak >= SILENT_PEAK ? sound : null;
+  // Whether this attempt goes to the sounds check: signed in, with a
+  // recording that is ready or on its way. Otherwise it is the words alone,
+  // from the browser's text, as before item 10 — the box you can edit and
+  // the button that checks it.
+  const checksSounds =
+    isAuthenticated && (audibleSound !== null || soundRecording || soundPreparing);
+  // Signed in, stopped, and neither the browser nor the recorder caught
+  // anything: worth saying, since otherwise the page would just sit there.
+  const heardNothing =
+    isAuthenticated &&
+    !listening &&
+    !attempt.trim() &&
+    sound !== null &&
+    audibleSound === null &&
+    !checkResult &&
+    !soundsResult;
   const recordTitle = !recordingSupported
     ? "This browser doesn't support speech recognition — try Chrome, Edge, or Safari"
     : !langCode
       ? "Pick a language first, so it listens for the right one"
       : listening
-        ? "Stop recording (Esc or R)"
+        ? "Stop recording (R)"
         : "Record your attempt (R)";
+
+  // The result's colour is for the whole attempt, not the words half alone:
+  // green means there is nothing to fix. All the words understood but a
+  // wrong sound found is "nearly there" — a green box around "you said u,
+  // not ü" would say "perfect" again, the claim item 10 exists to stop
+  // making. And with the sounds half failed, nobody knows yet, so no colour.
+  const neutralStyle = "border-zinc-800 bg-zinc-950/40 text-zinc-200";
+  const findings = combineFindings(
+    current ?? "",
+    checkResult?.differences ?? [],
+    soundsResult?.issues ?? [],
+  );
+  const resultStyle = !checkResult
+    ? neutralStyle
+    : checkResult.verdict !== "match"
+      ? VERDICT_STYLES[checkResult.verdict].className
+      : soundsResult?.issues.length
+        ? VERDICT_STYLES.close.className
+        : soundsError
+          ? neutralStyle
+          : VERDICT_STYLES.match.className;
 
   useEffect(() => {
     autoAdvanceRef.current = autoAdvance;
@@ -265,6 +384,31 @@ export default function ShadowingTool({
       if (autoTimerRef.current) clearInterval(autoTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    attemptRef.current = attempt;
+  }, [attempt]);
+
+  // The check starts by itself once an attempt is complete (Question 35):
+  // you have stopped and the recording is ready. Nothing to press, and
+  // nothing on screen between stopping and the result that could be taken
+  // for what you said. No dependency array, for the reason given just
+  // below; the ref is what keeps it to one check per recording.
+  //
+  // It used to wait for the browser's words as well, and on Android that
+  // meant it never started (Question 46): there the browser's speech
+  // recognition and the recorder can't share the microphone, the recorder
+  // gets it, and the recognition hears silence. A recording with no words
+  // beside it is now checked all the same — see runCheck for where its
+  // words come from. A silent one is not sent at all, and nor is one from
+  // an attempt that was thrown away.
+  useEffect(() => {
+    if (!isAuthenticated || listening || !audibleSound) return;
+    if (discardingRef.current) return;
+    if (checkedSoundRef.current === audibleSound) return;
+    checkedSoundRef.current = audibleSound;
+    void runCheck(audibleSound, true);
+  });
 
   // Plays the sentence the loop has just moved to. No dependency array and
   // a ref for a guard, matching the keyboard handler below: the flag is set
@@ -464,9 +608,18 @@ export default function ShadowingTool({
   function clearAttempt() {
     clearAutoTimer();
     stopListening();
+    // The last words the browser sends after this stop belong to the
+    // attempt being forgotten, not to the next one — they are dropped until
+    // a new recording starts.
+    discardingRef.current = true;
+    checkRunRef.current += 1;
+    setChecking(false);
     setAttempt("");
     setCheckResult(null);
     setCheckError(null);
+    clearSound();
+    setSoundsResult(null);
+    setSoundsError(null);
   }
 
   function handleStartRecording() {
@@ -474,51 +627,127 @@ export default function ShadowingTool({
     // Record when the voice has said enough, and making that press mean
     // "stop talking and listen to me" is what the gesture already implies.
     handleStop();
+    discardingRef.current = false;
+    checkRunRef.current += 1;
+    setChecking(false);
     setAttempt("");
     setCheckResult(null);
     setCheckError(null);
+    setSoundsResult(null);
+    setSoundsError(null);
     startListening();
   }
 
-  async function handleCheckAttempt() {
-    // Speaking and then checking is one gesture — a live microphone would
-    // keep appending to the very attempt being checked.
-    if (listening) stopListening();
+  // Stops recording and throws the attempt away, sound and words both, so
+  // nothing is checked (Question 38). Stop means "check this"; once the
+  // check started by itself when you stop, there had to be a second way
+  // out that means "not this one" — on the page as Cancel, and Esc, which
+  // ended an attempt without a check before the check was automatic.
+  function handleCancelRecording() {
+    clearAttempt();
+  }
 
-    const spoken = attempt.trim();
-    if (!spoken || !current) return;
-
-    // Answered here rather than by asking the model, and it saves a request
-    // from the daily allowance every time you get a sentence right — which,
-    // after a couple of passes at the same passage, is most times. There is
-    // also nothing a model could add: "that is the sentence" is the whole
-    // finding. See lib/shadowing-check.ts.
-    if (isWordPerfect(current, spoken)) {
-      setCheckError(null);
-      setCheckResult({
-        verdict: "match",
-        summary: "Word for word — that is exactly the sentence.",
-        differences: [],
-      });
-      return;
+  // The words half of a check: whether the sentence was understood. A match
+  // is answered here rather than by asking the model, and it saves a
+  // request from the daily allowance every time you get a sentence right —
+  // which, after a couple of passes at the same passage, is most times.
+  // There is also nothing a model could add: "every word was there" is the
+  // whole finding. See lib/shadowing-check.ts.
+  async function checkWords(
+    sentence: string,
+    spoken: string,
+  ): Promise<ActionResult<ShadowingCheck>> {
+    if (isWordPerfect(sentence, spoken)) return { ok: true, data: ALL_WORDS_UNDERSTOOD };
+    try {
+      return await checkShadowingAttempt(sentence, spoken, language);
+    } catch (err) {
+      return {
+        ok: false,
+        error: describeClientError(err, "Couldn't check that attempt — try again."),
+      };
     }
+  }
+
+  // The sounds half (item 10): the recording itself, with the sentence on
+  // screen — never the browser's text, which is its corrected version of
+  // what was said.
+  async function checkSounds(
+    recorded: RecordedSound,
+    sentence: string,
+  ): Promise<ActionResult<SoundsCheck>> {
+    try {
+      const form = new FormData();
+      form.append("audio", new Blob([recorded.wav], { type: "audio/wav" }), "attempt.wav");
+      form.append("sentence", sentence);
+      form.append("language", language);
+      return await checkShadowingSounds(form);
+    } catch (err) {
+      return {
+        ok: false,
+        error: describeClientError(err, "Couldn't check the sounds — try again."),
+      };
+    }
+  }
+
+  // Both questions in one go (Answer 32): how did the sounds come out, and
+  // were the words understood. The sounds first and the words after, on
+  // purpose: the browser can send the last of what it heard a moment after
+  // you stop, and by the time the recording has been listened to it has
+  // arrived — so the words half judges the whole attempt, not the part that
+  // was in before you stopped. Either half can be left out: there is no
+  // sounds half without a recording, and "Try again" asks only what failed.
+  //
+  // When the browser heard no words at all — Android, where the recorder
+  // has the microphone (Question 46) — the words half judges what the
+  // sounds check wrote down from the recording instead. Second best, since
+  // that write-up leans towards the sentence it was given; but it is
+  // feedback where otherwise there was none.
+  async function runCheck(recorded: RecordedSound | null, withWords: boolean) {
+    if (!current) return;
+    const run = ++checkRunRef.current;
+    const sentence = current;
 
     setChecking(true);
-    setCheckError(null);
-    try {
-      const result = await checkShadowingAttempt(current, spoken, language);
-      if (!result.ok) {
-        setCheckError(result.error);
-        return;
-      }
-      setCheckResult(result.data);
-    } catch (err) {
-      setCheckError(
-        describeClientError(err, "Couldn't check that attempt — try again."),
-      );
-    } finally {
-      setChecking(false);
-    }
+    if (recorded) setSoundsError(null);
+    if (withWords) setCheckError(null);
+
+    const sounds = recorded ? await checkSounds(recorded, sentence) : null;
+    if (checkRunRef.current !== run) return;
+    const browserWords = attemptRef.current.trim();
+    const writtenDown = (sounds?.ok ? sounds.data.heard : (soundsResult?.heard ?? "")).trim();
+    const spoken = browserWords || writtenDown;
+    // From the write-up, "mude" for "müde" is the wrong sound already listed,
+    // not a different word: no request, and none of the words check's own
+    // summary, which said "You said the sentence correctly" above a list of
+    // wrong sounds when it was asked (Question 46).
+    const words =
+      !withWords || !spoken
+        ? null
+        : !browserWords && sameWordsIgnoringMarks(sentence, spoken)
+          ? ({ ok: true, data: ALL_WORDS_UNDERSTOOD } as const)
+          : await checkWords(sentence, spoken);
+    if (checkRunRef.current !== run) return;
+
+    if (sounds?.ok) setSoundsResult(sounds.data);
+    else if (sounds) setSoundsError(sounds.error);
+    if (words?.ok) setCheckResult(words.data);
+    else if (words) setCheckError(words.error);
+    setChecking(false);
+  }
+
+  // The button the words-only check still has, where there is no recording
+  // to listen to: a guest's attempt, a browser that can't record, or one
+  // that ran too long. Pressing it again re-checks, after an edit.
+  function handleCheckAttempt() {
+    if (checking || !attempt.trim()) return;
+    void runCheck(null, true);
+  }
+
+  // Only what failed is asked again: a half that already answered keeps
+  // its answer, and doesn't spend another request.
+  function handleTryAgain() {
+    if (checking) return;
+    void runCheck(soundsResult ? null : sound, !checkResult);
   }
 
   // An explicit press rather than a timeout, settled back in Answer 356:
@@ -679,7 +908,9 @@ export default function ShadowingTool({
         // A second way out, and deliberately one-directional: escape means
         // stop, never start. It's the key you reach for when a voice is
         // talking over you — or when you would rather this one attempt
-        // simply ended — and it shouldn't be able to start either.
+        // simply ended — and it shouldn't be able to start either. While
+        // recording it cancels: the attempt goes, unchecked, where Stop and
+        // R would check it (Question 38).
         //
         // It cancels a pending auto-advance too (Question 376), and that
         // case is the reason this branch grew a third condition: during the
@@ -687,7 +918,7 @@ export default function ShadowingTool({
         // the one moment the page is about to act on its own would be the
         // one moment the stop key did nothing.
         event.preventDefault();
-        if (listening) stopListening();
+        if (listening) handleCancelRecording();
         if (playing) handleStop();
         clearAutoTimer();
       }
@@ -1167,24 +1398,45 @@ export default function ShadowingTool({
                   )}
                   {listening
                     ? "Stop recording"
-                    : attempt
+                    : attempt || checkResult || soundsResult
                       ? "Record again"
                       : "Record your attempt"}
                 </button>
-                <p className="flex-1 text-xs text-zinc-600">
-                  {SHADOWING_CHECK_CAVEAT}
+                {/* Only while recording, the one moment it means anything —
+                    so it adds no button to the page the rest of the time. */}
+                {listening && (
+                  <button
+                    onClick={handleCancelRecording}
+                    title="Throw this attempt away, unchecked (Esc)"
+                    className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                  >
+                    Cancel
+                  </button>
+                )}
+                {/* What checking can tell you, beside the button that starts
+                    an attempt. The sounds half needs a signed-in account and
+                    a browser that can record; where either is missing, the
+                    old line is still the true one.
+
+                    A line of its own on a phone: beside one button it was
+                    squeezed into a column ten lines tall (iteration 4's
+                    phone-width screenshots). */}
+                <p className="w-full text-xs text-zinc-600 sm:w-auto sm:flex-1">
+                  {isAuthenticated && soundSupported
+                    ? SHADOWING_SOUNDS_PAGE_NOTE
+                    : SHADOWING_CHECK_CAVEAT}
                 </p>
               </div>
 
-              {/* Kept out of the editable box on purpose: interim results
-                  are rewritten on every syllable, so putting them in the
-                  field would rewrite it under your cursor. */}
+              {/* That it is listening, and not what it hears (Question 36).
+                  The browser's words as you speak are its corrected guess —
+                  "müde" for a spoken "mude" — so showing them live told you
+                  a wrong sound had come out right, the one thing this page
+                  must not say. */}
               {listening && (
                 <p className="mt-3 flex items-start gap-2 text-sm text-zinc-500">
                   <span className="mt-1.5 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-red-500" />
-                  <span className="italic">
-                    {interimTranscript || "Listening…"}
-                  </span>
+                  <span className="italic">Listening…</span>
                 </p>
               )}
 
@@ -1205,13 +1457,37 @@ export default function ShadowingTool({
                 </p>
               )}
 
-              {attempt && !listening && (
+              {/* Between stopping and the result: a line saying the check is
+                  under way, and nothing else. No text appears here that could
+                  be read as what you said before the recording has been
+                  listened to — the browser's text is its corrected guess,
+                  and showing it first is what Question 35 was about. */}
+              {checksSounds && !listening &&
+                (checking ||
+                  (!checkResult && !soundsResult && !checkError && !soundsError)) && (
+                  <p className="mt-4 flex items-center gap-2 text-sm text-zinc-400">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400" />
+                    Checking what you said…
+                  </p>
+                )}
+
+              {heardNothing && (
+                <p className="mt-4 text-sm text-zinc-400">
+                  Nothing was heard in that recording — try again, a little
+                  closer to the microphone.
+                </p>
+              )}
+
+              {/* The words-only check, where the recording can't be listened
+                  to. Here the browser's text is all there is, so it is shown,
+                  named for what it is, and left editable as before. */}
+              {attempt && !listening && !checksSounds && (
                 <div className="mt-4">
                   <label
                     htmlFor="shadowing-attempt"
                     className="block text-xs font-medium uppercase tracking-wider text-zinc-500"
                   >
-                    What was heard
+                    What the browser heard
                   </label>
                   <textarea
                     id="shadowing-attempt"
@@ -1234,13 +1510,22 @@ export default function ShadowingTool({
                       — and meets the wall at the exact moment the app would
                       have told them something they didn't know. */}
                   {isAuthenticated ? (
-                    <button
-                      onClick={handleCheckAttempt}
-                      disabled={checking || !attempt.trim()}
-                      className="mt-3 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
-                    >
-                      {checking ? "Checking…" : "Check my attempt"}
-                    </button>
+                    <>
+                      <button
+                        onClick={handleCheckAttempt}
+                        disabled={checking || !attempt.trim()}
+                        className="mt-3 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+                      >
+                        {checking ? "Checking…" : "Check my attempt"}
+                      </button>
+                      {soundTooLong && (
+                        <p className="mt-1 text-xs text-zinc-500">
+                          That recording ran past {SHADOWING_SOUNDS_MAX_SECONDS}{" "}
+                          seconds, so only the words can be checked — keep it
+                          to one sentence for the sounds too.
+                        </p>
+                      )}
+                    </>
                   ) : (
                     <SignInToUse
                       className="mt-3"
@@ -1254,40 +1539,105 @@ export default function ShadowingTool({
                 <p className="mt-3 text-sm text-red-400">{checkError}</p>
               )}
 
-              {checkResult && (
-                <div
-                  className={`mt-4 rounded-lg border p-4 ${VERDICT_STYLES[checkResult.verdict].className}`}
-                >
-                  <p className="text-sm font-semibold">
-                    {VERDICT_STYLES[checkResult.verdict].label}
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-300">
-                    {checkResult.summary}
-                  </p>
+              {soundsError && (
+                <p className="mt-3 text-sm text-red-400">{soundsError}</p>
+              )}
 
-                  {checkResult.differences.length > 0 && (
-                    <ul className="mt-3 space-y-2">
-                      {checkResult.differences.map((difference, i) => (
+              {/* After the automatic check, the one thing to press when part
+                  of it failed. The words-only box above has its own button. */}
+              {checksSounds && !listening && !checking && (checkError || soundsError) && (
+                <button
+                  onClick={handleTryAgain}
+                  className="mt-3 rounded-lg bg-zinc-800 px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
+                >
+                  Try again
+                </button>
+              )}
+
+              {/* One result for one check: the verdict on the words — were
+                  you understood — then one list of everything to fix, in
+                  sentence order, each with its line of feedback: words the
+                  browser heard differently and words whose sound was wrong,
+                  a word both found listed once (Question 37). Either half
+                  can be missing if its request failed; its error is shown
+                  above, and the other half still stands.
+
+                  No "what was heard" line (Question 36). The model's own
+                  write-up of the sentence came back corrected often enough
+                  — "möchte" for a spoken "mochte", in the very box that
+                  listed the wrong ü — that a line meant to show what you
+                  said couldn't be trusted to. The list of wrong sounds is
+                  the part that held up, so it is the part shown. */}
+              {(checkResult || soundsResult) && (
+                <div className={`mt-4 rounded-lg border p-4 ${resultStyle}`}>
+                  {checkResult && (
+                    <>
+                      <p className="text-sm font-semibold">
+                        {VERDICT_STYLES[checkResult.verdict].label}
+                      </p>
+                      <p className="mt-1 text-sm text-zinc-300">
+                        {checkResult.summary}
+                      </p>
+                    </>
+                  )}
+
+                  {findings.length > 0 && (
+                    <ul className={`space-y-2 ${checkResult ? "mt-3" : ""}`}>
+                      {findings.map((finding, i) => (
                         <li
-                          key={`${difference.expected}-${i}`}
+                          key={`${finding.word}-${i}`}
                           className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3 text-sm"
                         >
-                          <p className="text-zinc-200">
-                            <span className="text-zinc-500">Expected </span>
-                            <span className="font-medium">
-                              {difference.expected}
-                            </span>
-                            <span className="text-zinc-500"> · heard </span>
-                            <span className="font-medium">
-                              {difference.heard || "nothing"}
-                            </span>
-                          </p>
-                          <p className="mt-1 text-zinc-400">
-                            {difference.note}
-                          </p>
+                          {finding.sound ? (
+                            <p className="text-zinc-200">
+                              <span className="font-medium">{finding.word}</span>
+                              <span className="text-zinc-500"> · should be </span>
+                              <span className="font-medium">
+                                {finding.sound.expected}
+                              </span>
+                              {/* Kept on one line, so a narrow screen can't
+                                  leave the sound you said alone on the next. */}
+                              <span className="whitespace-nowrap">
+                                <span className="text-zinc-500">, you said </span>
+                                <span className="font-medium">
+                                  {finding.sound.said}
+                                </span>
+                              </span>
+                            </p>
+                          ) : (
+                            <p className="text-zinc-200">
+                              <span className="text-zinc-500">Expected </span>
+                              <span className="font-medium">{finding.word}</span>
+                              <span className="text-zinc-500"> · heard </span>
+                              <span className="font-medium">
+                                {finding.heard || "nothing"}
+                              </span>
+                            </p>
+                          )}
+                          {finding.notes.map((note) => (
+                            <p key={note} className="mt-1 text-zinc-400">
+                              {note}
+                            </p>
+                          ))}
                         </li>
                       ))}
                     </ul>
+                  )}
+
+                  {soundsResult && (
+                    <>
+                      {soundsResult.issues.length === 0 && (
+                        <p className="mt-3 text-sm text-emerald-300">
+                          No clearly wrong sounds found.
+                        </p>
+                      )}
+                      <p className="mt-3 text-xs text-zinc-500">
+                        The sounds check covers vowels and consonants only —
+                        not stress or intonation — and it can miss some. Take
+                        what it finds seriously, but don&apos;t take silence
+                        as proof.
+                      </p>
+                    </>
                   )}
 
                   {/* An explicit press rather than a countdown
@@ -1354,7 +1704,7 @@ export default function ShadowingTool({
                 { keys: ["←", "→"], label: "sentence" },
                 { keys: ["Space"], label: "play / stop" },
                 { keys: ["R"], label: "record" },
-                { keys: ["Esc"], label: "stop" },
+                { keys: ["Esc"], label: "stop / cancel" },
               ]}
             />
           </div>

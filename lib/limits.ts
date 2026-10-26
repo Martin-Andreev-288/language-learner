@@ -83,6 +83,15 @@ export const SHADOWING_TOPIC_MAX_CHARACTERS = 240;
 // microphone somebody walked away from with it still running.
 export const SHADOWING_ATTEMPT_MAX_CHARACTERS = 1000;
 
+// Shadowing's sounds check (item 10): the longest recording of one attempt
+// that is kept for it. Twelve seconds is more than one sentence needs — the
+// longest sentence setting is around thirty words — and at 16 kHz mono it
+// is about 384 KB, inside the 1 MB a server action accepts. The byte cap is
+// that length plus the WAV header and a little room; it is what the server
+// enforces, since the length is only measured in the browser.
+export const SHADOWING_SOUNDS_MAX_SECONDS = 12;
+export const SHADOWING_SOUNDS_MAX_BYTES = 16000 * 2 * SHADOWING_SOUNDS_MAX_SECONDS + 4096;
+
 // The contact form (Question 394). Three caps rather than one, because the
 // three fields fail differently.
 //
