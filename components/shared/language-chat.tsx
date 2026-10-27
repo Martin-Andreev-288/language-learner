@@ -34,6 +34,7 @@ import { isTouchScreen } from "@/lib/is-touch-screen";
 import { useSpeechToText } from "@/lib/use-speech-to-text";
 import { useTextToSpeech } from "@/lib/use-text-to-speech";
 import MicIcon from "@/components/shared/mic-icon";
+import PronunciationNote from "@/components/shared/pronunciation-note";
 
 // How long a pause means "I've finished my sentence", when auto-send is on.
 // Deliberately nothing like the hook's own 45-second idle stop: that one
@@ -1060,6 +1061,13 @@ function LanguageChatScreen({
                 </span>
               )}
             </div>
+          )}
+          {config.voice && (
+            <PronunciationNote className="border-t border-zinc-800 px-6 py-2">
+              Your messages are checked from the words the browser writes
+              down, so this practises what you say, not how you pronounce
+              it.
+            </PronunciationNote>
           )}
 
           <form

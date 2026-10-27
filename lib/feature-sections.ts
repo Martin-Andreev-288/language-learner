@@ -86,7 +86,7 @@ export const FEATURE_SECTIONS: FeatureSection[] = [
                 label: "Writing Check",
                 authName: "Writing Check",
                 description:
-                    "Paste or write something and get mistakes pointed out with a corrected version and an explanation.",
+                    "Paste, write or dictate something and get mistakes pointed out with a corrected version and an explanation.",
             },
             {
                 href: "/writing/chat",

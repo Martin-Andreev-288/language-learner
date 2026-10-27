@@ -107,3 +107,24 @@ describe("the chat input — on a touch screen", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 });
+
+// Voice Chat checks the words the browser wrote down, never the sound, so it
+// says so beside the microphone and points to the page that listens
+// (Answer 54). The written Chat has no microphone, and no such line.
+describe("the line about pronunciation", () => {
+  const note = /practises what you say, not how you pronounce it/;
+
+  it("is on Voice Chat, pointing to Shadowing Practice", () => {
+    render(<LanguageChat mode="speaking" defaultTranslateLanguage="" />);
+    expect(screen.getByText(note)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Shadowing Practice" })).toHaveAttribute(
+      "href",
+      "/speaking/shadowing",
+    );
+  });
+
+  it("is not on the written Chat", () => {
+    render(<LanguageChat mode="writing" defaultTranslateLanguage="" />);
+    expect(screen.queryByText(note)).toBeNull();
+  });
+});

@@ -18,6 +18,7 @@ import {
 } from "@/lib/correction-spans";
 import MarkedText from "@/components/shared/marked-text";
 import TextChanges from "@/components/shared/text-changes";
+import PronunciationNote from "@/components/shared/pronunciation-note";
 
 // One tool behind both Writing Check and Speak Check (Question 285). They
 // were the same code — the same action, the same correction rendering, the
@@ -42,7 +43,14 @@ interface ModeConfig {
   // Brings the microphone *and* the language field with it. They aren't
   // separable: the language is what tells speech recognition which
   // language to listen for, so dictation without it would quietly fall
-  // back to the browser's own and mis-hear everything (Answer 282).
+  // back to the browser's own and mis-hear everything (Answer 282). It
+  // brings the line about pronunciation too (PronunciationNote): dictation
+  // hands this page words, not sounds.
+  //
+  // Both modes have it now (Answer 53): Writing Check takes Speak Check's
+  // dictation before Speak Check goes. The language stays optional there —
+  // left empty, the check detects it, as Writing Check always has — and is
+  // needed only to dictate.
   dictation: boolean;
 }
 
@@ -50,11 +58,11 @@ const MODES: Record<CheckMode, ModeConfig> = {
   writing: {
     heading: "Writing Check",
     description:
-      "Paste or write something, and get any mistakes — grammar, word choice, phrasing — pointed out with a corrected version and why.",
-    placeholder: "Write or paste your text here...",
+      "Paste, write or dictate something, and get any mistakes — grammar, word choice, phrasing — pointed out with a corrected version and why. What you dictate stays editable — fix anything it mishears before checking.",
+    placeholder: "Write, paste or dictate your text here…",
     notePage: NotePage.writing,
     noteTitle: "Writing Check",
-    dictation: false,
+    dictation: true,
   },
   speaking: {
     heading: "Speak Check",
@@ -135,9 +143,8 @@ export default function CheckTool({ mode }: { mode: CheckMode }) {
     });
   }, []);
 
-  // Called in both modes because hooks can't be conditional — in writing
-  // mode nothing ever starts it, so it costs one capability check and
-  // otherwise sits idle.
+  // The dictation itself. Both modes offer it now; in either, nothing
+  // starts it until you press Dictate.
   const {
     supported,
     listening,
@@ -187,8 +194,9 @@ export default function CheckTool({ mode }: { mode: CheckMode }) {
       // checkWriting already accepts it (the chat sends it the same
       // way), and a short dictated sentence is exactly the case where
       // guessing the language wrong turns every word into a "mistake".
-      // In writing mode it's the empty string, which the action treats
-      // exactly as it treated being given nothing at all.
+      // Left empty it's the empty string, which the action treats exactly
+      // as it treated being given nothing at all: it works the language
+      // out for itself.
       const result = await checkWriting(text, language);
       if (!result.ok) {
         setCheckError(result.error);
@@ -273,7 +281,13 @@ export default function CheckTool({ mode }: { mode: CheckMode }) {
                       htmlFor="check-tool-language"
                       className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500"
                     >
-                      Language
+                      Language{" "}
+                      {/* Optional for the check, which works the language
+                          out by itself; needed for dictating, which is why
+                          Dictate stays greyed out until one is picked. */}
+                      <span className="normal-case tracking-normal text-zinc-600">
+                        (optional)
+                      </span>
                     </label>
                     <LanguageCombobox
                       id="check-tool-language"
@@ -330,6 +344,13 @@ export default function CheckTool({ mode }: { mode: CheckMode }) {
             value={text}
             max={WRITING_CHECK_MAX_CHARACTERS}
           />
+          {config.dictation && (
+            <PronunciationNote className="mt-2">
+              Dictation gives this page the words your browser heard, not
+              how you sounded, so it checks what you said, not how you
+              pronounced it.
+            </PronunciationNote>
+          )}
 
           {/* Kept out of the textarea's own value on purpose:
             interim results are rewritten on every syllable, so
