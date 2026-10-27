@@ -1,4 +1,4 @@
-// The same icon means the same thing in Speak Check and Voice Chat — "this
+// The same icon means the same thing in Writing Check and Voice Chat — "this
 // button listens" — so it lives in one place rather than being drawn twice
 // (Question 293). Matches the inline-SVG house style used elsewhere:
 // currentColor, rounded caps, sized by the caller's text.

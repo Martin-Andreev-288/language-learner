@@ -989,8 +989,8 @@ export default function VocabularyWordList({
     });
   }
 
-  // Your own sentence, checked by the same action Writing Check, the chat
-  // and Speak Check all use — pointed at one sentence instead of a passage
+  // Your own sentence, checked by the same action Writing Check and the
+  // chats use — pointed at one sentence instead of a passage
   // (Question 310). The corrected text replaces what's in the box, but only
   // in the box: nothing is saved until you save the word, so a correction
   // you disagree with costs you a Cancel, not an undo.

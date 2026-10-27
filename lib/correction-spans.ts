@@ -1,6 +1,6 @@
 // Where each correction's mistake sits inside the text that was checked, so
-// the mistake can be marked in place. Shared by Writing Check, Speak Check
-// and the two chats, so a mistake looks the same wherever the app shows
+// the mistake can be marked in place. Shared by Writing Check and the two
+// chats, so a mistake looks the same wherever the app shows
 // one. Before this it was Writing Check's alone, and the chats listed their
 // corrections without ever showing them in the sentence you wrote.
 

@@ -550,7 +550,7 @@ export default function ShadowingTool({
       }
       // Into the same box a paste would land in, editable, rather than
       // straight into practice (Question 357). Generated text shouldn't be
-      // more locked down than text you dictated — Speak Check makes the
+      // more locked down than text you dictated — Writing Check makes the
       // same promise in as many words.
       setText(result.data.passage);
       // Fills the language in when you left it open, so playback has a

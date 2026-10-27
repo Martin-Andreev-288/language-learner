@@ -1,7 +1,7 @@
 // What changed between the text you checked and its fully corrected
-// version, word by word, for the Show changes switch on Writing Check and
-// Speak Check. The corrections list already says what was wrong one mistake
-// at a time; this shows the whole passage with every change in place.
+// version, word by word, for the Show changes switch on Writing Check. The
+// corrections list already says what was wrong one mistake at a time; this
+// shows the whole passage with every change in place.
 //
 // Words and punctuation are compared as separate tokens, so a comma added
 // after a word shows as one added comma, not as the whole word replaced.

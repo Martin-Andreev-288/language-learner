@@ -182,7 +182,7 @@ export interface UseSpeechToTextOptions {
     // the field the user can edit.
     onFinalResult: (text: string) => void;
     // What the page's start button is called, for the messages that say how
-    // to carry on. "Dictate" is Speak Check's and the chats'; Shadowing's
+    // to carry on. "Dictate" is Writing Check's and Voice Chat's; Shadowing's
     // says Record, and a message naming a button that isn't on the page
     // reads as a broken one (Question 38).
     startLabel?: string;

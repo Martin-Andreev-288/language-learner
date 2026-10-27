@@ -17,5 +17,5 @@ export default async function WritingCheckPage() {
     );
   }
 
-  return <CheckTool mode="writing" />;
+  return <CheckTool />;
 }

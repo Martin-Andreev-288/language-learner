@@ -5,7 +5,7 @@ import {
     unmarkedReason,
 } from "./correction-spans";
 
-// The marks in Writing Check, Speak Check and both chats come from here.
+// The marks in Writing Check and both chats come from here.
 // A wrong span marks the wrong words in your own sentence, which reads as
 // the app telling you a correct word was the mistake.
 

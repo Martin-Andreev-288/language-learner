@@ -177,13 +177,6 @@ export const FEATURE_SECTIONS: FeatureSection[] = [
             "Say it out loud and find out how it went — in conversation, or one sentence at a time.",
         tools: [
             {
-                href: "/speaking/speak-check",
-                label: "Speak Check",
-                authName: "Speak Check",
-                description:
-                    "Say something in the language you're learning and get mistakes pointed out with a corrected version and an explanation.",
-            },
-            {
                 href: "/speaking/voice-chat",
                 label: "Voice Chat",
                 authName: "Voice Chat",

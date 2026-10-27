@@ -42,7 +42,6 @@ export const VIDEO_GUIDES: Record<string, string> = {
     "/listening/parallel-listen": "Parallel Listen",
     "/listening/inline-listen": "Inline Listen",
 
-    "/speaking/speak-check": "Speak Check",
     "/speaking/voice-chat": "Voice Chat",
     "/speaking/shadowing": "Shadowing Practice",
 

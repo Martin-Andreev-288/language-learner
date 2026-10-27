@@ -1,8 +1,8 @@
 import { NotePage } from "@/app/generated/prisma";
 
 // The two chats this app runs — one written, one spoken — described in one
-// place (Question 292), the same way check-tool.tsx describes Writing Check
-// and Speak Check.
+// place (Question 292), the same way check-tool.tsx once described Writing
+// Check and Speak Check before they became one page.
 //
 // This exists as its own module rather than living inside the component
 // because three unrelated places need to agree about it: the chat itself,
@@ -34,8 +34,7 @@ export interface ChatModeConfig {
     storagePrefix: string;
     // Whether this chat is spoken rather than written. Carries both
     // halves — the microphone that hears you and the voice that answers —
-    // because a chat with one and not the other isn't a thing anyone wants,
-    // the same reasoning check-tool.tsx's own flag follows.
+    // because a chat with one and not the other isn't a thing anyone wants.
     voice: boolean;
 }
 

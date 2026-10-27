@@ -57,7 +57,7 @@ beforeEach(() => {
 // must give back the plain corrected text you can copy.
 
 async function checkSomething() {
-  render(<CheckTool mode="writing" />);
+  render(<CheckTool />);
   fireEvent.change(screen.getByPlaceholderText(placeholder), {
     target: { value: "Ich habe gestern ins Kino gegangen." },
   });
@@ -109,14 +109,14 @@ describe("Dictation in Writing Check", () => {
   const languageField = () => screen.getByLabelText(/^Language/);
 
   it("offers Dictate, greyed out until a language is picked", () => {
-    render(<CheckTool mode="writing" />);
+    render(<CheckTool />);
     expect(dictate()).toBeDisabled();
     fireEvent.change(languageField(), { target: { value: "German" } });
     expect(dictate()).toBeEnabled();
   });
 
   it("puts what was dictated into the box, where it can still be edited", () => {
-    render(<CheckTool mode="writing" />);
+    render(<CheckTool />);
     act(() => hear("Ich habe gestern"));
     act(() => hear("ins Kino gegangen."));
     const box = screen.getByPlaceholderText(placeholder);
@@ -131,7 +131,7 @@ describe("Dictation in Writing Check", () => {
   });
 
   it("tells the check the language when one is picked", async () => {
-    render(<CheckTool mode="writing" />);
+    render(<CheckTool />);
     fireEvent.change(languageField(), { target: { value: "German" } });
     fireEvent.change(screen.getByPlaceholderText(placeholder), {
       target: { value: "Ich habe gestern ins Kino gegangen." },
@@ -146,15 +146,11 @@ describe("Dictation in Writing Check", () => {
 // meant — so the page says it checks words, not sounds, and where sounds
 // are checked instead (Answer 54).
 describe("what the check says it can't do", () => {
-  const note = /checks what you said, not how you pronounced it/;
-
-  for (const mode of ["writing", "speaking"] as const) {
-    it(`is said on the ${mode} page, pointing to Shadowing Practice`, () => {
-      render(<CheckTool mode={mode} />);
-      expect(screen.getByText(note)).toBeInTheDocument();
-      const link = screen.getByRole("link", { name: "Shadowing Practice" });
-      expect(link).toHaveAttribute("href", "/speaking/shadowing");
-      expect(link).toHaveAttribute("target", "_blank");
-    });
-  }
+  it("is said beside the dictation, pointing to Shadowing Practice", () => {
+    render(<CheckTool />);
+    expect(screen.getByText(/checks what you said, not how you pronounced it/)).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "Shadowing Practice" });
+    expect(link).toHaveAttribute("href", "/speaking/shadowing");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
 });
