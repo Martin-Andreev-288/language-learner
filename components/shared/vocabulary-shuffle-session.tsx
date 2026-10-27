@@ -9,33 +9,35 @@ import {
   toggleShuffleCardMemorized,
   updateShuffleCardText,
 } from "@/app/actions/shuffle-actions";
-import { lookupWord } from "@/app/actions/word-lookup-actions";
-import { addVocabularyEntries } from "@/app/actions/vocabulary-entry-actions";
-import { languageNameForCode } from "@/lib/language-codes";
 import { shuffle } from "@/lib/shuffle";
-import { tokenizeWords } from "@/lib/clickable-words";
-import { describeClientError } from "@/lib/client-error";
-import { speakableText } from "@/lib/speech-text";
+import { tokenizeWords, type TextToken } from "@/lib/clickable-words";
 import { isTouchScreen } from "@/lib/is-touch-screen";
+import { sentenceAroundToken } from "@/lib/word-lookup";
 import KeyboardHints from "@/components/shared/keyboard-hints";
+import WordLookupWindow, {
+  type LookupTarget,
+} from "@/components/shared/word-lookup-window";
 
-type LookupResult = {
-  word: string;
-  definition: string;
-  examples: string[];
-  languageCode: string;
+// The word open in the shared lookup window (Question 55, chapter B), on
+// which card: the window shows only while that card is the one on screen.
+// `key` is new for every opening, so each word gets a window of its own.
+type OpenLookup = {
+  key: number;
+  cardId: string;
+  target: LookupTarget;
 };
 
 function renderClickableText(
   text: string,
-  onWordClick: (word: string) => void,
+  onWordClick: (tokens: TextToken[], index: number, word: HTMLElement) => void,
 ) {
-  return tokenizeWords(text).map((token, index) =>
+  const tokens = tokenizeWords(text);
+  return tokens.map((token, index) =>
     token.isWord ? (
       <button
         key={index}
         type="button"
-        onClick={() => onWordClick(token.text)}
+        onClick={(event) => onWordClick(tokens, index, event.currentTarget)}
         className="cursor-pointer rounded bg-transparent p-0 text-inherit transition-colors hover:bg-indigo-600/30 hover:text-indigo-200"
       >
         {token.text}
@@ -120,18 +122,7 @@ export default function VocabularyShuffleSession({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reviewMarked, setReviewMarked] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
-  const [lookup, setLookup] = useState<LookupResult | null>(null);
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupError, setLookupError] = useState<string | null>(null);
-  const [speechError, setSpeechError] = useState<string | null>(null);
-  // Saving the looked-up word to Vocabulary (Question 300). Three states
-  // rather than one, because "saved" has to stay visible after the fact —
-  // the same shape Inline Translate's own popup already uses for its
-  // version of this button.
-  const [savingWord, setSavingWord] = useState(false);
-  const [savedWord, setSavedWord] = useState(false);
-  const [saveWordError, setSaveWordError] = useState<string | null>(null);
-  const lookupRequestRef = useRef(0);
+  const [lookup, setLookup] = useState<OpenLookup | null>(null);
 
   useEffect(() => {
     if (editing && editRef.current) {
@@ -150,111 +141,20 @@ export default function VocabularyShuffleSession({
     setConfirmDelete(false);
   }
 
-  async function handleWordClick(rawWord: string) {
-    const word = rawWord.trim();
-    if (!word || !current) return;
-
-    const requestId = ++lookupRequestRef.current;
-    setLookup(null);
-    setLookupError(null);
-    setSpeechError(null);
-    setSavedWord(false);
-    setSaveWordError(null);
-    setLookupLoading(true);
-
-    try {
-      const result = await lookupWord(
-        word,
-        current.text,
-        defaultTranslateLanguage,
-      );
-      // Guarded on the request id throughout: a slower earlier lookup must
-      // never overwrite the answer to a word clicked more recently.
-      if (lookupRequestRef.current !== requestId) return;
-      if (!result.ok) {
-        setLookupError(result.error);
-        return;
-      }
-      setLookup({ word, ...result.data });
-    } catch (err) {
-      if (lookupRequestRef.current === requestId) {
-        setLookupError(describeClientError(err, "Lookup failed."));
-      }
-    } finally {
-      if (lookupRequestRef.current === requestId) {
-        setLookupLoading(false);
-      }
-    }
-  }
-
-  function closeLookup() {
-    lookupRequestRef.current += 1; // invalidates any lookup still in flight
-    setLookup(null);
-    setLookupError(null);
-    setSpeechError(null);
-    setSavedWord(false);
-    setSaveWordError(null);
-    setLookupLoading(false);
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
-  }
-
-  // Saved under the language the lookup identified, not one the user picked
-  // — this page has no language field, and asking for one here would put a
-  // form in front of a single click. The word goes in on its own, with no
-  // translation: the lookup produces a *definition*, which isn't the same
-  // thing, and writing it into the translation column would fill that
-  // column with something it isn't for. Enrichment can fill in a real
-  // translation later, exactly as it does for any other saved word.
-  async function handleAddToVocabulary() {
-    if (!lookup) return;
-
-    const language = languageNameForCode(lookup.languageCode);
-    if (!language) {
-      setSaveWordError(
-        "This word's language isn't one the app knows, so it can't be filed under a language yet.",
-      );
-      return;
-    }
-
-    setSavingWord(true);
-    setSaveWordError(null);
-    try {
-      const { added } = await addVocabularyEntries(lookup.word, language);
-      setSavedWord(true);
-      // Nothing added means the word was already there. That's a success
-      // worth wording differently, not a failure — saying "Added!" would
-      // claim something that didn't happen.
-      if (added === 0) {
-        setSaveWordError(`Already in your ${language} vocabulary.`);
-      }
-    } catch (err) {
-      setSaveWordError(describeClientError(err, "Couldn't save that word."));
-    } finally {
-      setSavingWord(false);
-    }
-  }
-
-  function handleSpeak() {
-    if (!lookup) return;
-
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      setSpeechError("Pronunciation isn't supported in this browser.");
-      return;
-    }
-
-    setSpeechError(null);
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(speakableText(lookup.word));
-    utterance.lang = lookup.languageCode;
-    utterance.onerror = () => {
-      setSpeechError(
-        "Pronunciation isn't available for this language in your browser.",
-      );
-    };
-    window.speechSynthesis.speak(utterance);
+  // A word on a phrase card, looked up in the shared window: translated
+  // first, with its definition one press away (Question 55).
+  function handleWordClick(tokens: TextToken[], index: number, word: HTMLElement) {
+    if (!current) return;
+    // A new key for each word, so each one gets a window of its own.
+    setLookup((open) => ({
+      key: (open?.key ?? 0) + 1,
+      cardId: current.id,
+      target: {
+        word: tokens[index].text,
+        context: sentenceAroundToken(tokens, index),
+        element: word,
+      },
+    }));
   }
 
   const currentMemorized = current?.memorized ?? false;
@@ -387,6 +287,10 @@ export default function VocabularyShuffleSession({
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (editing) return;
+      // While a word is being looked up, the keys belong to the window: a
+      // press of Enter or Space would otherwise move to the next card
+      // behind it.
+      if (lookup) return;
 
       const target = event.target as HTMLElement | null;
       if (
@@ -763,97 +667,14 @@ export default function VocabularyShuffleSession({
         </div>
       </div>
 
-      {(lookupLoading || lookup || lookupError) && (
-        <div
-          className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 px-4"
-          onClick={closeLookup}
-        >
-          <div
-            className="w-full max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-semibold text-zinc-100">
-                  {lookup?.word ?? "Looking up…"}
-                </h3>
-                {lookup && (
-                  <button
-                    onClick={handleSpeak}
-                    title="Play pronunciation"
-                    className="text-zinc-400 transition-colors hover:text-indigo-400"
-                  >
-                    <SpeakerIcon />
-                  </button>
-                )}
-              </div>
-              <button
-                onClick={closeLookup}
-                title="Close"
-                className="text-zinc-500 transition-colors hover:text-zinc-200"
-              >
-                ✕
-              </button>
-            </div>
-
-            {lookupLoading && (
-              <p className="text-sm text-zinc-500">Looking this up…</p>
-            )}
-
-            {lookupError && (
-              <p className="text-sm text-red-400">{lookupError}</p>
-            )}
-
-            {speechError && (
-              <p className="mb-2 text-xs text-amber-400">{speechError}</p>
-            )}
-
-            {lookup && !lookupLoading && (
-              <div className="space-y-3">
-                <p className="text-sm text-zinc-200">{lookup.definition}</p>
-                {lookup.examples.length > 0 && (
-                  <div>
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      Examples
-                    </p>
-                    <ul className="space-y-1 text-sm text-zinc-400">
-                      {lookup.examples.map((example, index) => (
-                        <li key={index}>{example}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* The same button Inline Translate's popup already offers
-                    beside a translation, on the panel that was missing it —
-                    a word worth looking up mid-review is exactly a word
-                    worth keeping. */}
-                <div>
-                  <button
-                    onClick={handleAddToVocabulary}
-                    disabled={savingWord || savedWord}
-                    className={`w-full rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
-                      savedWord
-                        ? "bg-emerald-600 text-white"
-                        : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-                    } disabled:cursor-not-allowed`}
-                  >
-                    {savedWord
-                      ? "Added!"
-                      : savingWord
-                        ? "Adding…"
-                        : "+ Add to vocabulary"}
-                  </button>
-                  {saveWordError && (
-                    <p className="mt-1.5 text-xs text-amber-400">
-                      {saveWordError}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+      {lookup && lookup.cardId === current?.id && (
+        <WordLookupWindow
+          key={lookup.key}
+          target={lookup.target}
+          translateInto={[defaultTranslateLanguage]}
+          explainInLanguage={defaultTranslateLanguage}
+          onClose={() => setLookup(null)}
+        />
       )}
     </div>
   );
@@ -970,27 +791,6 @@ function EditIcon() {
         d="M9 1.5l2.5 2.5L4 11.5H1.5V9L9 1.5z"
         stroke="currentColor"
         strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function SpeakerIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-      <path
-        d="M1.5 5.5h2.5l3.5-3v10l-3.5-3H1.5v-4z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M10.5 5.2c.9.8 1.4 1.7 1.4 2.3s-.5 1.5-1.4 2.3"
-        stroke="currentColor"
-        strokeWidth="1.3"
         strokeLinecap="round"
         strokeLinejoin="round"
       />

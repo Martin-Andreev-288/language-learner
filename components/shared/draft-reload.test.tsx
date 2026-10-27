@@ -24,6 +24,10 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/app/actions/inline-translate-actions", () => ({
   translateMarkedPhrases: vi.fn(),
 }));
+vi.mock("@/app/actions/word-lookup-actions", () => ({
+  translateWordInContext: vi.fn(),
+  lookupWord: vi.fn(),
+}));
 vi.mock("@/app/actions/note-actions", () => ({ createNote: vi.fn(), upsertNote: vi.fn() }));
 vi.mock("@/app/actions/vocabulary-entry-actions", () => ({
   addVocabularyEntries: vi.fn(),

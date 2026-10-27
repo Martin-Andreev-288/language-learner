@@ -28,9 +28,13 @@ import {
   INLINE_TRANSLATE_MAX_PHRASES,
 } from "@/lib/limits";
 import { MAX_TRANSLATION_LANGUAGES } from "@/lib/vocabulary-enrichment";
-import { languageTag, languageTagLabel } from "@/lib/language-codes";
+import { languageTagLabel } from "@/lib/language-codes";
 import CharacterCount from "@/components/shared/character-count";
 import LanguageCombobox from "@/components/shared/language-combobox";
+import WordLookupWindow, {
+  type LookupTarget,
+} from "@/components/shared/word-lookup-window";
+import { sentenceAroundToken } from "@/lib/word-lookup";
 
 type TranslatedResult = {
   tokens: TextToken[];
@@ -55,28 +59,14 @@ function formatTranslations(translations: PhraseTranslation[]) {
     .join(" · ");
 }
 
-// Right-click's popup shows a plain translation of one word, not a
-// definition — same shape of result as left-click's marking, just for one
-// word at a time and without needing to press "Translate marked words"
-// first. Deliberately not the dictionary-style lookup Vocabulary/Reading
-// Shuffle uses elsewhere, per the decision in Question 203.
-type WordPopup = {
-  word: string;
-  // Which occurrence was right-clicked, so "Add to text" can mark that one
-  // rather than every copy of the same word (Question 343). Marking has
-  // always worked by position for this reason — one "the" in a passage is
-  // not the others — and the popup had no reason to know it until now.
+// The word open in the shared lookup window (Question 55, chapter B), and
+// which occurrence of it was pressed: "Add to text" marks that one rather
+// than every copy of the same word (Question 343). `key` is new for every
+// opening, so each word gets a window of its own.
+type OpenLookup = {
+  key: number;
   index: number;
-  x: number;
-  y: number;
-  loading: boolean;
-  translations: PhraseTranslation[] | null;
-  error: string | null;
-  addingVocab: boolean;
-  addedVocab: boolean;
-  // Set once its translation has been folded into the passage, so the
-  // button can say so rather than silently doing nothing on a second press.
-  addedToText: boolean;
+  target: LookupTarget;
 };
 
 function renderResult(result: TranslatedResult, showTranslations: boolean) {
@@ -227,8 +217,7 @@ function InlineTranslateScreen({
   const [noteError, setNoteError] = useState<string | null>(null);
   const [addingVocab, setAddingVocab] = useState(false);
   const [vocabSummary, setVocabSummary] = useState<string | null>(null);
-  const [wordPopup, setWordPopup] = useState<WordPopup | null>(null);
-  const popupRef = useRef<HTMLDivElement>(null);
+  const [lookup, setLookup] = useState<OpenLookup | null>(null);
 
   // Keeps the draft in sync with what's on screen — genuinely a "sync React
   // state out to an external system" effect, not one computing state React
@@ -253,103 +242,42 @@ function InlineTranslateScreen({
     });
   }, [restoreDraft, text, sourceLanguage, targetLanguages, markedIndices, result]);
 
-  // Left-click dismisses the popup when it lands outside it; right-clicks
-  // are left alone here since onContextMenu already replaces the popup's
-  // state wholesale for whichever word was just right-clicked.
-  useEffect(() => {
-    if (!wordPopup) return;
-
-    function handlePointerDown(event: MouseEvent) {
-      if (event.button !== 0) return;
-      if (
-        popupRef.current &&
-        !popupRef.current.contains(event.target as Node)
-      ) {
-        setWordPopup(null);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setWordPopup(null);
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [wordPopup]);
-
-  async function handleWordRightClick(
-    event: React.MouseEvent,
-    word: string,
+  // Right-click, or press and hold on a phone: the shared window, for this
+  // one word, in the sentence it sits in. Opened at the word itself rather
+  // than at the pointer, so it lands in the same place however it was
+  // asked for.
+  function handleWordRightClick(
+    event: React.MouseEvent<HTMLElement>,
+    tokens: TextToken[],
     index: number,
   ) {
     event.preventDefault();
-    const x = event.clientX;
-    const y = event.clientY;
-    setWordPopup({
-      word,
+    const element = event.currentTarget;
+    // A new key for each word, so each one gets a window of its own.
+    setLookup((open) => ({
+      key: (open?.key ?? 0) + 1,
       index,
-      x,
-      y,
-      loading: true,
-      translations: null,
-      error: null,
-      addingVocab: false,
-      addedVocab: false,
-      addedToText: false,
-    });
-    try {
-      const result = await translateMarkedPhrases(
-        [word],
-        text,
-        targetLanguages,
-      );
-      if (!result.ok) {
-        setWordPopup((prev) =>
-          prev && prev.word === word
-            ? { ...prev, loading: false, error: result.error }
-            : prev,
-        );
-        return;
-      }
-      const [translations] = result.data;
-      setWordPopup((prev) =>
-        prev && prev.word === word
-          ? { ...prev, loading: false, translations }
-          : prev,
-      );
-    } catch (err) {
-      setWordPopup((prev) =>
-        prev && prev.word === word
-          ? {
-              ...prev,
-              loading: false,
-              error: describeClientError(err, "Translation failed."),
-            }
-          : prev,
-      );
-    }
+      target: {
+        word: tokens[index].text,
+        context: sentenceAroundToken(tokens, index),
+        element,
+      },
+    }));
   }
 
-  // Folds the popup's translation into the passage without asking for it
+  // Folds the window's translation into the passage without asking for it
   // again (Question 343).
   //
-  // The saving is in what it does *not* do: no network call. The popup has
-  // already been handed exactly what the passage stores — since Step 8 both
-  // hold PhraseTranslation[], the same shape — so this is a state merge,
-  // not a request. Before that step the two shapes differed and this would
-  // have needed a conversion; the timing is luck rather than planning, but
-  // it is why this is small.
-  function handleAddPopupWordToText() {
-    if (!wordPopup?.translations || wordPopup.translations.length === 0) return;
-
-    const word = wordPopup.word;
-    const translations = wordPopup.translations;
+  // The saving is in what it does *not* do: no network call. The window has
+  // already been handed exactly what the passage stores — the same
+  // { language, text } shape — so this is a state merge, not a request.
+  function handleAddLookupToText(
+    index: number,
+    word: string,
+    translations: PhraseTranslation[],
+  ) {
     const nextMarked = new Set(markedIndices);
-    nextMarked.add(wordPopup.index);
+    nextMarked.add(index);
 
     // Recomputed from the text rather than reused from the existing result:
     // marking a word next to one that was already marked joins them into a
@@ -369,64 +297,6 @@ function InlineTranslateScreen({
       translations: new Map(prev?.translations ?? []).set(word, translations),
     }));
     setShowTranslations(true);
-    setWordPopup((prev) =>
-      prev && prev.word === word ? { ...prev, addedToText: true } : prev,
-    );
-  }
-
-  // Saves the original word the popup is showing, under sourceLanguage —
-  // not targetLanguage — since a vocabulary entry is a word you're learning
-  // in that word's own language, alongside its already-loaded translation
-  // (Question 214). addVocabularyEntries handles a single word fine; no
-  // need for a separate single-word action.
-  async function handleAddPopupWordToVocab() {
-    if (!wordPopup) return;
-    const word = wordPopup.word;
-    setWordPopup((prev) =>
-      prev && prev.word === word ? { ...prev, addingVocab: true } : prev,
-    );
-    try {
-      // One call per language rather than one call carrying all of them,
-      // and that works because of what Question 333 built: a word that is
-      // already saved still records the translation arriving with it. So
-      // the first call creates the word and its first translation, and
-      // each call after it adds only a translation. No new signature, no
-      // second endpoint — just the capability already there, used.
-      const popupTranslations = wordPopup.translations ?? [];
-      if (popupTranslations.length === 0) {
-        // Nothing came back to record, but the word is still worth
-        // keeping: you clicked it because you didn't know it, and that
-        // remains true whether or not the translation arrived.
-        await addVocabularyEntries(word, sourceLanguage);
-      } else {
-        for (const { language, text: translated } of popupTranslations) {
-          await addVocabularyEntries(
-            word,
-            sourceLanguage,
-            translated,
-            language,
-          );
-        }
-      }
-      setWordPopup((prev) =>
-        prev && prev.word === word
-          ? { ...prev, addingVocab: false, addedVocab: true }
-          : prev,
-      );
-    } catch (err) {
-      setWordPopup((prev) =>
-        prev && prev.word === word
-          ? {
-              ...prev,
-              addingVocab: false,
-              error:
-                err instanceof Error
-                  ? err.message
-                  : "Couldn't add to vocabulary.",
-            }
-          : prev,
-      );
-    }
   }
 
   // Same Add-button commit the enrich modal uses, and for the same
@@ -468,7 +338,7 @@ function InlineTranslateScreen({
     setMarkedIndices(new Set());
     setResult(null);
     setTranslateError(null);
-    setWordPopup(null);
+    setLookup(null);
     setVocabSummary(null);
   }
 
@@ -892,7 +762,7 @@ function InlineTranslateScreen({
                     type="button"
                     onClick={() => toggleWordAt(index)}
                     onContextMenu={(event) =>
-                      handleWordRightClick(event, token.text, index)
+                      handleWordRightClick(event, tokens, index)
                     }
                     title="Click or tap to mark it for batch translation. Right-click, or press and hold, to translate just this word."
                     className={`cursor-pointer rounded p-0 transition-colors ${
@@ -1004,90 +874,18 @@ function InlineTranslateScreen({
           </button>
         </div>
 
-        {wordPopup && (
-          <div
-            ref={popupRef}
-            style={{ left: wordPopup.x + 8, top: wordPopup.y + 8 }}
-            className="fixed z-50 min-w-40 max-w-64 rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-sm shadow-2xl"
-          >
-            <div className="mb-1 flex items-center justify-between gap-3">
-              <span className="font-semibold text-indigo-200">
-                {wordPopup.word}
-              </span>
-              <button
-                onClick={() => setWordPopup(null)}
-                aria-label="Close"
-                className="text-zinc-500 transition-colors hover:text-zinc-200"
-              >
-                ✕
-              </button>
-            </div>
-            {wordPopup.loading ? (
-              <p className="text-zinc-500">Translating…</p>
-            ) : wordPopup.error ? (
-              <p className="text-red-400">{wordPopup.error}</p>
-            ) : (
-              <>
-                {/* One language reads as a plain answer, several as a
-                    labelled list — the popup is narrow, so tags on their
-                    own lines beat a run-on of them (Question 339). */}
-                {wordPopup.translations?.length === 1 ? (
-                  <p className="text-zinc-200">
-                    {wordPopup.translations[0].text}
-                  </p>
-                ) : (
-                  <ul className="space-y-0.5">
-                    {wordPopup.translations?.map((item) => (
-                      <li key={item.language} className="text-zinc-200">
-                        <span
-                          title={item.language}
-                          className="mr-1 rounded bg-zinc-800 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400"
-                        >
-                          {languageTag(item.language)}
-                        </span>
-                        {item.text}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {/* Above "Add to vocabulary" rather than below it,
-                    because it's the cheaper of the two and the one you're
-                    more likely to want: it costs nothing and only affects
-                    this page, where saving a word is a decision about your
-                    vocabulary list (Question 343). */}
-                <button
-                  onClick={handleAddPopupWordToText}
-                  disabled={
-                    wordPopup.addedToText ||
-                    (wordPopup.translations?.length ?? 0) === 0
-                  }
-                  title="Mark this word in the passage and keep this translation — no second request"
-                  className={`mt-2 w-full rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-                    wordPopup.addedToText
-                      ? "bg-emerald-600 text-white"
-                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-                  } disabled:cursor-not-allowed`}
-                >
-                  {wordPopup.addedToText ? "In the text!" : "+ Add to text"}
-                </button>
-                <button
-                  onClick={handleAddPopupWordToVocab}
-                  disabled={wordPopup.addingVocab || wordPopup.addedVocab}
-                  className={`mt-1.5 w-full rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-                    wordPopup.addedVocab
-                      ? "bg-emerald-600 text-white"
-                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-                  } disabled:cursor-not-allowed`}
-                >
-                  {wordPopup.addedVocab
-                    ? "Added!"
-                    : wordPopup.addingVocab
-                      ? "Adding…"
-                      : "+ Add to vocabulary"}
-                </button>
-              </>
-            )}
-          </div>
+        {lookup && (
+          <WordLookupWindow
+            key={lookup.key}
+            target={lookup.target}
+            translateInto={targetLanguages}
+            explainInLanguage={defaultTranslateLanguage}
+            wordLanguage={sourceLanguage}
+            onAddToText={(translations) =>
+              handleAddLookupToText(lookup.index, lookup.target.word, translations)
+            }
+            onClose={() => setLookup(null)}
+          />
         )}
       </div>
     </div>
