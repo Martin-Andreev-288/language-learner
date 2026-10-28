@@ -21,6 +21,13 @@ vi.mock("@/app/actions/chat-translate-actions", () => ({
   translateChatMessage: vi.fn(),
 }));
 vi.mock("@/app/actions/note-actions", () => ({ upsertNote: vi.fn() }));
+vi.mock("@/app/actions/word-lookup-actions", () => ({
+  translateWordInContext: vi.fn(),
+  lookupWord: vi.fn(),
+}));
+vi.mock("@/app/actions/vocabulary-entry-actions", () => ({
+  addVocabularyEntries: vi.fn(),
+}));
 vi.mock("@/lib/use-speech-to-text", () => ({
   useSpeechToText: () => ({
     supported: true,

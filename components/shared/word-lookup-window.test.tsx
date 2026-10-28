@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { StrictMode } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 // The shared word-lookup window (Question 55, chapter B), with its requests
@@ -111,6 +112,18 @@ describe("the shared word-lookup window", () => {
     expect(translateWordInContext).toHaveBeenCalledTimes(1);
   });
 
+  // React's development checks open every window twice; that used to send
+  // every lookup twice (Question 67).
+  it("asks once when the same word is opened twice at the same moment", async () => {
+    render(
+      <StrictMode>
+        <WordLookupWindow target={target()} translateInto={["Bulgarian"]} explainInLanguage="" onClose={vi.fn()} />
+      </StrictMode>,
+    );
+    expect(await screen.findByText("уморен")).toBeInTheDocument();
+    expect(translateWordInContext).toHaveBeenCalledTimes(1);
+  });
+
   it("saves the word under the language it reports, with its translation", async () => {
     open();
     await screen.findByText("уморен");
@@ -207,6 +220,26 @@ describe("the shared word-lookup window", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  // A chat's conversation scrolls in a box of its own, short on a phone: a
+  // word scrolled past its edge is hidden while still on the screen.
+  it("closes once its word has scrolled out of the box it scrolls in", () => {
+    const box = document.createElement("div");
+    box.style.overflowY = "auto";
+    box.getBoundingClientRect = () => ({ top: 200, bottom: 400, left: 0, right: 300 }) as DOMRect;
+    document.body.appendChild(box);
+    const word = wordOnPage({ left: 40, top: 250, bottom: 270 });
+    box.appendChild(word.element);
+    const { onClose } = open({ target: target("müde", word.element) });
+
+    word.moveTo({ left: 40, top: 210, bottom: 230 });
+    fireEvent.scroll(box);
+    expect(onClose).not.toHaveBeenCalled();
+
+    word.moveTo({ left: 40, top: 160, bottom: 180 });
+    fireEvent.scroll(box);
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("pronounces the word in the language the translation reports", async () => {
     const speak = vi.fn();
     const Utterance = vi.fn(function (this: { text: string; lang: string }, text: string) {
@@ -222,6 +255,35 @@ describe("the shared word-lookup window", () => {
     fireEvent.click(screen.getByRole("button", { name: "Play pronunciation" }));
     await waitFor(() => expect(speak).toHaveBeenCalled());
     expect(speak.mock.calls[0][0]).toMatchObject({ text: "müde", lang: "de-DE" });
+    vi.unstubAllGlobals();
+  });
+
+  // Voice Chat reads its replies out loud (B2): a window closing there must
+  // stop only the word it said itself.
+  it("stops its own word when it closes, and leaves any other speech alone", async () => {
+    const cancel = vi.fn();
+    vi.stubGlobal(
+      "SpeechSynthesisUtterance",
+      vi.fn(function (this: { text: string }, text: string) {
+        this.text = text;
+      }),
+    );
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      value: { speak: vi.fn(), cancel },
+    });
+
+    const quiet = open();
+    await screen.findByText("уморен");
+    quiet.unmount();
+    expect(cancel).not.toHaveBeenCalled();
+
+    const talking = open();
+    await screen.findByText("уморен");
+    fireEvent.click(screen.getByRole("button", { name: "Play pronunciation" }));
+    const beforeClosing = cancel.mock.calls.length;
+    talking.unmount();
+    expect(cancel).toHaveBeenCalledTimes(beforeClosing + 1);
     vi.unstubAllGlobals();
   });
 });

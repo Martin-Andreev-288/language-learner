@@ -3,9 +3,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
-// The shared word-lookup window on the two pages that had a window of their
-// own before it (Question 55, B1): Flashcards' phrases side and Inline
-// Translate. The server is stood in; the pages and the window are real.
+// The shared word-lookup window on the pages that offer it (Question 55):
+// Flashcards' phrases side and Inline Translate, which had a window of
+// their own before it (B1), and the replies in Chat and Voice Chat (B2).
+// The server, the AI SDK and the browser's speech are stood in; the pages
+// and the window are real.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
 }));
@@ -21,13 +23,47 @@ vi.mock("@/app/actions/word-lookup-actions", () => ({
   translateWordInContext: (...args: unknown[]) => translateWordInContext(...args),
   lookupWord: vi.fn(),
 }));
-vi.mock("@/app/actions/vocabulary-entry-actions", () => ({ addVocabularyEntries: vi.fn() }));
+const addVocabularyEntries = vi.fn();
+vi.mock("@/app/actions/vocabulary-entry-actions", () => ({
+  addVocabularyEntries: (...args: unknown[]) => addVocabularyEntries(...args),
+}));
 vi.mock("@/app/actions/inline-translate-actions", () => ({ translateMarkedPhrases: vi.fn() }));
-vi.mock("@/app/actions/note-actions", () => ({ createNote: vi.fn() }));
+vi.mock("@/app/actions/note-actions", () => ({ createNote: vi.fn(), upsertNote: vi.fn() }));
+vi.mock("@/app/actions/writing-check-actions", () => ({ checkWriting: vi.fn() }));
+vi.mock("@/app/actions/chat-translate-actions", () => ({ translateChatMessage: vi.fn() }));
 vi.mock("@/app/generated/prisma", () => ({ NotePage: { reading: "reading" } }));
+// The conversation on screen, and whether its newest reply is still
+// arriving, set by each chat test.
+const chat: { messages: unknown[]; status: string } = { messages: [], status: "ready" };
+vi.mock("@ai-sdk/react", () => ({
+  useChat: () => ({
+    messages: chat.messages,
+    status: chat.status,
+    sendMessage: vi.fn(),
+    error: null,
+    setMessages: vi.fn(),
+  }),
+}));
+vi.mock("@/lib/use-speech-to-text", () => ({
+  useSpeechToText: () => ({
+    supported: true,
+    listening: false,
+    interimTranscript: "",
+    error: null,
+    notice: null,
+    start: vi.fn(),
+    stop: vi.fn(),
+  }),
+}));
+vi.mock("@/lib/use-text-to-speech", () => ({
+  useTextToSpeech: () => ({ supported: true, speaking: false, speak: vi.fn(), stop: vi.fn() }),
+}));
 
 import VocabularyShuffleSession from "./vocabulary-shuffle-session";
 import InlineTranslateTool from "./inline-translate-tool";
+import LanguageChat from "./language-chat";
+import { writeChatCarry } from "@/lib/language-chat-carry";
+import type { ChatMode } from "@/lib/language-chat-mode";
 
 let call = 0;
 beforeEach(() => {
@@ -39,6 +75,8 @@ beforeEach(() => {
     ok: true,
     data: { translations: [{ language: "Bulgarian", text: `уморен-${call}` }], languageCode: "de-DE" },
   });
+  addVocabularyEntries.mockReset().mockResolvedValue({ added: 1 });
+  chat.status = "ready";
 });
 
 describe("Flashcards, phrases side", () => {
@@ -119,5 +157,81 @@ describe("Inline Translate", () => {
     expect(secondAfter.className).toMatch(/font-semibold/);
     expect(firstAfter.className).not.toMatch(/font-semibold/);
     expect(first).toBeDefined();
+  });
+});
+
+describe("Chat and Voice Chat replies", () => {
+  const question = "Wie geht es dir?";
+  // A fresh sentence for every test, for the same reason as the answers.
+  const reply = () => `Ich bin heute sehr müde (${call}). Und du?`;
+
+  // A German conversation handed over the way "Continue this conversation"
+  // on a saved note hands one over.
+  function converse(mode: ChatMode = "writing") {
+    const messages = [
+      { id: "u1", role: "user" as const, parts: [{ type: "text" as const, text: question }] },
+      { id: "a1", role: "assistant" as const, parts: [{ type: "text" as const, text: reply() }] },
+    ];
+    chat.messages = messages;
+    writeChatCarry(mode, { noteId: "note-1", language: "German", messages, feedback: new Map() });
+    render(<LanguageChat mode={mode} defaultTranslateLanguage="Bulgarian" />);
+  }
+
+  it("opens the shared window on a word in a reply, for its sentence", async () => {
+    converse();
+    fireEvent.click(screen.getByText("müde"));
+    expect(await screen.findByText(`уморен-${call}`)).toBeInTheDocument();
+    expect(translateWordInContext).toHaveBeenCalledWith("müde", `Ich bin heute sehr müde (${call}).`, [
+      "Bulgarian",
+    ]);
+  });
+
+  it("saves the word under the chat's language", async () => {
+    converse();
+    fireEvent.click(screen.getByText("müde"));
+    await screen.findByText(`уморен-${call}`);
+    fireEvent.click(screen.getByRole("button", { name: "+ Add to vocabulary" }));
+    await screen.findByRole("button", { name: "Added!" });
+    expect(addVocabularyEntries).toHaveBeenCalledWith("müde", "German", `уморен-${call}`, "Bulgarian");
+  });
+
+  it("leaves your own messages as they are", () => {
+    converse();
+    // Whole, not cut into words — and a click on it opens nothing.
+    fireEvent.click(screen.getByText(question));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(translateWordInContext).not.toHaveBeenCalled();
+  });
+
+  it("doesn't open when the click ends a text selection, which is for copying", () => {
+    converse();
+    const selection = vi
+      .spyOn(window, "getSelection")
+      .mockReturnValue({ toString: () => "sehr müde" } as Selection);
+    fireEvent.click(screen.getByText("müde"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    selection.mockRestore();
+  });
+
+  it("waits until a reply has finished arriving", () => {
+    chat.status = "streaming";
+    converse();
+    fireEvent.click(screen.getByText(reply()));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(translateWordInContext).not.toHaveBeenCalled();
+  });
+
+  it("works in Voice Chat too, and closing it doesn't silence a reply being read out", async () => {
+    const cancel = vi.fn();
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      value: { speak: vi.fn(), cancel, resume: vi.fn() },
+    });
+    converse("speaking");
+    fireEvent.click(screen.getByText("müde"));
+    await screen.findByText(`уморен-${call}`);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(cancel).not.toHaveBeenCalled();
   });
 });

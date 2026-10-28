@@ -61,11 +61,32 @@ function placeBeside(word: HTMLElement, previous?: Placement, height = 0): Place
   return { left, top, bottom, above };
 }
 
+// Whether the word can still be seen: on the screen, and inside every box
+// around it that scrolls its own content — a chat's conversation, say —
+// since such a box hides what it has scrolled past even while that is
+// still on the screen.
+function inSight(word: HTMLElement): boolean {
+  const { top, bottom } = word.getBoundingClientRect();
+  if (bottom < 0 || top > window.innerHeight) return false;
+  for (let box = word.parentElement; box; box = box.parentElement) {
+    if (getComputedStyle(box).overflowY === "visible") continue;
+    const edges = box.getBoundingClientRect();
+    if (bottom < edges.top || top > edges.bottom) return false;
+  }
+  return true;
+}
+
 // Answers already given in this visit, so looking the same word up again in
 // the same sentence is instant and spends nothing from the shared daily
 // allowance. Only successful answers are kept.
 const translatedCache = new Map<string, Translated>();
 const definedCache = new Map<string, Defined>();
+// Translations still on their way, so a window asking for one already
+// asked for waits for that answer instead of sending a second request.
+// React's development checks open every window twice, which without this
+// sent every lookup twice, and since the server takes one request at a
+// time, the second doubled the wait too (Question 67).
+const pendingTranslations = new Map<string, ReturnType<typeof translateWordInContext>>();
 const cacheKey = (...parts: string[]) =>
   parts.map((part) => part.trim().toLowerCase()).join("\u0000");
 
@@ -113,13 +134,27 @@ export default function WordLookupWindow({
   const windowRef = useRef<HTMLDivElement>(null);
   // Where a press outside the window began, until it ends.
   const pressRef = useRef<{ x: number; y: number } | null>(null);
+  // The word being said by this window's speaker, until it has been said.
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   // The translation is asked for as the window opens, unless this visit
   // already has it. An answer arriving after the window closed is dropped.
   useEffect(() => {
     if (translatedCache.has(translationKey)) return;
     let open = true;
-    translateWordInContext(target.word, target.context, intoKey.split("\n"))
+    let request = pendingTranslations.get(translationKey);
+    if (!request) {
+      const asked = translateWordInContext(target.word, target.context, intoKey.split("\n"));
+      const settled = () => {
+        if (pendingTranslations.get(translationKey) === asked) {
+          pendingTranslations.delete(translationKey);
+        }
+      };
+      asked.then(settled, settled);
+      pendingTranslations.set(translationKey, asked);
+      request = asked;
+    }
+    request
       .then((result) => {
         if (!open) return;
         if (!result.ok) {
@@ -177,8 +212,7 @@ export default function WordLookupWindow({
     const follow = () => {
       const word = target.element;
       if (!word.isConnected) return;
-      const { top, bottom } = word.getBoundingClientRect();
-      if (bottom < 0 || top > window.innerHeight) {
+      if (!inSight(word)) {
         onClose();
         return;
       }
@@ -201,10 +235,12 @@ export default function WordLookupWindow({
     };
   }, [onClose, target.element]);
 
-  // A word still being read out stops with the window.
+  // A word still being said stops with the window — but only the window's
+  // own: in Voice Chat a reply may be being read out (B2), and closing a
+  // lookup mustn't cut it off.
   useEffect(() => {
     return () => {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      if (utteranceRef.current && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
     };
@@ -250,9 +286,17 @@ export default function WordLookupWindow({
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(speakableText(target.word));
     utterance.lang = languageCode;
-    utterance.onerror = () => {
+    const done = () => {
+      if (utteranceRef.current === utterance) utteranceRef.current = null;
+    };
+    utterance.onend = done;
+    utterance.onerror = (event) => {
+      done();
+      // Cut off by a newer press, or by the window closing — not a fault.
+      if (event.error === "interrupted" || event.error === "canceled") return;
       setSpeechError("Pronunciation isn't available for this language in your browser.");
     };
+    utteranceRef.current = utterance;
     window.speechSynthesis.speak(utterance);
   }
 

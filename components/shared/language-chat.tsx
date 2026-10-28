@@ -35,6 +35,11 @@ import { useSpeechToText } from "@/lib/use-speech-to-text";
 import { useTextToSpeech } from "@/lib/use-text-to-speech";
 import MicIcon from "@/components/shared/mic-icon";
 import PronunciationNote from "@/components/shared/pronunciation-note";
+import { tokenizeWords, type TextToken } from "@/lib/clickable-words";
+import { sentenceAroundToken } from "@/lib/word-lookup";
+import WordLookupWindow, {
+  type LookupTarget,
+} from "@/components/shared/word-lookup-window";
 
 // How long a pause means "I've finished my sentence", when auto-send is on.
 // Deliberately nothing like the hook's own 45-second idle stop: that one
@@ -159,6 +164,11 @@ function LanguageChatScreen({
   const [noteSaved, setNoteSaved] = useState(false);
   const noteResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [noteError, setNoteError] = useState<string | null>(null);
+  // The word open in the shared lookup window (Question 55, B2). `key` is
+  // new for every opening, so each word gets a window of its own.
+  const [lookup, setLookup] = useState<{ key: number; target: LookupTarget } | null>(
+    null,
+  );
   // Auto-send's timer fires up to a couple of seconds after it was set,
   // by which point the render that set it is long gone — so it calls
   // through this rather than capturing a stale message.
@@ -176,6 +186,9 @@ function LanguageChatScreen({
   });
 
   const busy = status === "submitted" || status === "streaming";
+  // The reply still arriving, while one is: always the newest message.
+  const streamingId =
+    status === "streaming" ? messages[messages.length - 1]?.id : undefined;
 
   // Keep the newest message in view as it streams in.
   useEffect(() => {
@@ -567,6 +580,33 @@ function LanguageChatScreen({
     // conversation would overwrite the previous one's note instead of
     // starting a new one.
     setSavedNoteId(null);
+    setLookup(null);
+  }
+
+  // A word in a finished reply, looked up in the shared window. One
+  // handler on the whole reply rather than a button per word: the words
+  // stay ordinary text you can select and copy, and a long reply doesn't
+  // add dozens of stops to the Tab key. A click that ends a selection is
+  // for copying, not for looking up — Parallel Translate's rule.
+  function handleReplyClick(
+    event: React.MouseEvent<HTMLElement>,
+    tokens: TextToken[],
+  ) {
+    if (window.getSelection()?.toString()) return;
+    const word =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>("[data-word]")
+        : null;
+    if (!word) return;
+    const index = Number(word.dataset.word);
+    setLookup((open) => ({
+      key: (open?.key ?? 0) + 1,
+      target: {
+        word: tokens[index].text,
+        context: sentenceAroundToken(tokens, index),
+        element: word,
+      },
+    }));
   }
 
   async function handleSaveToNote() {
@@ -716,6 +756,14 @@ function LanguageChatScreen({
                 const badges = correctionBadges(spans);
                 const translation = translations.get(message.id);
                 const translationOpen = openTranslations.has(message.id);
+                // Only a reply, and only once it has finished arriving: a
+                // word in one still streaming may yet change. Your own
+                // messages aren't offered — you wrote them, and their words
+                // are where the mistake marks go.
+                const replyTokens =
+                  message.role === "assistant" && message.id !== streamingId
+                    ? tokenizeWords(messageText(message))
+                    : null;
 
                 return (
                   <div key={message.id}>
@@ -767,8 +815,27 @@ function LanguageChatScreen({
                             ? "rounded-br-sm bg-indigo-600 text-white"
                             : "rounded-bl-sm bg-zinc-800 text-zinc-100"
                         }`}
+                        onClick={
+                          replyTokens
+                            ? (event) => handleReplyClick(event, replyTokens)
+                            : undefined
+                        }
                       >
-                        {messageText(message)}
+                        {replyTokens
+                          ? replyTokens.map((token, index) =>
+                              token.isWord ? (
+                                <span
+                                  key={index}
+                                  data-word={index}
+                                  className="cursor-pointer rounded transition-colors hover:bg-indigo-600/30 hover:text-indigo-200"
+                                >
+                                  {token.text}
+                                </span>
+                              ) : (
+                                token.text
+                              ),
+                            )
+                          : messageText(message)}
                       </div>
                     </div>
 
@@ -1136,6 +1203,20 @@ function LanguageChatScreen({
           </form>
         </div>
       </div>
+
+      {/* The word is in the chat's language; the answer comes in the
+          language this chat translates replies into, and failing that the
+          account's default. */}
+      {lookup && (
+        <WordLookupWindow
+          key={lookup.key}
+          target={lookup.target}
+          translateInto={[translateInto.trim() || defaultTranslateLanguage]}
+          explainInLanguage={translateInto.trim() || defaultTranslateLanguage}
+          wordLanguage={language}
+          onClose={() => setLookup(null)}
+        />
+      )}
     </div>
   );
 }
