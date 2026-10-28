@@ -19,6 +19,12 @@ import {
 } from "@/app/actions/shadowing-actions";
 import MicIcon from "@/components/shared/mic-icon";
 import SignInToUse from "@/components/shared/sign-in-to-use";
+import { tokenizeWords, type TextToken } from "@/lib/clickable-words";
+import { sentenceAroundToken } from "@/lib/word-lookup";
+import WordLookupWindow, {
+  type LookupTarget,
+} from "@/components/shared/word-lookup-window";
+import { TappableWords, tappedWord } from "@/components/shared/tappable-words";
 import KeyboardHints from "@/components/shared/keyboard-hints";
 import { useSpeechToText } from "@/lib/use-speech-to-text";
 import {
@@ -126,10 +132,14 @@ const VERDICT_STYLES = {
 // removed — and the gate lands exactly where the interesting part starts.
 export default function ShadowingTool({
   isAuthenticated = true,
+  defaultTranslateLanguage = "",
 }: {
   // Defaulted to true so every other caller keeps working untouched. Only
   // the page that deliberately serves guests passes it.
   isAuthenticated?: boolean;
+  // What a word looked up in the sentence is translated into. Empty for a
+  // guest, who can't look words up at all.
+  defaultTranslateLanguage?: string;
 }) {
   // Restored from a carry, if you arrived by pressing "Practice again" on a
   // saved note — read as part of the initial state itself rather than in an
@@ -247,9 +257,20 @@ export default function ShadowingTool({
   // started playing — the same reason languageRef exists just above.
   const autoAdvanceRef = useRef(false);
   const autoSuspendedRef = useRef(false);
+  // A word of the sentence open in the shared lookup window (Question 55,
+  // B3). `key` is new for every opening, so each word gets a window of its
+  // own. Signed in only: a lookup asks the AI, and a guest asking it would
+  // be the open tap described at the top of the page.
+  const [lookup, setLookup] = useState<{ key: number; target: LookupTarget } | null>(
+    null,
+  );
+  // The Record button, which the window is told never to cover. Held as
+  // state through a ref callback, so it can be handed to the window.
+  const [recordButton, setRecordButton] = useState<HTMLButtonElement | null>(null);
 
   const sentences = splitIntoSentences(text);
   const current = sentences[index];
+  const sentenceTokens = current ? tokenizeWords(current) : null;
   const langCode = guessLanguageCode(language);
 
   // Appends rather than replaces: one attempt at one sentence can still
@@ -559,6 +580,7 @@ export default function ShadowingTool({
       setLanguage(result.data.language);
       setHasGenerated(true);
       setIndex(0);
+      setLookup(null);
     } catch (err) {
       setGenerateError(
         describeClientError(err, "Couldn't generate a passage — try again."),
@@ -620,13 +642,19 @@ export default function ShadowingTool({
     clearSound();
     setSoundsResult(null);
     setSoundsError(null);
+    // A word looked up in the sentence being left goes with it: every way
+    // to another sentence comes through here, the arrows, Continue and
+    // auto-advance included.
+    setLookup(null);
   }
 
   function handleStartRecording() {
     // Stops playback first rather than refusing to start — you press
     // Record when the voice has said enough, and making that press mean
     // "stop talking and listen to me" is what the gesture already implies.
+    // The lookup window closes too: the sentence is yours to say now.
     handleStop();
+    setLookup(null);
     discardingRef.current = false;
     checkRunRef.current += 1;
     setChecking(false);
@@ -774,6 +802,24 @@ export default function ShadowingTool({
     handleStop();
     clearAttempt();
     setStarted(false);
+  }
+
+  // A word of the sentence, looked up in the shared window.
+  function handleSentenceClick(
+    event: React.MouseEvent<HTMLElement>,
+    tokens: TextToken[],
+  ) {
+    const word = tappedWord(event);
+    if (!word) return;
+    const index = Number(word.dataset.word);
+    setLookup((open) => ({
+      key: (open?.key ?? 0) + 1,
+      target: {
+        word: tokens[index].text,
+        context: sentenceAroundToken(tokens, index),
+        element: word,
+      },
+    }));
   }
 
   // Both arrows arm the loop, not only the automatic one. With
@@ -1250,8 +1296,33 @@ export default function ShadowingTool({
             )}
 
             <div className="flex min-h-40 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950 p-8 text-center">
-              <p className="text-xl leading-relaxed text-zinc-100">{current}</p>
+              {/* Guests see the sentence as plain text: a tap would ask the
+                  AI, which this page never does for a visitor. */}
+              {isAuthenticated && sentenceTokens ? (
+                <p
+                  className="text-xl leading-relaxed text-zinc-100"
+                  onClick={(event) => handleSentenceClick(event, sentenceTokens)}
+                >
+                  <TappableWords tokens={sentenceTokens} />
+                </p>
+              ) : (
+                <p className="text-xl leading-relaxed text-zinc-100">{current}</p>
+              )}
             </div>
+
+            {/* The sentence's language, when it has been set; otherwise the
+                window recognises it. Never over the Record button. */}
+            {lookup && (
+              <WordLookupWindow
+                key={lookup.key}
+                target={lookup.target}
+                translateInto={[defaultTranslateLanguage]}
+                explainInLanguage={defaultTranslateLanguage}
+                wordLanguage={language}
+                keepClear={recordButton}
+                onClose={() => setLookup(null)}
+              />
+            )}
 
             {playbackError && (
               <p className="mt-3 text-sm text-red-400">{playbackError}</p>
@@ -1382,6 +1453,7 @@ export default function ShadowingTool({
                     feature, a disabled one with a reason reads as a
                     limitation of the browser. */}
                 <button
+                  ref={setRecordButton}
                   onClick={listening ? stopListening : handleStartRecording}
                   disabled={!canRecord}
                   title={recordTitle}

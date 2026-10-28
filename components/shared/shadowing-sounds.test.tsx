@@ -52,6 +52,13 @@ const recorder = {
 };
 vi.mock("@/lib/use-sound-recorder", () => ({ useSoundRecorder: () => recorder }));
 
+vi.mock("@/app/actions/word-lookup-actions", () => ({
+  translateWordInContext: vi.fn(),
+  lookupWord: vi.fn(),
+}));
+vi.mock("@/app/actions/vocabulary-entry-actions", () => ({
+  addVocabularyEntries: vi.fn(),
+}));
 import ShadowingTool from "./shadowing-tool";
 
 const sentence = "Ich bin müde und möchte schlafen.";
@@ -146,7 +153,9 @@ describe("Shadowing's check, with a recording", () => {
     expect(screen.getByText(SHADOWING_SOUNDS_PAGE_NOTE)).toBeInTheDocument();
 
     expect(await screen.findByText("All words understood")).toBeInTheDocument();
-    expect(screen.getByText("müde").closest("li")).toHaveTextContent("müde · should be ü, you said u");
+    // The sentence above has a "müde" of its own, a word you can tap (B3).
+    const listed = screen.getAllByText("müde").find((element) => element.closest("li"));
+    expect(listed?.closest("li")).toHaveTextContent("müde · should be ü, you said u");
     expect(screen.getByText(/not stress or\s+intonation/)).toBeInTheDocument();
     // Every word was there, but not every sound: not a green result.
     expect(resultBox("All words understood")).toHaveClass("border-amber-800");

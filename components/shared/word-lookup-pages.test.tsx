@@ -5,9 +5,10 @@ import { render, screen, fireEvent } from "@testing-library/react";
 
 // The shared word-lookup window on the pages that offer it (Question 55):
 // Flashcards' phrases side and Inline Translate, which had a window of
-// their own before it (B1), and the replies in Chat and Voice Chat (B2).
-// The server, the AI SDK and the browser's speech are stood in; the pages
-// and the window are real.
+// their own before it (B1), the replies in Chat and Voice Chat (B2), and a
+// note's preview and the Shadowing sentence (B3). The server, the AI SDK,
+// the microphone and the browser's speech are stood in; the pages and the
+// window are real.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
 }));
@@ -28,10 +29,51 @@ vi.mock("@/app/actions/vocabulary-entry-actions", () => ({
   addVocabularyEntries: (...args: unknown[]) => addVocabularyEntries(...args),
 }));
 vi.mock("@/app/actions/inline-translate-actions", () => ({ translateMarkedPhrases: vi.fn() }));
-vi.mock("@/app/actions/note-actions", () => ({ createNote: vi.fn(), upsertNote: vi.fn() }));
+const noteContent = [
+  "# Wörter",
+  "",
+  "Ich bin **sehr müde** heute. Morgen wird es besser.",
+  "",
+  "Der Befehl `npm run dev` und [ein Link](https://example.com).",
+].join("\n");
+vi.mock("@/app/actions/note-actions", () => ({
+  getNote: vi.fn(() => Promise.resolve({ title: "A note", content: noteContent })),
+  createNote: vi.fn(),
+  upsertNote: vi.fn(),
+  renameNote: vi.fn(),
+  deleteNote: vi.fn(),
+  updateNoteContent: vi.fn(),
+  moveNote: vi.fn(),
+}));
+vi.mock("@/app/actions/note-folder-actions", () => ({
+  createNoteFolder: vi.fn(),
+  renameNoteFolder: vi.fn(),
+  deleteNoteFolder: vi.fn(),
+  moveNoteFolder: vi.fn(),
+  moveNoteToFolder: vi.fn(),
+}));
+vi.mock("@/app/actions/shadowing-actions", () => ({
+  checkShadowingAttempt: vi.fn(),
+  checkShadowingSounds: vi.fn(),
+  generateShadowingPassage: vi.fn(),
+}));
+vi.mock("@/lib/use-sound-recorder", () => ({
+  useSoundRecorder: () => ({
+    supported: true,
+    recording: false,
+    preparing: false,
+    sound: null,
+    tooLong: false,
+    start: vi.fn(),
+    stop: vi.fn(),
+    clear: vi.fn(),
+  }),
+}));
 vi.mock("@/app/actions/writing-check-actions", () => ({ checkWriting: vi.fn() }));
 vi.mock("@/app/actions/chat-translate-actions", () => ({ translateChatMessage: vi.fn() }));
-vi.mock("@/app/generated/prisma", () => ({ NotePage: { reading: "reading" } }));
+vi.mock("@/app/generated/prisma", () => ({
+  NotePage: { reading: "reading", speaking: "speaking" },
+}));
 // The conversation on screen, and whether its newest reply is still
 // arriving, set by each chat test.
 const chat: { messages: unknown[]; status: string } = { messages: [], status: "ready" };
@@ -62,6 +104,8 @@ vi.mock("@/lib/use-text-to-speech", () => ({
 import VocabularyShuffleSession from "./vocabulary-shuffle-session";
 import InlineTranslateTool from "./inline-translate-tool";
 import LanguageChat from "./language-chat";
+import NoteDashboard from "./note-dashboard";
+import ShadowingTool from "./shadowing-tool";
 import { writeChatCarry } from "@/lib/language-chat-carry";
 import type { ChatMode } from "@/lib/language-chat-mode";
 
@@ -233,5 +277,98 @@ describe("Chat and Voice Chat replies", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(cancel).not.toHaveBeenCalled();
+  });
+});
+
+describe("a note's preview", () => {
+  const notes = {
+    folders: [],
+    notes: [
+      {
+        id: "note-1",
+        title: "A note",
+        folderId: null,
+        preview: "Ich bin sehr müde heute.",
+        createdAt: new Date("2026-09-01").toISOString(),
+        updatedAt: new Date("2026-09-02").toISOString(),
+      },
+    ],
+  };
+
+  async function preview() {
+    render(<NoteDashboard page="reading" data={notes} defaultTranslateLanguage="Bulgarian" />);
+    fireEvent.click(screen.getByText("A note"));
+    await screen.findByText("Edit note");
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+  }
+
+  it("opens the shared window on a word, for its sentence, through the Markdown", async () => {
+    await preview();
+    // In bold, in the middle of a paragraph of two sentences.
+    fireEvent.click(screen.getByText("müde"));
+    expect(await screen.findByText(`уморен-${call}`)).toBeInTheDocument();
+    expect(translateWordInContext).toHaveBeenCalledWith("müde", "Ich bin sehr müde heute.", ["Bulgarian"]);
+  });
+
+  it("leaves code and links as they are", async () => {
+    await preview();
+    // Whole, not cut into words: nothing in them opens the window.
+    expect(screen.getByText("npm run dev").tagName).toBe("CODE");
+    expect(screen.getByText("ein Link").tagName).toBe("A");
+    expect(screen.getByRole("heading", { name: "Wörter" })).toBeInTheDocument();
+  });
+
+  it("closes with the preview, and doesn't come back with it", async () => {
+    await preview();
+    fireEvent.click(screen.getByText("Morgen"));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Write" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("the Shadowing sentence", () => {
+  function practise({ signedIn = true } = {}) {
+    render(<ShadowingTool isAuthenticated={signedIn} defaultTranslateLanguage="Bulgarian" />);
+    fireEvent.change(screen.getByPlaceholderText(/^e\.g\. German/), {
+      target: { value: "German" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/^Paste the passage/), {
+      // Not the Inline Translate test's sentence: the window would answer
+      // from its memory of that one.
+      target: { value: "Ich bin am Abend müde. Morgen ist ein neuer Tag." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start practicing" }));
+  }
+
+  it("opens the shared window on a word, signed in", async () => {
+    practise();
+    fireEvent.click(screen.getByText("müde"));
+    expect(await screen.findByText(`уморен-${call}`)).toBeInTheDocument();
+    expect(translateWordInContext).toHaveBeenCalledWith("müde", "Ich bin am Abend müde.", [
+      "Bulgarian",
+    ]);
+  });
+
+  it("is plain text for a guest, whose taps never reach the AI", () => {
+    practise({ signedIn: false });
+    fireEvent.click(screen.getByText("Ich bin am Abend müde."));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(translateWordInContext).not.toHaveBeenCalled();
+  });
+
+  it("closes when the next sentence comes, and when recording starts", async () => {
+    practise();
+    fireEvent.click(screen.getByText("müde"));
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByText("Morgen"));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Record your attempt" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

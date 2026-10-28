@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import AuthPrompt from "@/components/shared/auth-prompt";
 import { featureTool } from "@/lib/feature-sections";
 import { getNoteFolderTree } from "@/app/actions/note-folder-actions";
+import { getDefaultTranslateLanguage } from "@/app/actions/user-actions";
 import { NotePage } from "@/app/generated/prisma";
 import NoteDashboard from "@/components/shared/note-dashboard";
 
@@ -19,7 +20,16 @@ export default async function ReadingNotesPage() {
     );
   }
 
-  const tree = await getNoteFolderTree(NotePage.reading);
+  const [tree, defaultTranslateLanguage] = await Promise.all([
+    getNoteFolderTree(NotePage.reading),
+    getDefaultTranslateLanguage(),
+  ]);
 
-  return <NoteDashboard page="reading" data={tree} />;
+  return (
+    <NoteDashboard
+      page="reading"
+      data={tree}
+      defaultTranslateLanguage={defaultTranslateLanguage}
+    />
+  );
 }

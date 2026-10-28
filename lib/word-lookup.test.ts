@@ -3,6 +3,7 @@ import { tokenizeWords } from "./clickable-words";
 import {
     inAskedOrder,
     sentenceAroundToken,
+    sentenceAtOffset,
     uniqueLanguages,
     wordTranslationPrompt,
 } from "./word-lookup";
@@ -35,6 +36,21 @@ describe("sentenceAroundToken", () => {
         expect(context).toContain("Ziel");
         expect(context.startsWith(" ") || context.endsWith(" ")).toBe(false);
         expect(context.split(" ").every((word) => ["eins", "zwei", "drei", "Ziel", "vier", "fünf", "sechs"].includes(word))).toBe(true);
+    });
+});
+
+describe("sentenceAtOffset", () => {
+    // How a note's preview knows its word: by where it starts in the
+    // paragraph's text, since the paragraph's words come in pieces.
+    const paragraph = "Ich bin sehr müde heute. Morgen wird es besser.";
+
+    it("finds the sentence of the word starting there", () => {
+        expect(sentenceAtOffset(paragraph, paragraph.indexOf("müde"))).toBe("Ich bin sehr müde heute.");
+        expect(sentenceAtOffset(paragraph, paragraph.indexOf("besser"))).toBe("Morgen wird es besser.");
+    });
+
+    it("finds the word for a place inside it, as well as at its start", () => {
+        expect(sentenceAtOffset(paragraph, paragraph.indexOf("rgen"))).toBe("Morgen wird es besser.");
     });
 });
 

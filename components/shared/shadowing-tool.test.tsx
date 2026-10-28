@@ -14,6 +14,13 @@ vi.mock("@/app/generated/prisma", () => ({
   NotePage: { speaking: "speaking" },
 }));
 
+vi.mock("@/app/actions/word-lookup-actions", () => ({
+  translateWordInContext: vi.fn(),
+  lookupWord: vi.fn(),
+}));
+vi.mock("@/app/actions/vocabulary-entry-actions", () => ({
+  addVocabularyEntries: vi.fn(),
+}));
 import ShadowingTool from "./shadowing-tool";
 
 // The generator's four menus and its topic line fold away behind one

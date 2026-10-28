@@ -220,6 +220,28 @@ describe("the shared word-lookup window", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  // Shadowing's Record button (B3). jsdom's screen is 768 pixels tall.
+  it("never covers what the page asks it to keep clear", () => {
+    const record = document.createElement("button");
+    record.getBoundingClientRect = () => ({ top: 480, bottom: 510, left: 0, right: 200 }) as DOMRect;
+
+    // Plenty of room above the word, little before the button below it:
+    // the window goes above.
+    const low = wordOnPage({ left: 40, top: 400, bottom: 420 });
+    const first = open({ target: target("müde", low.element), keepClear: record });
+    expect(screen.getByRole("dialog").style.top).toBe("");
+    expect(screen.getByRole("dialog").style.bottom).toBe(`${768 - 400 + 6}px`);
+    first.unmount();
+
+    // No room above the word: below it, but ending before the button.
+    record.getBoundingClientRect = () => ({ top: 300, bottom: 330, left: 0, right: 200 }) as DOMRect;
+    const high = wordOnPage({ left: 40, top: 30, bottom: 50 });
+    open({ target: target("müde", high.element), keepClear: record });
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.style.top).toBe("56px");
+    expect(56 + parseFloat(dialog.style.maxHeight)).toBeLessThanOrEqual(300);
+  });
+
   // A chat's conversation scrolls in a box of its own, short on a phone: a
   // word scrolled past its edge is hidden while still on the screen.
   it("closes once its word has scrolled out of the box it scrolls in", () => {

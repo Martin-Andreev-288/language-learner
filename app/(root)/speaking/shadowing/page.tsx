@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { getDefaultTranslateLanguage } from "@/app/actions/user-actions";
 import ShadowingTool from "@/components/shared/shadowing-tool";
 
 // The one tool this app will show a signed-out visitor (Question 399).
@@ -22,6 +23,14 @@ import ShadowingTool from "@/components/shared/shadowing-tool";
 // now describes itself.
 export default async function ShadowingPracticePage() {
   const session = await auth();
+  // For words looked up in the sentence — signed in only, and empty for a
+  // guest, who can't look words up.
+  const defaultTranslateLanguage = session ? await getDefaultTranslateLanguage() : "";
 
-  return <ShadowingTool isAuthenticated={Boolean(session)} />;
+  return (
+    <ShadowingTool
+      isAuthenticated={Boolean(session)}
+      defaultTranslateLanguage={defaultTranslateLanguage}
+    />
+  );
 }

@@ -40,6 +40,7 @@ import { sentenceAroundToken } from "@/lib/word-lookup";
 import WordLookupWindow, {
   type LookupTarget,
 } from "@/components/shared/word-lookup-window";
+import { TappableWords, tappedWord } from "@/components/shared/tappable-words";
 
 // How long a pause means "I've finished my sentence", when auto-send is on.
 // Deliberately nothing like the hook's own 45-second idle stop: that one
@@ -583,20 +584,12 @@ function LanguageChatScreen({
     setLookup(null);
   }
 
-  // A word in a finished reply, looked up in the shared window. One
-  // handler on the whole reply rather than a button per word: the words
-  // stay ordinary text you can select and copy, and a long reply doesn't
-  // add dozens of stops to the Tab key. A click that ends a selection is
-  // for copying, not for looking up — Parallel Translate's rule.
+  // A word in a finished reply, looked up in the shared window.
   function handleReplyClick(
     event: React.MouseEvent<HTMLElement>,
     tokens: TextToken[],
   ) {
-    if (window.getSelection()?.toString()) return;
-    const word =
-      event.target instanceof Element
-        ? event.target.closest<HTMLElement>("[data-word]")
-        : null;
+    const word = tappedWord(event);
     if (!word) return;
     const index = Number(word.dataset.word);
     setLookup((open) => ({
@@ -821,21 +814,11 @@ function LanguageChatScreen({
                             : undefined
                         }
                       >
-                        {replyTokens
-                          ? replyTokens.map((token, index) =>
-                              token.isWord ? (
-                                <span
-                                  key={index}
-                                  data-word={index}
-                                  className="cursor-pointer rounded transition-colors hover:bg-indigo-600/30 hover:text-indigo-200"
-                                >
-                                  {token.text}
-                                </span>
-                              ) : (
-                                token.text
-                              ),
-                            )
-                          : messageText(message)}
+                        {replyTokens ? (
+                          <TappableWords tokens={replyTokens} />
+                        ) : (
+                          messageText(message)
+                        )}
                       </div>
                     </div>
 

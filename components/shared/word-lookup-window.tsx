@@ -37,11 +37,14 @@ export interface LookupTarget {
 type Translated = { translations: WordTranslation[]; languageCode: string };
 type Defined = { definition: string; examples: string[] };
 
-// Where the word is on screen, and which side of it the window is on.
-type Placement = { left: number; top: number; bottom: number; above: boolean };
+// Where the word is on screen, which side of it the window is on, and how
+// tall the window may be there.
+type Placement = { left: number; top: number; bottom: number; above: boolean; room: number };
 
-// The space kept between the window and the screen's edge.
+// The space kept between the window and the screen's edge, and between
+// the window and its word.
 const EDGE = 14;
+const GAP = 6;
 // How far a press may move and still be a tap rather than a drag.
 const TAP_SLOP = 10;
 
@@ -49,16 +52,29 @@ const TAP_SLOP = 10;
 // word sits low. After that the window keeps its side while it still fits
 // there, so a scroll doesn't flip it from one side of the word to the other
 // and back.
-function placeBeside(word: HTMLElement, previous?: Placement, height = 0): Placement {
+//
+// A page can name one thing the window must never cover — Shadowing's
+// Record button (B3). On that thing's side of the word the room ends where
+// it begins, and the first side chosen is the one with more room left.
+function placeBeside(
+  word: HTMLElement,
+  keepClear: HTMLElement | null,
+  previous?: Placement,
+  height = 0,
+): Placement {
   const { left, top, bottom } = word.getBoundingClientRect();
-  let above = bottom > window.innerHeight * 0.6;
+  let roomAbove = top - EDGE;
+  let roomBelow = window.innerHeight - bottom - EDGE;
+  const clear = keepClear?.getBoundingClientRect();
+  if (clear && clear.top >= bottom) roomBelow = Math.min(roomBelow, clear.top - bottom - 2 * GAP);
+  if (clear && clear.bottom <= top) roomAbove = Math.min(roomAbove, top - clear.bottom - 2 * GAP);
+
+  let above = clear ? roomAbove > roomBelow : bottom > window.innerHeight * 0.6;
   if (previous) {
-    const roomAbove = top - EDGE;
-    const roomBelow = window.innerHeight - bottom - EDGE;
     const [here, there] = previous.above ? [roomAbove, roomBelow] : [roomBelow, roomAbove];
     above = height > here && there > here ? !previous.above : previous.above;
   }
-  return { left, top, bottom, above };
+  return { left, top, bottom, above, room: Math.max(0, above ? roomAbove : roomBelow) };
 }
 
 // Whether the word can still be seen: on the screen, and inside every box
@@ -99,6 +115,7 @@ export default function WordLookupWindow({
   translateInto,
   explainInLanguage,
   wordLanguage = "",
+  keepClear = null,
   onAddToText,
   onClose,
 }: {
@@ -109,6 +126,8 @@ export default function WordLookupWindow({
   // The word's language, when the page knows it (Inline Translate's
   // "passage language"). Otherwise the translation reports it.
   wordLanguage?: string;
+  // Something on the page the window must never cover (see placeBeside).
+  keepClear?: HTMLElement | null;
   // Only on a page with a passage to put the translation back into.
   onAddToText?: (translations: WordTranslation[]) => void;
   onClose: () => void;
@@ -130,7 +149,7 @@ export default function WordLookupWindow({
   const [saveNote, setSaveNote] = useState<string | null>(null);
   const [addedToText, setAddedToText] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
-  const [placement, setPlacement] = useState(() => placeBeside(target.element));
+  const [placement, setPlacement] = useState(() => placeBeside(target.element, keepClear));
   const windowRef = useRef<HTMLDivElement>(null);
   // Where a press outside the window began, until it ends.
   const pressRef = useRef<{ x: number; y: number } | null>(null);
@@ -217,7 +236,7 @@ export default function WordLookupWindow({
         return;
       }
       const height = windowRef.current?.scrollHeight ?? 0;
-      setPlacement((previous) => placeBeside(word, previous, height));
+      setPlacement((previous) => placeBeside(word, keepClear, previous, height));
     };
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("pointerup", handlePointerUp);
@@ -233,7 +252,7 @@ export default function WordLookupWindow({
       window.removeEventListener("scroll", follow, true);
       window.removeEventListener("resize", follow);
     };
-  }, [onClose, target.element]);
+  }, [onClose, target.element, keepClear]);
 
   // A word still being said stops with the window — but only the window's
   // own: in Voice Chat a reply may be being read out (B2), and closing a
@@ -356,18 +375,8 @@ export default function WordLookupWindow({
   const width = Math.min(288, window.innerWidth - 16);
   const left = Math.max(8, Math.min(placement.left, window.innerWidth - width - 8));
   const position = placement.above
-    ? {
-        left,
-        width,
-        bottom: window.innerHeight - placement.top + 6,
-        maxHeight: placement.top - EDGE,
-      }
-    : {
-        left,
-        width,
-        top: placement.bottom + 6,
-        maxHeight: window.innerHeight - placement.bottom - EDGE,
-      };
+    ? { left, width, bottom: window.innerHeight - placement.top + GAP, maxHeight: placement.room }
+    : { left, width, top: placement.bottom + GAP, maxHeight: placement.room };
 
   const smallButton =
     "w-full rounded-md px-2 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed";

@@ -1,5 +1,5 @@
 import { WORD_LOOKUP_MAX_CONTEXT_LENGTH } from "./limits";
-import type { TextToken } from "./clickable-words";
+import { tokenizeWords, type TextToken } from "./clickable-words";
 
 // The pieces of the shared word-lookup window (components/shared/word-
 // lookup-window.tsx) that aren't the screen: what is sent as context, the
@@ -48,6 +48,27 @@ export function sentenceAroundToken(
         if (windowTo < to) sentence = sentence.replace(/\s\S*$/, "");
     }
     return sentence.trim();
+}
+
+// The same, for a word known by where it starts in the text rather than by
+// its place among the words: in a note's preview a paragraph's words come
+// in several pieces (bold, a link, a line of its own), so the paragraph's
+// text and the word's offset in it are what there is to go on (B3).
+export function sentenceAtOffset(
+    text: string,
+    offset: number,
+    maxLength = WORD_LOOKUP_MAX_CONTEXT_LENGTH,
+): string {
+    const tokens = tokenizeWords(text);
+    let start = 0;
+    for (let index = 0; index < tokens.length; index++) {
+        const end = start + tokens[index].text.length;
+        if (tokens[index].isWord && offset >= start && offset < end) {
+            return sentenceAroundToken(tokens, index, maxLength);
+        }
+        start = end;
+    }
+    return text.trim().slice(0, maxLength);
 }
 
 // The languages asked for, as the request should see them: trimmed, none

@@ -4,6 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeTappableWords from "@/lib/rehype-tappable-words";
+import { sentenceAtOffset } from "@/lib/word-lookup";
+import WordLookupWindow, {
+  type LookupTarget,
+} from "@/components/shared/word-lookup-window";
+import { TAPPABLE_WORD_CLASS, tappedWord } from "@/components/shared/tappable-words";
 import {
   createNote,
   deleteNote,
@@ -128,6 +134,8 @@ const ROOT_DROP_TARGET = "__root__";
 type Props = {
   page: NotePage;
   data: DashboardData;
+  // What a word looked up in a note's preview is translated into.
+  defaultTranslateLanguage: string;
 };
 
 // Styles the note content's Markdown preview to match the app's dark theme,
@@ -216,6 +224,66 @@ const markdownComponents: Components = {
   del: (props) => <del className="text-zinc-500" {...props} />,
 };
 
+// The block a word's sentence is looked for in.
+const TEXT_BLOCKS = "p, li, td, th, h1, h2, h3, h4, h5, h6, blockquote";
+
+// A note's preview, with its words opening the shared lookup window
+// (Question 55, B3) — the words of ordinary text, not of code or links (see
+// lib/rehype-tappable-words.ts). The word's language is left for the lookup
+// to recognise, since one note often holds several.
+//
+// A component of its own so the open word lives and dies with the preview:
+// back to Write, or the note closed, and the window goes with it. Drawn
+// inside the preview box, so it stays visible when the box is fullscreen.
+function NotePreviewText({
+  content,
+  defaultTranslateLanguage,
+}: {
+  content: string;
+  defaultTranslateLanguage: string;
+}) {
+  const [lookup, setLookup] = useState<{ key: number; target: LookupTarget } | null>(
+    null,
+  );
+
+  function handleClick(event: React.MouseEvent<HTMLDivElement>) {
+    const word = tappedWord(event);
+    if (!word) return;
+    // A paragraph's words come in pieces — bold, a link, a line break — so
+    // the sentence is found from where the word starts in its block's text.
+    const block = word.closest<HTMLElement>(TEXT_BLOCKS) ?? event.currentTarget;
+    const before = document.createRange();
+    before.selectNodeContents(block);
+    before.setEndBefore(word);
+    const context = sentenceAtOffset(block.textContent ?? "", before.toString().length);
+    setLookup((open) => ({
+      key: (open?.key ?? 0) + 1,
+      target: { word: word.textContent ?? "", context, element: word },
+    }));
+  }
+
+  return (
+    <div onClick={handleClick}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[[rehypeTappableWords, { className: TAPPABLE_WORD_CLASS }]]}
+        components={markdownComponents}
+      >
+        {content}
+      </ReactMarkdown>
+      {lookup && (
+        <WordLookupWindow
+          key={lookup.key}
+          target={lookup.target}
+          translateInto={[defaultTranslateLanguage]}
+          explainInLanguage={defaultTranslateLanguage}
+          onClose={() => setLookup(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 function formatNoteDate(date: string | Date) {
   const parsed = new Date(date);
   const day = String(parsed.getDate()).padStart(2, "0");
@@ -241,7 +309,7 @@ function compareNotes(a: DashboardNote, b: DashboardNote, sortBy: SortBy) {
   return a.title.localeCompare(b.title);
 }
 
-export default function NoteDashboard({ page, data }: Props) {
+export default function NoteDashboard({ page, data, defaultTranslateLanguage }: Props) {
   const router = useRouter();
   const [isBusy, setIsBusy] = useState(false);
   const [noteEditorModal, setNoteEditorModal] = useState<NoteEditorModal>({
@@ -901,12 +969,10 @@ export default function NoteDashboard({ page, data }: Props) {
                 </button>
               )}
               {noteEditorModal.content.trim() ? (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={markdownComponents}
-                >
-                  {noteEditorModal.content}
-                </ReactMarkdown>
+                <NotePreviewText
+                  content={noteEditorModal.content}
+                  defaultTranslateLanguage={defaultTranslateLanguage}
+                />
               ) : (
                 <p className="text-sm text-zinc-600">Nothing to preview yet.</p>
               )}

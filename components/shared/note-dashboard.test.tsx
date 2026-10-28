@@ -25,6 +25,13 @@ vi.mock("@/app/actions/note-folder-actions", () => ({
   moveNoteToFolder: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("@/app/actions/word-lookup-actions", () => ({
+  translateWordInContext: vi.fn(),
+  lookupWord: vi.fn(),
+}));
+vi.mock("@/app/actions/vocabulary-entry-actions", () => ({
+  addVocabularyEntries: vi.fn(),
+}));
 import NoteDashboard from "./note-dashboard";
 
 // Fullscreen lives in this one shared component, so every notes page gets it
@@ -76,7 +83,7 @@ const fullscreenButton = () => screen.getByTitle(/^Fullscreen/);
 
 describe("the note editor's fullscreen button", () => {
   it.each(PAGES)("is on the %s notes page in both modes", async (page) => {
-    render(<NoteDashboard page={page} data={data} />);
+    render(<NoteDashboard page={page} data={data} defaultTranslateLanguage="" />);
     await openTheNote();
 
     // Present while writing, which is the half Question 441 was missing.
@@ -87,7 +94,7 @@ describe("the note editor's fullscreen button", () => {
   });
 
   it("asks the browser for fullscreen when clicked in Preview", async () => {
-    render(<NoteDashboard page="listening" data={data} />);
+    render(<NoteDashboard page="listening" data={data} defaultTranslateLanguage="" />);
     await openTheNote();
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
     fireEvent.click(fullscreenButton());
@@ -96,7 +103,7 @@ describe("the note editor's fullscreen button", () => {
   });
 
   it("switches to Preview first when clicked while writing", async () => {
-    render(<NoteDashboard page="listening" data={data} />);
+    render(<NoteDashboard page="listening" data={data} defaultTranslateLanguage="" />);
     await openTheNote();
 
     // The markdown heading is only rendered by the preview, so finding it
@@ -114,7 +121,7 @@ describe("the note editor's fullscreen button", () => {
   });
 
   it("does not ask for fullscreen on its own when Preview is opened normally", async () => {
-    render(<NoteDashboard page="reading" data={data} />);
+    render(<NoteDashboard page="reading" data={data} defaultTranslateLanguage="" />);
     await openTheNote();
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
 
