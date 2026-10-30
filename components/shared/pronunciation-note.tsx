@@ -8,8 +8,8 @@ import Link from "next/link";
 // its own words, what it checks; and both end the same way, here, pointing
 // to the one page that listens to the sound.
 //
-// A new tab, like the video link: both pages hold something unsaved — a
-// text being checked, a conversation — that a plain link would leave.
+// A new tab: both pages hold something unsaved — a text being checked, a
+// conversation — that a plain link would leave.
 export default function PronunciationNote({
   children,
   className = "",
