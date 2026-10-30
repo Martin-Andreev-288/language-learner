@@ -25,7 +25,9 @@ beforeEach(() => {
 
 async function openGuide() {
   fireEvent.click(screen.getByRole("button", { name: /Guide/ }));
-  return screen.findByRole("dialog", { name: "Shadowing Practice" });
+  // The window's code is loaded on the first open, which can take a moment
+  // when the whole suite is running at once.
+  return screen.findByRole("dialog", { name: "Shadowing Practice" }, { timeout: 5000 });
 }
 
 describe("GuideLink", () => {
@@ -52,6 +54,21 @@ describe("GuideLink", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByRole("button", { name: /Guide/ })).toHaveFocus();
+  });
+
+  it("lists all the guides, opens another, and goes back to this page's", async () => {
+    pathname = "/speaking/shadowing";
+    render(<GuideLink />);
+    await openGuide();
+    fireEvent.click(screen.getByRole("button", { name: "All guides" }));
+    const list = screen.getByRole("navigation", { name: "All guides" });
+    expect(list).toHaveTextContent("Getting Started");
+    expect(list).toHaveTextContent("this page");
+
+    fireEvent.click(screen.getByRole("button", { name: "Word List" }));
+    expect(screen.getByRole("heading", { name: "Word List" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "← Back to Shadowing Practice" }));
+    expect(screen.getByRole("heading", { name: "Shadowing Practice" })).toBeInTheDocument();
   });
 
   it("closes on a press on the dimmed page around it, not on one inside it", async () => {

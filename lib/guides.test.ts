@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { GUIDE_PAGES, guideTitle } from "./guides";
+import { GUIDE_PAGES, guideGroups, guideTitle } from "./guides";
 import { GUIDE_TEXTS } from "./guide-texts";
 import { FEATURE_SECTIONS, STANDALONE_FEATURES } from "./feature-sections";
 import { SHUFFLE_SIDES } from "./shuffle-sides";
@@ -14,42 +14,19 @@ import { SHUFFLE_SIDES } from "./shuffle-sides";
 // is never deployed, so there is no page for a guide to sit on.
 const NO_GUIDE = ["/reading/word-translate"];
 
-// Written in the next iteration (C2). Until then these pages show no pill.
-// Each comes off this list as its guide is written, and the list goes with
-// the last one.
-const NOT_WRITTEN_YET = [
-    "/reading/inline-translate",
-    "/writing/chat",
-    "/vocabulary/word-list",
-    "/vocabulary/shuffle",
-    "/listening/parallel-listen",
-    "/listening/inline-listen",
-    "/speaking/voice-chat",
-    "/notes",
-    "/reading/notes",
-    "/writing/notes",
-    "/vocabulary/notes",
-    "/listening/notes",
-    "/speaking/notes",
-];
-
 const pageHrefs = [
     ...FEATURE_SECTIONS.flatMap((section) => section.tools.map((tool) => tool.href)),
     ...STANDALONE_FEATURES.map((feature) => feature.href),
 ];
 
 describe("GUIDE_PAGES", () => {
-    it("names a guide for every tool page that isn't exempted or still to write", () => {
-        const missing = pageHrefs.filter(
-            (href) =>
-                !NO_GUIDE.includes(href) && !NOT_WRITTEN_YET.includes(href) && !(href in GUIDE_PAGES),
-        );
+    it("names a guide for every tool page that isn't exempted", () => {
+        const missing = pageHrefs.filter((href) => !NO_GUIDE.includes(href) && !(href in GUIDE_PAGES));
         expect(missing).toEqual([]);
     });
 
-    it("keeps the still-to-write list honest: real tool pages, none with a guide already", () => {
-        expect(NOT_WRITTEN_YET.filter((href) => !pageHrefs.includes(href))).toEqual([]);
-        expect(NOT_WRITTEN_YET.filter((href) => href in GUIDE_PAGES)).toEqual([]);
+    it("has one for the home page too", () => {
+        expect(guideTitle("/")).toBe("Getting Started");
     });
 
     it("only lists real pages, so a mistyped address can't hide", () => {
@@ -80,6 +57,33 @@ describe("GUIDE_TEXTS", () => {
         expect(guide.tips.length).toBeGreaterThanOrEqual(2);
         expect(guide.tips.length).toBeLessThanOrEqual(4);
         expect([...guide.steps, ...guide.tips].filter((line) => !line.trim())).toEqual([]);
+    });
+});
+
+describe("guideGroups", () => {
+    const groups = guideGroups();
+
+    it("lists every guide exactly once", () => {
+        const listed = groups.flatMap((group) => group.titles);
+        expect([...listed].sort()).toEqual(Object.keys(GUIDE_TEXTS).sort());
+    });
+
+    it("follows the header menu, starting with Getting Started", () => {
+        expect(groups.map((group) => group.label)).toEqual([
+            "Start here",
+            ...FEATURE_SECTIONS.map((section) => section.label),
+            ...STANDALONE_FEATURES.map((feature) => feature.label),
+        ]);
+        expect(groups[0].titles).toEqual(["Getting Started"]);
+    });
+
+    it("lists Notes once, under its own page, not under every section", () => {
+        const withNotes = groups.filter((group) => group.titles.includes("Notes"));
+        expect(withNotes.map((group) => group.label)).toEqual(["Notes"]);
+        expect(groups.find((group) => group.label === "Reading")?.titles).toEqual([
+            "Parallel Translate",
+            "Inline Translate",
+        ]);
     });
 });
 
