@@ -69,6 +69,8 @@ type Props = {
   type: ShuffleType;
   dashboardPath: string;
   listTitle: string;
+  // Already shuffled, on the server: the first round shows them in this
+  // order (see the queue below).
   cards: ReviewCard[];
   initialFilter?: ShuffleFilter;
   // The lists that "Mark as reviewed" records: the one list, or every list
@@ -81,7 +83,10 @@ type Props = {
   defaultTranslateLanguage: string;
 };
 
-function getFilteredQueue(
+// The cards a filter keeps, in the order given. Shuffled by the caller: the
+// first round's order comes from the page, and only a later round — another
+// filter, a restart — is shuffled here.
+function filterCards(
   cards: ReviewCard[],
   filter: ShuffleFilter,
   listId: string | "all",
@@ -97,7 +102,7 @@ function getFilteredQueue(
           ? scopedCards.filter((card) => card.memorized)
           : scopedCards.filter((card) => !card.memorized);
 
-  return shuffle(filtered);
+  return filtered;
 }
 
 export default function VocabularyShuffleSession({
@@ -113,8 +118,14 @@ export default function VocabularyShuffleSession({
   const router = useRouter();
   const [allCards, setAllCards] = useState<ReviewCard[]>(initialCards);
   const [filter, setFilter] = useState<ShuffleFilter>(initialFilter);
+  // The first round in the order the page gave, not shuffled here. This
+  // first draw happens twice — on the server, then in the browser taking
+  // the page over — and a shuffle in each put a different card first, so
+  // React found two different pages and drew this one again (the
+  // "hydration mismatch" of Answer 65). The page shuffles once, on the
+  // server, and both draws show its order.
   const [queue, setQueue] = useState<ReviewCard[]>(() =>
-    getFilteredQueue(initialCards, initialFilter, listId),
+    filterCards(initialCards, initialFilter, listId),
   );
   const [index, setIndex] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -262,7 +273,7 @@ export default function VocabularyShuffleSession({
     if (nextFilter === filter) return;
 
     setFilter(nextFilter);
-    setQueue(getFilteredQueue(allCards, nextFilter, listId));
+    setQueue(shuffle(filterCards(allCards, nextFilter, listId)));
     setIndex(0);
     setEditing(false);
     setConfirmDelete(false);
@@ -270,7 +281,7 @@ export default function VocabularyShuffleSession({
   }
 
   function handleRestart() {
-    setQueue(getFilteredQueue(allCards, filter, listId));
+    setQueue(shuffle(filterCards(allCards, filter, listId)));
     setIndex(0);
     setEditing(false);
     setConfirmDelete(false);

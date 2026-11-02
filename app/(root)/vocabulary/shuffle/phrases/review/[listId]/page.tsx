@@ -9,6 +9,7 @@ import {
 import { ShuffleListType } from "@/app/generated/prisma";
 import VocabularyShuffleSession from "@/components/shared/vocabulary-shuffle-session";
 import { SHUFFLE_SIDES } from "@/lib/shuffle-sides";
+import { shuffle } from "@/lib/shuffle";
 
 // The same entry the menu and the Flashcards page read, rather than a second
 // copy of the name here that would have to be remembered at every rename.
@@ -86,7 +87,9 @@ export default async function PhraseShuffleReviewPage({
         selectedListIds ? reviewData.listIds : listId === "all" ? [] : [listId]
       }
       defaultTranslateLanguage={defaultTranslateLanguage}
-      cards={reviewData.cards.map((card) => ({
+      // Shuffled here, once, on the server, so the server's page and the
+      // browser's show the same first card (see the session's queue).
+      cards={shuffle(reviewData.cards).map((card) => ({
         id: card.id,
         listId: card.listId,
         text: card.text,

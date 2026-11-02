@@ -23,6 +23,9 @@ vi.mock("@/app/actions/vocabulary-entry-actions", () => ({
   addVocabularyEntries: vi.fn(),
 }));
 
+import { act } from "react";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
 import VocabularyShuffleSession from "./vocabulary-shuffle-session";
 import { updateShuffleCardText } from "@/app/actions/shuffle-actions";
 
@@ -157,5 +160,51 @@ describe("editing a card — on a touch screen", () => {
     expect(updateShuffleCardText).not.toHaveBeenCalled();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByText("brütend — задушен")).toBeInTheDocument();
+  });
+});
+
+// A full page load of a review: the server draws the session, then the
+// browser takes that page over. Both used to shuffle the cards themselves,
+// so they usually put a different card first, and React reported a
+// "hydration mismatch" and drew the page again (Answer 65). The page now
+// shuffles once, on the server, and the session shows that order.
+describe("a full page load of a review", () => {
+  const cards = ["eins", "zwei", "drei", "vier"].map((text, index) => ({
+    ...card,
+    id: `card-${index}`,
+    text,
+  }));
+  const session = (
+    <VocabularyShuffleSession
+      listId="list-1"
+      reviewListIds={["list-1"]}
+      type="word"
+      dashboardPath="/vocabulary/shuffle"
+      listTitle="Test list"
+      cards={cards}
+      defaultTranslateLanguage=""
+    />
+  );
+
+  it("shows the cards in the order the page gave, so the two draws agree", async () => {
+    // A different "random" on each side, as there would be on two machines.
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(session);
+    document.body.appendChild(container);
+    expect(container.textContent).toContain("eins");
+
+    random.mockReturnValue(0.99);
+    const mismatches: unknown[] = [];
+    await act(async () => {
+      hydrateRoot(container, session, { onRecoverableError: (error) => mismatches.push(error) });
+    });
+
+    // With a shuffle in each draw, these two "randoms" put "zwei" first on
+    // the server and "eins" in the browser.
+    expect(mismatches).toEqual([]);
+    expect(container.textContent).toContain("eins");
+    random.mockRestore();
+    container.remove();
   });
 });
