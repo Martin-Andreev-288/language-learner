@@ -141,7 +141,7 @@ function LanguageChatScreen({
     null,
   );
   const [input, setInput] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [feedback, setFeedback] = useState<Map<string, FeedbackState>>(
     () => initial?.feedback ?? new Map(),
@@ -167,9 +167,10 @@ function LanguageChatScreen({
   const [noteError, setNoteError] = useState<string | null>(null);
   // The word open in the shared lookup window (Question 55, B2). `key` is
   // new for every opening, so each word gets a window of its own.
-  const [lookup, setLookup] = useState<{ key: number; target: LookupTarget } | null>(
-    null,
-  );
+  const [lookup, setLookup] = useState<{
+    key: number;
+    target: LookupTarget;
+  } | null>(null);
   // Auto-send's timer fires up to a couple of seconds after it was set,
   // by which point the render that set it is long gone — so it calls
   // through this rather than capturing a stale message.
@@ -191,19 +192,28 @@ function LanguageChatScreen({
   const streamingId =
     status === "streaming" ? messages[messages.length - 1]?.id : undefined;
 
-  // Keep the newest message in view as it streams in.
+  // Keep the newest message in view as it streams in. The list only, not the
+  // page: scrollIntoView moves every scroller around its target, and on a
+  // phone, where the page is taller than the screen, that carried the chat
+  // off the top of it (directions2.md, Question 82). The list's scroll-smooth
+  // is what animates this.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const list = messageListRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
   }, [messages]);
 
   // Put the cursor back in the input once a reply finishes, so a
   // back-and-forth conversation never needs a click between turns.
+  //
+  // Not on a phone before anything has been said: focusing scrolls the page
+  // down to the input, past the Language field you need first
+  // (directions2.md, Question 82).
+  const started = messages.length > 0;
   useEffect(() => {
-    if (!busy) {
-      const timer = setTimeout(() => inputRef.current?.focus(), 50);
-      return () => clearTimeout(timer);
-    }
-  }, [busy]);
+    if (busy || (!started && isTouchScreen())) return;
+    const timer = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
+  }, [busy, started]);
 
   // Keeps the conversation recoverable across a navigation (Question 274).
   // A genuine "sync React state out to an external system" effect, the same
@@ -636,7 +646,12 @@ function LanguageChatScreen({
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto flex h-screen max-w-3xl flex-col px-6 py-10">
+      {/* At least the height of the screen rather than exactly it. The heading
+          and the controls under the chat can't shrink, and on a phone they
+          are taller than the screen, so a fixed height left the chat nothing
+          and pushed the input out of its box (directions2.md, Question 82).
+          Where there is room, nothing changes: the chat takes what is left. */}
+      <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-6 py-10">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
@@ -723,10 +738,16 @@ function LanguageChatScreen({
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-zinc-800 bg-zinc-900">
-          <div className="flex-1 space-y-4 overflow-y-auto p-6">
+        <div className="flex flex-1 flex-col rounded-lg border border-zinc-800 bg-zinc-900">
+          {/* basis-0 is what keeps a long conversation scrolling in here:
+              without it the list would count its messages towards its own
+              height and the page would grow with every one. */}
+          <div
+            ref={messageListRef}
+            className="flex min-h-[55svh] grow basis-0 scroll-smooth flex-col space-y-4 overflow-y-auto p-6"
+          >
             {messages.length === 0 ? (
-              <div className="flex h-full items-center justify-center">
+              <div className="flex flex-1 items-center justify-center">
                 <p className="max-w-sm text-center text-sm text-zinc-600">
                   Pick a language and say something to get started — anything at
                   all. It replies in that language and keeps the conversation
@@ -856,7 +877,8 @@ function LanguageChatScreen({
                                       key={index}
                                       id={`chat-correction-${message.id}-${index}`}
                                       className={`-mx-2 rounded-md px-2 py-1 transition-colors ${
-                                        flashedCorrection === `${message.id}:${index}`
+                                        flashedCorrection ===
+                                        `${message.id}:${index}`
                                           ? "bg-indigo-950/60 ring-1 ring-indigo-500"
                                           : ""
                                       }`}
@@ -933,30 +955,36 @@ function LanguageChatScreen({
                             </button>
                           )}
                           {translateInto.trim() !== "" && (
-                          <button
-                            onClick={() =>
-                              handleTranslate(message.id, messageText(message))
-                            }
-                            /* Disabled while a reply streams: the newest
+                            <button
+                              onClick={() =>
+                                handleTranslate(
+                                  message.id,
+                                  messageText(message),
+                                )
+                              }
+                              /* Disabled while a reply streams: the newest
                                message is still half-written, and translating
                                a fragment would spend a request on text
                                that's about to change. */
-                            disabled={busy || translation?.status === "loading"}
-                            title={
-                              translation?.status === "done" && translationOpen
-                                ? "Hide the translation"
-                                : `Translate this reply into ${translateInto.trim()}`
-                            }
-                            className="rounded px-1.5 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:text-zinc-700 disabled:hover:text-zinc-700"
-                          >
-                            {translation?.status === "loading"
-                              ? "Translating…"
-                              : translation?.status === "error"
-                                ? "Try again"
-                                : translationOpen
-                                  ? "Hide translation"
-                                  : "Translate"}
-                          </button>
+                              disabled={
+                                busy || translation?.status === "loading"
+                              }
+                              title={
+                                translation?.status === "done" &&
+                                translationOpen
+                                  ? "Hide the translation"
+                                  : `Translate this reply into ${translateInto.trim()}`
+                              }
+                              className="rounded px-1.5 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:text-zinc-700 disabled:hover:text-zinc-700"
+                            >
+                              {translation?.status === "loading"
+                                ? "Translating…"
+                                : translation?.status === "error"
+                                  ? "Try again"
+                                  : translationOpen
+                                    ? "Hide translation"
+                                    : "Translate"}
+                            </button>
                           )}
                         </div>
                       )}
@@ -1003,8 +1031,6 @@ function LanguageChatScreen({
                 </div>
               </div>
             )}
-
-            <div ref={messagesEndRef} />
           </div>
 
           {error && (
@@ -1025,7 +1051,9 @@ function LanguageChatScreen({
           {config.voice && listening && (
             <p className="flex items-start gap-2 border-t border-zinc-800 px-6 py-2 text-sm text-zinc-500">
               <span className="mt-1.5 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-red-500" />
-              <span className="italic">{interimTranscript || "Listening…"}</span>
+              <span className="italic">
+                {interimTranscript || "Listening…"}
+              </span>
             </p>
           )}
           {/* Two different weights on purpose: an error is something to fix
@@ -1043,13 +1071,17 @@ function LanguageChatScreen({
           )}
           {config.voice && !dictationSupported && (
             <p className="border-t border-zinc-800 px-6 py-2 text-sm text-amber-400">
-              Dictation isn&apos;t available in this browser — try Chrome,
-              Edge, or Safari. Typing here still works.
+              Dictation isn&apos;t available in this browser — try Chrome, Edge,
+              or Safari. Typing here still works.
             </p>
           )}
 
+          {/* Under the input on a phone, this and the note below it. Between
+              the chat and the input they are a screenful of settings, and
+              with the keyboard open they were all you could see while
+              typing (directions2.md, Question 82). */}
           {config.voice && (
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-zinc-800 px-6 py-2 text-sm text-zinc-400">
+            <div className="order-last flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-zinc-800 px-6 py-2 text-sm text-zinc-400 sm:order-0">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
@@ -1113,16 +1145,17 @@ function LanguageChatScreen({
             </div>
           )}
           {config.voice && (
-            <PronunciationNote className="border-t border-zinc-800 px-6 py-2">
-              Your messages are checked from the words the browser writes
-              down, so this practises what you say, not how you pronounce
-              it.
+            <PronunciationNote className="order-last border-t border-zinc-800 px-6 py-2 sm:order-0">
+              Your messages are checked from the words the browser writes down,
+              so this practises what you say, not how you pronounce it.
             </PronunciationNote>
           )}
 
           <form
             onSubmit={handleSubmit}
-            className="flex items-end gap-2 border-t border-zinc-800 p-4"
+            className={`flex items-end gap-2 border-t border-zinc-800 p-4 ${
+              config.voice ? "flex-wrap justify-end sm:flex-nowrap" : ""
+            }`}
           >
             {/* A textarea rather than a single-line input, so a longer
                 message grows the box instead of scrolling sideways out of
@@ -1130,7 +1163,10 @@ function LanguageChatScreen({
                 chat; Shift+Enter is there for anyone who wants a line
                 break — except on a touch screen, which has no Shift+Enter
                 to reach for, so there Enter breaks the line instead and
-                sending is left to the button beside it (Question 435). */}
+                sending is left to the button beside it (Question 435).
+
+                A line of its own on a phone in the voice chat: beside two
+                buttons it had 100px left, a dozen letters to a line. */}
             <textarea
               ref={inputRef}
               rows={1}
@@ -1151,7 +1187,9 @@ function LanguageChatScreen({
                   ? "Say something, or type it…"
                   : "Type your message…"
               }
-              className="min-w-0 flex-1 resize-none overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm leading-relaxed text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500"
+              className={`${
+                config.voice ? "min-w-full sm:min-w-0" : "min-w-0"
+              } flex-1 resize-none overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm leading-relaxed text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500`}
             />
             {/* Disabled rather than hidden when unavailable (Answer 278): a
                 missing button reads as a missing feature, while a disabled

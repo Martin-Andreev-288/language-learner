@@ -1,15 +1,16 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 
 // Same shape as Question 434's test: the parts that reach the AI SDK, the
 // server, or the Web Speech API are stubbed, so what's left renders the
 // real component and exercises its real key handling.
 const sendMessage = vi.fn();
+const chat = vi.hoisted(() => ({ messages: [] as unknown[] }));
 vi.mock("@ai-sdk/react", () => ({
   useChat: () => ({
-    messages: [],
+    messages: chat.messages,
     sendMessage,
     status: "ready",
     error: null,
@@ -77,6 +78,7 @@ function typeAndPressEnter(shiftKey = false) {
 
 beforeEach(() => {
   sendMessage.mockClear();
+  chat.messages = [];
 });
 
 describe("the chat input — with a keyboard", () => {
@@ -112,6 +114,54 @@ describe("the chat input — on a touch screen", () => {
     fireEvent.change(box, { target: { value: "hallo" } });
     fireEvent.click(screen.getByRole("button", { name: /send/i }));
     expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+// On a phone the page is taller than the screen, so anything that scrolls it
+// decides what you see (directions2.md, Question 82). Focusing the input takes
+// you down to it, which is right in a conversation and wrong before one, when
+// the Language field above is what you need. And a new message moves the list
+// it arrives in, never the page around it.
+describe("where the page sits when the chat opens", () => {
+  const said = { id: "m1", role: "user", parts: [{ type: "text", text: "Ciao" }] };
+
+  function openChat() {
+    render(<LanguageChat mode="speaking" defaultTranslateLanguage="" />);
+    act(() => {
+      vi.advanceTimersByTime(60);
+    });
+    return screen.getByRole("textbox", { name: "" });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("leaves a phone where it is before anything has been said", () => {
+    setPointer("coarse");
+    expect(openChat()).not.toHaveFocus();
+  });
+
+  it("goes to the input on a phone with a conversation to carry on", () => {
+    setPointer("coarse");
+    chat.messages = [said];
+    expect(openChat()).toHaveFocus();
+  });
+
+  it("goes to the input with a keyboard, conversation or not", () => {
+    setPointer("fine");
+    expect(openChat()).toHaveFocus();
+  });
+
+  it("does not move the page when a message arrives", () => {
+    setPointer("coarse");
+    chat.messages = [said];
+    openChat();
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 });
 

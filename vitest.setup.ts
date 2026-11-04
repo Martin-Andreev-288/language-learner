@@ -22,3 +22,13 @@ afterEach(() => {
 if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
 }
+
+// Nor this. The chat asks whether it is on a touch screen as it opens, so
+// without a stub it throws on render. No match is a desktop browser's answer;
+// a test that wants a phone says so (setPointer in language-chat.test.tsx).
+if (typeof window !== "undefined" && !window.matchMedia) {
+    window.matchMedia = ((query: string) => ({
+        matches: false,
+        media: query,
+    })) as unknown as typeof window.matchMedia;
+}
