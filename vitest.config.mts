@@ -31,6 +31,12 @@ export default defineConfig({
         // Runs before every suite — see vitest.setup.ts.
         setupFiles: ["./vitest.setup.ts"],
 
+        // Now and then a run is far slower, for reasons outside the code: tests
+        // took up to ten times longer, which put one past the default 5 s and
+        // another at 4.6 s. The limit is only there to stop a test that hangs,
+        // so it can be generous.
+        testTimeout: 20_000,
+
         // `globals` is deliberately left off (its default is false), so each
         // test file imports describe/it/expect from "vitest" explicitly.
         //

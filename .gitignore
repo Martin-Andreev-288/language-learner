@@ -41,5 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 .agents
-.github
+.github/*
+!.github/workflows/
 /app/generated/prisma

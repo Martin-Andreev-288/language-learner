@@ -27,7 +27,7 @@ async function openGuide() {
   fireEvent.click(screen.getByRole("button", { name: /Guide/ }));
   // The window's code is loaded on the first open, which can take a moment
   // when the whole suite is running at once.
-  return screen.findByRole("dialog", { name: "Shadowing Practice" }, { timeout: 5000 });
+  return screen.findByRole("dialog", { name: "Shadowing Practice" }, { timeout: 15000 });
 }
 
 describe("GuideLink", () => {

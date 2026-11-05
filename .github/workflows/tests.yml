@@ -1,0 +1,21 @@
+# Runs the tests on every push, so each commit on GitHub shows whether they
+# passed. No secrets are needed: the tests touch neither the database nor the AI.
+name: Tests
+
+on: push
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
