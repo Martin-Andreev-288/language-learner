@@ -322,3 +322,20 @@ export async function deleteVocabularyEntry(id: string) {
 
     return prisma.vocabularyEntry.delete({ where: { id } });
 }
+
+// Every ticked word at once, from the Word List's selection bar. The same
+// ownership rule as the single delete above, carried by the query instead of a
+// lookup first: an id that isn't this user's simply matches nothing.
+//
+// Returns how many really went, which can be fewer than were asked for if one
+// was already deleted in another tab, so the page reports what happened rather
+// than what it requested.
+export async function deleteVocabularyEntries(ids: string[]) {
+    const userId = await requireUserId();
+
+    const { count } = await prisma.vocabularyEntry.deleteMany({
+        where: { id: { in: ids }, userId },
+    });
+
+    return { deleted: count };
+}

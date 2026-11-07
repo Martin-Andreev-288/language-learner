@@ -4,10 +4,12 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   addVocabularyEntries,
+  deleteVocabularyEntries,
   deleteVocabularyEntry,
   updateVocabularyEntry,
 } from "@/app/actions/vocabulary-entry-actions";
 import LanguageCombobox from "@/components/shared/language-combobox";
+import VocabularyDeleteModal from "@/components/shared/vocabulary-delete-modal";
 import VocabularyEnrichModal from "@/components/shared/vocabulary-enrich-modal";
 import VocabularyToShuffleModal, {
   type CardContent,
@@ -712,6 +714,10 @@ export default function VocabularyWordList({
   const filtersPanelRef = useRef<HTMLDivElement>(null);
   const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deletingSelected, setDeletingSelected] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteSummary, setDeleteSummary] = useState<string | null>(null);
   // Only one row editable at a time — same one-card-at-a-time principle
   // Vocab Shuffle's own edit uses, just applied to a list of rows instead
   // of a single card.
@@ -812,11 +818,40 @@ export default function VocabularyWordList({
     setDeletingId(id);
     try {
       await deleteVocabularyEntry(id);
+      // A ticked word that's gone mustn't stay counted in "N selected".
+      setSelectedIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       router.refresh();
     } catch {
       setAddError("Couldn't delete that entry — try again.");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleDeleteSelected() {
+    setDeletingSelected(true);
+    setDeleteError(null);
+    try {
+      const { deleted } = await deleteVocabularyEntries(
+        Array.from(selectedIds),
+      );
+      setDeleteModalOpen(false);
+      setSelectedIds(new Set());
+      setDeleteSummary(`Deleted ${deleted} word${deleted !== 1 ? "s" : ""}.`);
+      router.refresh();
+    } catch (err) {
+      // Said inside the window and with the ticks kept, so trying again is
+      // one press rather than selecting everything a second time.
+      setDeleteError(
+        describeClientError(err, "Couldn't delete those words — try again."),
+      );
+    } finally {
+      setDeletingSelected(false);
     }
   }
 
@@ -1615,6 +1650,15 @@ export default function VocabularyWordList({
     });
   });
 
+  // Ticks survive a filter, so the selection can hold words that aren't on
+  // screen. Deleting is the one action that can't be undone, so its window
+  // says how many.
+  const hiddenSelectedCount =
+    selectedIds.size -
+    (viewMode === "table" ? tableEntries : visibleEntries).filter((entry) =>
+      selectedIds.has(entry.id),
+    ).length;
+
   // Options come from `visibleEntries` — what the shared filters allow —
   // not from `tableEntries`, so checking a value doesn't make the other
   // options in that same menu disappear underneath you.
@@ -2040,8 +2084,19 @@ export default function VocabularyWordList({
               Stuck just under the navbar rather than at 0: the navbar is
               sticky too (Question 14 in video directions.md) and sits above
               this in the stacking order, so at 0 this bar would slide
-              underneath it and the search box would disappear. */}
-          <div className="sticky top-(--nav-height) z-20 mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 bg-zinc-900 pb-4">
+              underneath it and the search box would disappear.
+
+              At 0 in fullscreen, though (Question 92). There is no navbar
+              there to stay under, and the offset pushed this bar down onto
+              whatever follows it: the selection bar when words were ticked,
+              Columns and Exit fullscreen when none were. Kept sticky rather
+              than made static, because the Filters panel is placed against
+              it and needs it to stay positioned. */}
+          <div
+            className={`sticky z-20 mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 bg-zinc-900 pb-4 ${
+              tableFullscreen ? "top-0" : "top-(--nav-height)"
+            }`}
+          >
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-lg font-semibold text-zinc-100">
                 {entries.length} word{entries.length !== 1 ? "s" : ""}
@@ -2284,6 +2339,16 @@ export default function VocabularyWordList({
                 </button>
                 <button
                   onClick={() => {
+                    setDeleteError(null);
+                    setDeleteSummary(null);
+                    setDeleteModalOpen(true);
+                  }}
+                  className="rounded-md px-3 py-1 text-sm font-medium text-red-400 transition-colors hover:text-red-300"
+                >
+                  Delete…
+                </button>
+                <button
+                  onClick={() => {
                     setShuffleError(null);
                     setShuffleSummary(null);
                     setShuffleModalOpen(true);
@@ -2317,6 +2382,9 @@ export default function VocabularyWordList({
           )}
           {shuffleSummary && (
             <p className="mb-4 text-sm text-emerald-400">{shuffleSummary}</p>
+          )}
+          {deleteSummary && (
+            <p className="mb-4 text-sm text-emerald-400">{deleteSummary}</p>
           )}
           {shuffleError && !shuffleModalOpen && (
             <p className="mb-4 text-sm text-red-400">{shuffleError}</p>
@@ -3259,138 +3327,155 @@ export default function VocabularyWordList({
               )}
             </div>
           )}
-        </div>
-      </div>
 
-      {openFilter && filterAnchor && (
-        <div
-          ref={filterPanelRef}
-          style={{ left: filterAnchor.left, top: filterAnchor.top }}
-          className="fixed z-50 max-h-72 w-56 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 py-1 shadow-2xl"
-        >
-          <div className="flex items-center justify-between gap-2 px-3 py-1">
-            <span className="text-xs font-semibold text-zinc-500">
+          {/* Everything that floats above the page lives inside this card, not
+              beside it (Question 92). In fullscreen the browser shows this
+              element and nothing else, so a panel or window opened from
+              outside it exists but can't be seen, and the button that opened
+              it looks dead. `fixed` still measures from the screen in here:
+              nothing on this card creates a new containing block. */}
+          {openFilter && filterAnchor && (
+            <div
+              ref={filterPanelRef}
+              style={{ left: filterAnchor.left, top: filterAnchor.top }}
+              className="fixed z-50 max-h-72 w-56 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 py-1 shadow-2xl"
+            >
+              <div className="flex items-center justify-between gap-2 px-3 py-1">
+                <span className="text-xs font-semibold text-zinc-500">
+                  {openFilter === "language"
+                    ? "Language"
+                    : (FILTER_BY_FIELD.get(openFilter)?.label ?? openFilter)}
+                </span>
+                {/* Same Clear affordance either way, just pointed at whichever
+                    state this panel currently belongs to. */}
+                {(openFilter === "language"
+                  ? languageFilters.size > 0
+                  : columnFilters[openFilter].size > 0) && (
+                  <button
+                    onClick={() =>
+                      openFilter === "language"
+                        ? setLanguageFilters(new Set())
+                        : clearColumnFilter(openFilter)
+                    }
+                    className="text-xs text-zinc-500 transition-colors hover:text-red-400"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {/* The switch that decides what every tick below it means. Placed
+                  above them and worded as a sentence the ticks finish — "Has
+                  …" / "Missing …" — because a mode control sitting silently
+                  beside a list of checkboxes is the kind of thing you discover
+                  by accident three weeks later (Question 327). */}
+              {openFilter === "translations" && (
+                <div className="mx-3 mb-1 mt-1 flex overflow-hidden rounded-md border border-zinc-700">
+                  {(["has", "missing"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setTranslationsMode(mode)}
+                      className={`flex-1 px-2 py-1 text-xs font-medium capitalize transition-colors ${
+                        translationsMode === mode
+                          ? "bg-indigo-600 text-white"
+                          : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {openColumn?.kind === "languages" &&
+                columnOptions(openColumn).length === 0 && (
+                  <p className="px-3 py-2 text-xs text-zinc-600">
+                    {activeShownLanguages.length > 0
+                      ? "None in the languages you're showing — widen Showing to see the rest."
+                      : "No translations saved yet — add some from “Add information”."}
+                  </p>
+                )}
+
               {openFilter === "language"
-                ? "Language"
-                : (FILTER_BY_FIELD.get(openFilter)?.label ?? openFilter)}
-            </span>
-            {/* Same Clear affordance either way, just pointed at whichever
-                state this panel currently belongs to. */}
-            {(openFilter === "language"
-              ? languageFilters.size > 0
-              : columnFilters[openFilter].size > 0) && (
-              <button
-                onClick={() =>
-                  openFilter === "language"
-                    ? setLanguageFilters(new Set())
-                    : clearColumnFilter(openFilter)
-                }
-                className="text-xs text-zinc-500 transition-colors hover:text-red-400"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-
-          {/* The switch that decides what every tick below it means. Placed
-              above them and worded as a sentence the ticks finish — "Has
-              …" / "Missing …" — because a mode control sitting silently
-              beside a list of checkboxes is the kind of thing you discover
-              by accident three weeks later (Question 327). */}
-          {openFilter === "translations" && (
-            <div className="mx-3 mb-1 mt-1 flex overflow-hidden rounded-md border border-zinc-700">
-              {(["has", "missing"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => setTranslationsMode(mode)}
-                  className={`flex-1 px-2 py-1 text-xs font-medium capitalize transition-colors ${
-                    translationsMode === mode
-                      ? "bg-indigo-600 text-white"
-                      : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
-                  }`}
-                >
-                  {mode}
-                </button>
-              ))}
+                ? // Same list the toolbar dropdown offers, in the same order —
+                  // opening this from the header shouldn't show a different set
+                  // of languages than opening it from above the table would.
+                  availableLanguages.map((lang) => (
+                    <label
+                      key={lang}
+                      className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={languageFilters.has(lang)}
+                        onChange={() => toggleLanguageFilter(lang)}
+                        className="shrink-0 accent-indigo-600"
+                      />
+                      <span className="truncate">{lang}</span>
+                    </label>
+                  ))
+                : openColumn &&
+                  columnOptions(openColumn).map((value) => (
+                    <label
+                      key={value || "(none)"}
+                      className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={columnFilters[openFilter].has(value)}
+                        onChange={() => toggleColumnValue(openFilter, value)}
+                        className="shrink-0 accent-indigo-600"
+                      />
+                      {/* The "nothing here" bucket is offered like any other
+                          option, since "which words still have nothing here" is
+                          one of the more useful things to filter for (Question
+                          254) — and for a presence column it's one of only two. */}
+                      {value === NO_VALUE && openColumn.kind === "values" ? (
+                        <span className="italic text-zinc-500">(none)</span>
+                      ) : (
+                        optionLabel(openColumn.kind, value)
+                      )}
+                    </label>
+                  ))}
             </div>
           )}
 
-          {openColumn?.kind === "languages" &&
-            columnOptions(openColumn).length === 0 && (
-              <p className="px-3 py-2 text-xs text-zinc-600">
-                {activeShownLanguages.length > 0
-                  ? "None in the languages you're showing — widen Showing to see the rest."
-                  : "No translations saved yet — add some from “Add information”."}
-              </p>
-            )}
+          {enrichModalOpen && (
+            <VocabularyEnrichModal
+              wordCount={selectedIds.size}
+              running={enriching}
+              error={enrichError}
+              onCancel={() => setEnrichModalOpen(false)}
+              onConfirm={handleEnrich}
+              defaultTranslateLanguage={defaultTranslateLanguage}
+            />
+          )}
 
-          {openFilter === "language"
-            ? // Same list the toolbar dropdown offers, in the same order —
-              // opening this from the header shouldn't show a different set
-              // of languages than opening it from above the table would.
-              availableLanguages.map((lang) => (
-                <label
-                  key={lang}
-                  className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-                >
-                  <input
-                    type="checkbox"
-                    checked={languageFilters.has(lang)}
-                    onChange={() => toggleLanguageFilter(lang)}
-                    className="shrink-0 accent-indigo-600"
-                  />
-                  <span className="truncate">{lang}</span>
-                </label>
-              ))
-            : openColumn &&
-              columnOptions(openColumn).map((value) => (
-                <label
-                  key={value || "(none)"}
-                  className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-                >
-                  <input
-                    type="checkbox"
-                    checked={columnFilters[openFilter].has(value)}
-                    onChange={() => toggleColumnValue(openFilter, value)}
-                    className="shrink-0 accent-indigo-600"
-                  />
-                  {/* The "nothing here" bucket is offered like any other
-                      option, since "which words still have nothing here" is
-                      one of the more useful things to filter for (Question
-                      254) — and for a presence column it's one of only two. */}
-                  {value === NO_VALUE && openColumn.kind === "values" ? (
-                    <span className="italic text-zinc-500">(none)</span>
-                  ) : (
-                    optionLabel(openColumn.kind, value)
-                  )}
-                </label>
-              ))}
+          {shuffleModalOpen && (
+            <VocabularyToShuffleModal
+              wordCount={selectedIds.size}
+              running={sendingToShuffle}
+              error={shuffleError}
+              suggestedTitle={suggestedListTitle}
+              availableLanguages={shuffleLanguages}
+              suggestedLanguage={suggestedShuffleLanguage}
+              onCancel={() => setShuffleModalOpen(false)}
+              onConfirm={handleSendToShuffle}
+            />
+          )}
+
+          {deleteModalOpen && (
+            <VocabularyDeleteModal
+              wordCount={selectedIds.size}
+              hiddenCount={hiddenSelectedCount}
+              running={deletingSelected}
+              error={deleteError}
+              onCancel={() => setDeleteModalOpen(false)}
+              onConfirm={handleDeleteSelected}
+            />
+          )}
         </div>
-      )}
-
-      {enrichModalOpen && (
-        <VocabularyEnrichModal
-          wordCount={selectedIds.size}
-          running={enriching}
-          error={enrichError}
-          onCancel={() => setEnrichModalOpen(false)}
-          onConfirm={handleEnrich}
-          defaultTranslateLanguage={defaultTranslateLanguage}
-        />
-      )}
-
-      {shuffleModalOpen && (
-        <VocabularyToShuffleModal
-          wordCount={selectedIds.size}
-          running={sendingToShuffle}
-          error={shuffleError}
-          suggestedTitle={suggestedListTitle}
-          availableLanguages={shuffleLanguages}
-          suggestedLanguage={suggestedShuffleLanguage}
-          onCancel={() => setShuffleModalOpen(false)}
-          onConfirm={handleSendToShuffle}
-        />
-      )}
+      </div>
     </div>
   );
 }
