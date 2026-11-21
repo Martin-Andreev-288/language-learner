@@ -47,6 +47,11 @@ type ReadingOrder = "sentence" | "language";
 
 const SEEK_HINT = "Click to start reading from here";
 
+// How long the pointer and the wheel must have been still over the preview
+// before the page moves to follow the reading (see the effect that centers
+// the sentence being read).
+const PREVIEW_SETTLE_MS = 2000;
+
 // Same palette Parallel Translate uses to color-code language labels in its
 // own vertical preview — duplicated rather than imported, since it's a
 // small, purely presentational constant, not shared logic.
@@ -131,6 +136,8 @@ export default function ParallelListenTool() {
   // attaches this ref via a callback (see the render below), so this
   // always tracks the right node without needing one ref per sentence.
   const activeSentenceRef = useRef<HTMLElement | null>(null);
+  // When the pointer last moved, or the wheel last turned, over the preview.
+  const lastPreviewActivityRef = useRef(0);
 
   // Playback is driven entirely by the browser's speechSynthesis queue, not
   // React state — this only cancels it if the page is left mid-playback.
@@ -147,13 +154,34 @@ export default function ParallelListenTool() {
   // position. React commits the ref callback below before this effect
   // runs, so activeSentenceRef already points at the newly-active element
   // by the time this fires, not the previous one.
+  //
+  // But not while someone is reaching for a sentence (Question 110). The
+  // page moved for every sentence read, a line or more each time in the
+  // Vertical view, so a pointer on its way to one sentence often arrived on
+  // the next one, and the click started there. The move now waits until
+  // the pointer and the wheel have been still over the preview for
+  // PREVIEW_SETTLE_MS, then centers whatever is being read by then.
   useEffect(() => {
     if (!current) return;
-    activeSentenceRef.current?.scrollIntoView({
-      block: "center",
-      behavior: "smooth",
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    function centerWhenSettled() {
+      const stillFor = Date.now() - lastPreviewActivityRef.current;
+      if (stillFor < PREVIEW_SETTLE_MS) {
+        timer = setTimeout(centerWhenSettled, PREVIEW_SETTLE_MS - stillFor);
+        return;
+      }
+      activeSentenceRef.current?.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+    }
+    centerWhenSettled();
+    return () => clearTimeout(timer);
   }, [current]);
+
+  function markPreviewActivity() {
+    lastPreviewActivityRef.current = Date.now();
+  }
 
   function handleStop() {
     playbackIdRef.current += 1;
@@ -287,13 +315,16 @@ export default function ParallelListenTool() {
   ) {
     setPlaybackError(null);
     queueRef.current = queue;
+    // Minted before cancel(), not after it, so the sentence being cut off is
+    // already stale if a browser reports its end from inside cancel(): it
+    // can't count as finished and move the new run on to the next sentence.
+    const playId = ++playbackIdRef.current;
     window.speechSynthesis.cancel();
     // cancel() empties the queue but deliberately does *not* clear a paused
     // state, so starting from a pause would otherwise queue an utterance
     // that never speaks. resume() is a no-op when nothing is paused, so
     // this is safe unconditionally.
     window.speechSynthesis.resume();
-    const playId = ++playbackIdRef.current;
     setPlaying(true);
     setPaused(false);
     speakFrom(startIndex, playId);
@@ -360,9 +391,9 @@ export default function ParallelListenTool() {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
     }
+    const playId = ++playbackIdRef.current; // before cancel(), as in startPlayback
     window.speechSynthesis.cancel();
     window.speechSynthesis.resume(); // see startPlayback — cancel() leaves a pause in place
-    const playId = ++playbackIdRef.current;
     setPaused(false);
     speakFrom(currentIndexRef.current, playId);
   }
@@ -576,7 +607,12 @@ export default function ParallelListenTool() {
         </div>
 
         {parsed && (
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+          <div
+            onPointerMove={markPreviewActivity}
+            onTouchMove={markPreviewActivity}
+            onWheel={markPreviewActivity}
+            className="rounded-lg border border-zinc-800 bg-zinc-900 p-6"
+          >
             {/* Sticky so Play/Pause/Stop stay reachable without scrolling
                 back up (Question 232) — same bg-zinc-900 as the card
                 itself so text scrolled underneath disappears behind it,
