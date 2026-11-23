@@ -135,16 +135,19 @@ export default function InlineListenTool() {
     setCurrentIndex(null);
   }
 
-  // True pause/resume, not a restart — same caveat as Parallel Listen's
-  // (Answer 178): reliability is genuinely browser-dependent, Chrome in
-  // particular has a long-standing bug where resume() can silently fail to
-  // continue after a pause. Worst case, Stop and Play again always works.
+  // Pause stops the sentence and remembers it; Resume reads that sentence
+  // again from its start, the same as Parallel Listen (Question 111). The
+  // browser's own pause() ended the sentence with some voices instead of
+  // holding it, so the reading moved on behind a button that said Resume.
   function handlePause() {
     if (!playing || paused) return;
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
     }
-    window.speechSynthesis.pause();
+    // Before cancel(), so the end the browser reports for the sentence
+    // being cut off belongs to a finished run and can't move the reading on.
+    playbackIdRef.current += 1;
+    window.speechSynthesis.cancel();
     setPaused(true);
   }
 
@@ -153,8 +156,11 @@ export default function InlineListenTool() {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
     }
-    window.speechSynthesis.resume();
+    const playId = ++playbackIdRef.current;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.resume(); // see startPlayback — cancel() leaves a pause in place
     setPaused(false);
+    speakFrom(currentIndex ?? 0, playId);
   }
 
   function speakFrom(index: number, playId: number) {
@@ -229,31 +235,31 @@ export default function InlineListenTool() {
   // Same "can't retune what's already in flight, so interrupt and restart
   // the current sentence instead" approach as Parallel Listen's live speed
   // change (Answer 175) and Shadowing Practice's live language change.
+  // While paused, nothing is being spoken, so the new value is only stored:
+  // Resume reads the sentence with it, and the pause stays a pause.
   function handleRateChange(nextRate: number) {
     setRate(nextRate);
     rateRef.current = nextRate;
-    if (!playing) return;
+    if (!playing || paused) return;
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
     }
     window.speechSynthesis.cancel();
     window.speechSynthesis.resume(); // see startPlayback — cancel() leaves a pause in place
     const playId = ++playbackIdRef.current;
-    setPaused(false);
     speakFrom(currentIndex ?? 0, playId);
   }
 
   function handleLanguageChange(next: string) {
     setLanguage(next);
     languageRef.current = next;
-    if (!playing) return;
+    if (!playing || paused) return;
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
     }
     window.speechSynthesis.cancel();
     window.speechSynthesis.resume(); // see startPlayback — cancel() leaves a pause in place
     const playId = ++playbackIdRef.current;
-    setPaused(false);
     speakFrom(currentIndex ?? 0, playId);
   }
 

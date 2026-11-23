@@ -18,10 +18,12 @@ import ParallelListenTool from "./parallel-listen-tool";
 
 type FakeUtterance = {
   text: string;
+  rate: number;
   onend: (() => void) | null;
   onerror: (() => void) | null;
 };
 let spoken: FakeUtterance[] = [];
+let pause = vi.fn();
 let speaking: FakeUtterance | null = null;
 // Some browsers may report the end of the sentence being cut off from
 // inside cancel() itself, before cancel() returns.
@@ -35,6 +37,7 @@ beforeEach(() => {
   speaking = null;
   cancelEndsAtOnce = false;
   centered = [];
+  pause = vi.fn();
   vi.stubGlobal(
     "SpeechSynthesisUtterance",
     class {
@@ -60,7 +63,7 @@ beforeEach(() => {
         speaking = null;
         if (cancelEndsAtOnce) cutOff?.onend?.();
       },
-      pause: vi.fn(),
+      pause,
       resume: vi.fn(),
     },
   });
@@ -138,5 +141,48 @@ describe("Parallel Listen, following the reading", () => {
       "Three.",
     ]);
     expect(screen.getByText(/Reading sentence 3/)).toBeTruthy();
+  });
+});
+
+describe("Parallel Listen, Pause and Resume", () => {
+  it("Pause stops the sentence, and Resume reads it again from its start", () => {
+    pasteTwoLanguagesInVerticalView();
+    fireEvent.click(screen.getByRole("button", { name: "▶ Play" }));
+    const cutOff = speaking;
+
+    fireEvent.click(screen.getByRole("button", { name: "⏸ Pause" }));
+    // Some voices end the sentence when it is stopped, instead of holding
+    // it. That must not move the reading on to the next sentence.
+    act(() => cutOff?.onend?.());
+    expect(spoken.map((utterance) => utterance.text)).toEqual(["One."]);
+    expect(screen.getByText(/Paused at sentence 1/)).toBeTruthy();
+    expect(pause).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "▶ Resume" }));
+    expect(spoken.map((utterance) => utterance.text)).toEqual([
+      "One.",
+      "One.",
+    ]);
+    expect(screen.getByText(/Reading sentence 1/)).toBeTruthy();
+  });
+
+  it("while paused, Table, Speed and Order start nothing, and Resume uses the new speed", () => {
+    pasteTwoLanguagesInVerticalView();
+    fireEvent.click(screen.getByRole("button", { name: "▶ Play" }));
+    fireEvent.click(screen.getByRole("button", { name: "⏸ Pause" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Table" }));
+    fireEvent.change(screen.getByLabelText(/^Speed/), {
+      target: { value: "0.75" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Order/), {
+      target: { value: "language" },
+    });
+    expect(spoken).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "▶ Resume" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "▶ Resume" }));
+    expect(spoken.at(-1)?.text).toBe("One.");
+    expect(spoken.at(-1)?.rate).toBe(0.75);
   });
 });

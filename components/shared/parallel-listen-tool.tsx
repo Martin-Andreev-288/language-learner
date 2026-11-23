@@ -193,16 +193,23 @@ export default function ParallelListenTool() {
     setCurrent(null);
   }
 
-  // True pause/resume, not a cancel-and-restart — this asks the browser to
-  // hold the *current* utterance in place and continue it later, unlike
-  // handleRateChange's restart. Whether that actually works reliably is
-  // genuinely browser-dependent; see Answer 178 for the caveat.
+  // Pause stops the sentence and remembers it; Resume reads that sentence
+  // again from its start (Question 111). The browser's own pause() was
+  // used before, to hold the sentence halfway, but some voices end the
+  // sentence instead of holding it. The page then took it as finished and
+  // moved on, so Resume played the next one, and that next sentence waited
+  // in the browser and could start by itself while the button still said
+  // Resume. Cancelling leaves nothing in the browser while paused, so what
+  // the button says and what you hear can't disagree.
   function handlePause() {
     if (!playing || paused) return;
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
     }
-    window.speechSynthesis.pause();
+    // Before cancel(), so the end the browser reports for the sentence
+    // being cut off belongs to a finished run and can't move the reading on.
+    playbackIdRef.current += 1;
+    window.speechSynthesis.cancel();
     setPaused(true);
   }
 
@@ -211,8 +218,11 @@ export default function ParallelListenTool() {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
     }
-    window.speechSynthesis.resume();
+    const playId = ++playbackIdRef.current;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.resume(); // see startPlayback — cancel() leaves a pause in place
     setPaused(false);
+    speakFrom(currentIndexRef.current, playId);
   }
 
   // Speaks queueRef.current[index] and chains to the next index on end,
@@ -380,21 +390,18 @@ export default function ParallelListenTool() {
   // rate, then carry on from there — so the new speed takes effect right
   // away instead of waiting for the (possibly still-slow) current sentence
   // to finish first.
-  // Note this also applies while paused: a paused utterance already has its
-  // old rate baked in (same limitation pause/resume can't get around
-  // either), so a rate change while paused restarts the current sentence
-  // too — which means it also resumes playback, not just changes speed.
+  // While paused, nothing is being spoken, so the new rate is only stored:
+  // Resume reads the sentence at it, and the pause stays a pause.
   function handleRateChange(nextRate: number) {
     setRate(nextRate);
     rateRef.current = nextRate;
-    if (!playing) return;
+    if (!playing || paused) return;
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
     }
     const playId = ++playbackIdRef.current; // before cancel(), as in startPlayback
     window.speechSynthesis.cancel();
     window.speechSynthesis.resume(); // see startPlayback — cancel() leaves a pause in place
-    setPaused(false);
     speakFrom(currentIndexRef.current, playId);
   }
 
