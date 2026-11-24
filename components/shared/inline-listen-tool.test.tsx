@@ -10,10 +10,12 @@ vi.mock("@/app/generated/prisma", () => ({
 
 import InlineListenTool from "./inline-listen-tool";
 
-// Pause stops the sentence and Resume reads it again from its start, the
-// same as Parallel Listen. The browser's voices are replaced by a stand-in
-// that records what would have been said and lets a test end an utterance
-// the way the browser would.
+// Pause stops the sentence and Resume reads it again from its start, and a
+// click starts the sentence clicked, the same as Parallel Listen. The
+// browser's voices are replaced by a stand-in that records what would have
+// been said and lets a test end an utterance the way the browser would.
+// jsdom doesn't scroll, so scrollIntoView is replaced by a record of which
+// element the page would have centered.
 
 type FakeUtterance = {
   text: string;
@@ -25,12 +27,18 @@ type FakeUtterance = {
 let spoken: FakeUtterance[] = [];
 let speaking: FakeUtterance | null = null;
 let pause = vi.fn();
+// Some browsers may report the end of the sentence being cut off from
+// inside cancel() itself, before cancel() returns.
+let cancelEndsAtOnce = false;
+let centered: Element[] = [];
 
 beforeEach(() => {
   window.sessionStorage.clear();
   spoken = [];
   speaking = null;
   pause = vi.fn();
+  cancelEndsAtOnce = false;
+  centered = [];
   vi.stubGlobal(
     "SpeechSynthesisUtterance",
     class {
@@ -52,20 +60,24 @@ beforeEach(() => {
         speaking = utterance;
       },
       cancel: () => {
+        const cutOff = speaking;
         speaking = null;
+        if (cancelEndsAtOnce) cutOff?.onend?.();
       },
       pause,
       resume: vi.fn(),
     },
   });
-  // jsdom doesn't scroll; the page centers the sentence being read.
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
     configurable: true,
-    value: () => {},
+    value: function (this: HTMLElement) {
+      centered.push(this);
+    },
   });
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   delete (window as { speechSynthesis?: unknown }).speechSynthesis;
   delete (HTMLElement.prototype as { scrollIntoView?: unknown })
@@ -119,5 +131,41 @@ describe("Inline Listen, Pause and Resume", () => {
     expect(spoken.at(-1)?.text).toBe("One.");
     expect(spoken.at(-1)?.rate).toBe(0.75);
     expect(spoken.at(-1)?.lang).toBe("de-DE");
+  });
+});
+
+describe("Inline Listen, following the reading", () => {
+  it("holds the page still while the pointer moves over the preview", () => {
+    vi.useFakeTimers();
+    pasteAndPlay();
+    expect(centered.at(-1)?.textContent).toBe("One.");
+    const before = centered.length;
+
+    // On its way to a sentence, while the reading moves on twice.
+    fireEvent.pointerMove(screen.getByText("Three."));
+    act(() => speaking?.onend?.());
+    act(() => speaking?.onend?.());
+    act(() => vi.advanceTimersByTime(1999));
+    expect(centered).toHaveLength(before);
+
+    // Still for long enough: the page catches up, once, to what is being
+    // read now, not to each sentence it missed.
+    act(() => vi.advanceTimersByTime(1));
+    expect(centered).toHaveLength(before + 1);
+    expect(centered.at(-1)?.textContent).toBe("Three.");
+  });
+
+  it("starts the clicked sentence even if cancel() ends the cut-off one at once", () => {
+    cancelEndsAtOnce = true;
+    pasteAndPlay();
+    expect(spoken.map((utterance) => utterance.text)).toEqual(["One."]);
+
+    fireEvent.click(screen.getByText("Three."));
+
+    // Only the clicked sentence, not "Two." first.
+    expect(spoken.slice(1).map((utterance) => utterance.text)).toEqual([
+      "Three.",
+    ]);
+    expect(screen.getByText(/Reading sentence 3 of 3/)).toBeTruthy();
   });
 });

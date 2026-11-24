@@ -15,6 +15,11 @@ import {
 import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
 
+// How long the pointer and the wheel must have been still over the preview
+// before the page moves to follow the reading — the same as Parallel Listen
+// (Question 110), see the effect that centers the sentence being read.
+const PREVIEW_SETTLE_MS = 2000;
+
 export default function InlineListenTool() {
   // Restored from a carry, if the user arrived via "Send to Inline Listen"
   // — read as part of the initial state itself (Answer 171's discipline),
@@ -51,6 +56,8 @@ export default function InlineListenTool() {
   // render below), so this always tracks the right node without needing
   // one ref per sentence.
   const activeSentenceRef = useRef<HTMLElement | null>(null);
+  // When the pointer last moved, or the wheel last turned, over the preview.
+  const lastPreviewActivityRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -65,13 +72,34 @@ export default function InlineListenTool() {
   // sentence. React commits the ref callback below before this effect
   // runs, so activeSentenceRef already points at the newly-active element
   // by the time this fires, not the previous one.
+  //
+  // But not while someone is reaching for a sentence, the same as Parallel
+  // Listen (Question 112). Here the page moves only when the reading
+  // reaches a new line, but a pointer on its way to a sentence could still
+  // arrive on the next one. The move waits until the pointer and the wheel
+  // have been still over the preview for PREVIEW_SETTLE_MS, then centers
+  // whatever is being read by then.
   useEffect(() => {
     if (currentIndex === null) return;
-    activeSentenceRef.current?.scrollIntoView({
-      block: "center",
-      behavior: "smooth",
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    function centerWhenSettled() {
+      const stillFor = Date.now() - lastPreviewActivityRef.current;
+      if (stillFor < PREVIEW_SETTLE_MS) {
+        timer = setTimeout(centerWhenSettled, PREVIEW_SETTLE_MS - stillFor);
+        return;
+      }
+      activeSentenceRef.current?.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+    }
+    centerWhenSettled();
+    return () => clearTimeout(timer);
   }, [currentIndex]);
+
+  function markPreviewActivity() {
+    lastPreviewActivityRef.current = Date.now();
+  }
 
   // Recomputed on every render, straight from the editable text — this
   // page no longer freezes a sentence list at mount the way iteration 1
@@ -198,13 +226,16 @@ export default function InlineListenTool() {
   function startPlayback(startIndex: number) {
     setPlaybackError(null);
     languageRef.current = language;
+    // Minted before cancel(), not after it, so the sentence being cut off is
+    // already stale if a browser reports its end from inside cancel(): it
+    // can't count as finished and move the new run on to the next sentence.
+    const playId = ++playbackIdRef.current;
     window.speechSynthesis.cancel();
     // cancel() empties the queue but deliberately does *not* clear a paused
     // state, so starting from a pause would otherwise queue an utterance
     // that never speaks. resume() is a no-op when nothing is paused, so
     // this is safe unconditionally.
     window.speechSynthesis.resume();
-    const playId = ++playbackIdRef.current;
     setPlaying(true);
     setPaused(false);
     speakFrom(startIndex, playId);
@@ -244,9 +275,9 @@ export default function InlineListenTool() {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
     }
+    const playId = ++playbackIdRef.current; // before cancel(), as in startPlayback
     window.speechSynthesis.cancel();
     window.speechSynthesis.resume(); // see startPlayback — cancel() leaves a pause in place
-    const playId = ++playbackIdRef.current;
     speakFrom(currentIndex ?? 0, playId);
   }
 
@@ -257,9 +288,9 @@ export default function InlineListenTool() {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
     }
+    const playId = ++playbackIdRef.current; // before cancel(), as in startPlayback
     window.speechSynthesis.cancel();
     window.speechSynthesis.resume(); // see startPlayback — cancel() leaves a pause in place
-    const playId = ++playbackIdRef.current;
     speakFrom(currentIndex ?? 0, playId);
   }
 
@@ -342,7 +373,12 @@ export default function InlineListenTool() {
         </div>
 
         {text.trim() && (
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+          <div
+            onPointerMove={markPreviewActivity}
+            onTouchMove={markPreviewActivity}
+            onWheel={markPreviewActivity}
+            className="rounded-lg border border-zinc-800 bg-zinc-900 p-6"
+          >
             {/* Sticky so Play/Pause/Stop stay reachable without scrolling
                 back up (Question 232) — same bg-zinc-900 as the card
                 itself so text scrolled underneath disappears behind it,
