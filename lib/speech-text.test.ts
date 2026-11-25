@@ -106,6 +106,43 @@ describe("speakableText", () => {
         });
     });
 
+    // Learner texts mark the stressed vowel, and the mark is a separate
+    // character after it. Voices took it as the end of a word and spelled
+    // out the rest: "и краткое" for the last letter of "домой", "мягкий
+    // знак" at the end of "сказать" (Question 113).
+    describe("Cyrillic stress marks", () => {
+        const stress = "\u0301";
+
+        it.each([
+            [`Я иду${stress} домо${stress}й.`, "Я иду домой."],
+            [`Како${stress}й ты хо${stress}чешь?`, "Какой ты хочешь?"],
+            [
+                `Ты говори${stress}шь по-англи${stress}йски?`,
+                "Ты говоришь по-английски?",
+            ],
+            [`Ты мо${stress}жешь мне помо${stress}чь?`, "Ты можешь мне помочь?"],
+            [`Как э${stress}то сказа${stress}ть?`, "Как это сказать?"],
+            [`Э${stress}то А${stress}лекс.`, "Это Алекс."],
+            // Bulgarian, stressed on "ъ", which is a vowel there.
+            [`къ${stress}ща`, "къща"],
+        ])("drops the mark from %s", (stressed, plain) => {
+            expect(speakableText(stressed)).toBe(plain);
+        });
+
+        // After a consonant the same accent is part of a letter: Macedonian
+        // "ѓ" and "ќ" stored in two parts.
+        it.each([
+            ["ѓ", "\u0433\u0301"],
+            ["ќ", "\u043a\u0301"],
+        ])("keeps the Macedonian %s", (_label, letter) => {
+            expect(speakableText(letter)).toBe(letter);
+        });
+
+        it("leaves an accent on a Latin letter alone", () => {
+            expect(speakableText(`esta${stress}`)).toBe(`esta${stress}`);
+        });
+    });
+
     describe("treats numbers as numbers", () => {
         it("keeps digits", () => {
             expect(speakableText("20 Grad, 1984")).toBe("20 Grad, 1984");
