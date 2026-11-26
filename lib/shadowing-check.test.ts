@@ -31,6 +31,14 @@ describe("normalizeForComparison", () => {
         );
     });
 
+    // A stress mark is not something you say, and the recogniser never
+    // writes one (Question 114).
+    it("drops the stress marks of a Cyrillic learner text", () => {
+        expect(normalizeForComparison("Ты говори́шь по-англи́йски?")).toBe(
+            "ты говоришь по английски",
+        );
+    });
+
     it("turns a hyphen into a space, the way the recogniser writes it", () => {
         expect(normalizeForComparison("well-known")).toBe(
             normalizeForComparison("well known"),
@@ -70,6 +78,14 @@ describe("isWordPerfect", () => {
         ["the words reordered", "nach Hause gehe ich"],
     ])("rejects %s", (_label, attempt) => {
         expect(isWordPerfect("Ich gehe nach Hause.", attempt)).toBe(false);
+    });
+
+    // Every stressed word used to count as a difference, which sent a right
+    // attempt to the model and risked it being reported as wrong.
+    it("accepts a stress-marked sentence said right, and still rejects a changed word", () => {
+        const sentence = "Я иду́ домо́й.";
+        expect(isWordPerfect(sentence, "я иду домой")).toBe(true);
+        expect(isWordPerfect(sentence, "я иду дома")).toBe(false);
     });
 
     it("rejects a missing accent", () => {

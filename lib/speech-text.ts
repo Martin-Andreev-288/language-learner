@@ -17,6 +17,8 @@
 // and drop everything else. That covers characters neither of us has
 // thought of, which is the only way this stops needing maintenance.
 
+import { withoutStressMarks } from "./stress-marks";
+
 // Kept, because a voice uses these for *timing* rather than reading them
 // aloud: the fall at a full stop, the lift at a question mark, the pause at
 // a comma. Removing them would not delete a spoken word, it would flatten
@@ -109,26 +111,11 @@ const NOT_SPEAKABLE = new RegExp(
 // than one line.
 const HORIZONTAL_WHITESPACE = /[^\S\n]+/g;
 
-// Stress marks in Cyrillic (Question 113). Learner texts mark the stressed
-// vowel with an accent, "домо́й", "говори́шь", and since no single character
-// exists for a stressed Cyrillic vowel, the mark is stored as a separate
-// combining character after it. Voices took it as the end of a word and
-// spelled out what followed: "домо́й" became "домо" and then the letter "й"
-// by its name, "и краткое", and "сказа́ть" ended in "мягкий знак". A voice
-// doesn't need the mark to stress these words, so it is dropped before
-// speaking. The page still shows it.
-//
-// Only after a vowel, because that is the only place a stress mark goes,
-// counting the Bulgarian "ъ", which is a vowel there and can carry one.
-// The same accent after a consonant is part of a letter, the Macedonian
-// "ѓ" and "ќ" when stored in two parts, and stays. Nothing is normalised
-// to find these: composing the whole text (NFC) also swaps some
-// punctuation for look-alikes, the Greek ano teleia among them.
-const CYRILLIC_STRESS_MARK = /([аеёиоуыэюяіїєъАЕЁИОУЫЭЮЯІЇЄЪ])[\u0300\u0301]+/g;
-
+// Stress marks in Cyrillic learner texts are dropped first (Question 113):
+// a voice took the mark for the end of a word and spelled out the rest.
+// See lib/stress-marks.ts.
 export function speakableText(text: string): string {
-    const cleaned = text
-        .replace(CYRILLIC_STRESS_MARK, "$1")
+    const cleaned = withoutStressMarks(text)
         // A space rather than nothing, which matters for the ones that sit
         // between words: "and/or" deleted becomes "andor", a word no voice
         // can say, where "and or" is what a reader would have said anyway.

@@ -15,6 +15,7 @@ import {
     SHADOWING_CHECK_CAVEAT,
     type ShadowingCheck,
 } from "@/lib/shadowing-check";
+import { withoutStressMarks } from "@/lib/stress-marks";
 import { splitIntoSentences } from "@/lib/sentence-split";
 import {
     cleanSoundsCheck,
@@ -271,6 +272,9 @@ export async function checkShadowingAttempt(
         });
     }
 
+    // The model sees the sentence without stress marks (Question 114). The
+    // recogniser never writes them, and a model shown "говори́шь" beside
+    // "говоришь" could report the mark as a difference in what was said.
     const trimmedLanguage = language?.trim();
     const languageLine = trimmedLanguage
         ? `The sentence is in ${trimmedLanguage}, and the attempt was meant to be too. Judge it as ${trimmedLanguage}.\n\n`
@@ -301,7 +305,7 @@ Do not invent differences to have something to report, and do not rewrite the se
 
 The sentence they were shadowing:
 """
-${trimmedTarget}
+${withoutStressMarks(trimmedTarget)}
 """
 
 What was heard:

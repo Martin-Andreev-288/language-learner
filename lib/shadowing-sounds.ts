@@ -2,6 +2,7 @@ import { z } from "zod";
 import { SHADOWING_ATTEMPT_MAX_CHARACTERS, SHADOWING_SOUNDS_MAX_BYTES } from "./limits";
 import { looksLikeWav } from "./wav";
 import { isWordPerfect, type ShadowingDifference } from "./shadowing-check";
+import { withoutStressMarks } from "./stress-marks";
 
 // Shadowing's sounds check (item 10 in directions2.md): the recording itself
 // goes to the model, not the words the browser made of it.
@@ -179,9 +180,12 @@ export function combineFindings(
         }
     }
 
-    const lower = sentence.toLowerCase();
+    // Without stress marks on both sides: the words check sends the
+    // sentence to the model without them (Question 114), so the words it
+    // names come back unmarked.
+    const lower = withoutStressMarks(sentence).toLowerCase();
     const position = (finding: Finding) => {
-        const at = lower.indexOf(finding.word.toLowerCase());
+        const at = lower.indexOf(withoutStressMarks(finding.word).toLowerCase());
         return at === -1 ? lower.length : at;
     };
     return findings

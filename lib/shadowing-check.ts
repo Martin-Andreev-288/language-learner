@@ -1,3 +1,5 @@
+import { withoutStressMarks } from "./stress-marks";
+
 // Comparing what you said to the sentence you were shadowing (Question 373).
 //
 // Lives here rather than in the action for the usual reason (see the top of
@@ -45,8 +47,13 @@ export const SHADOWING_CHECK_CAVEAT =
 // "l'eau" and "l eau" both flatten to "leau", so a French elision doesn't
 // become a mistake on account of where the recogniser put a mark nobody
 // pronounced.
+//
+// Stress marks go too (Question 114). Learner texts in Cyrillic mark the
+// stressed vowel, and the recogniser never writes the mark, so "говори́шь"
+// and "говоришь" are the same spoken word. Only stress marks: an accent
+// that belongs to the word stays, and "más" and "mas" still differ.
 export function normalizeForComparison(value: string): string {
-    return value
+    return withoutStressMarks(value)
         .toLowerCase()
         .replace(/[\p{P}\p{S}]/gu, " ")
         .replace(/\s+/g, " ")

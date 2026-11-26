@@ -116,6 +116,17 @@ describe("combineFindings", () => {
         expect(findings[0].notes).toEqual(["Two words changed.", "Round them for ö."]);
     });
 
+    // The model compares the sentence without its stress marks (Question
+    // 114), so the words it names come back unmarked and must still find
+    // their place in the sentence as written.
+    it("orders unmarked words by their place in a stress-marked sentence", () => {
+        const marked = "Я иду́ домо́й и сплю.";
+        const sleep = { expected: "сплю", heard: "спал", note: "A different word." };
+        const home = { expected: "домой", heard: "дома", note: "A different word." };
+        const words = combineFindings(marked, [sleep, home], []).map((finding) => finding.word);
+        expect(words).toEqual(["домой", "сплю"]);
+    });
+
     it("is either list alone when the other half has nothing", () => {
         expect(combineFindings(sentence, [mochte], [])).toEqual([
             { word: "möchte", heard: "mochte", notes: ["That means liked."] },
