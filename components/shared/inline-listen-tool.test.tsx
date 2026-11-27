@@ -21,6 +21,7 @@ type FakeUtterance = {
   text: string;
   lang: string;
   rate: number;
+  onboundary: ((event: { name: string; charIndex: number }) => void) | null;
   onend: (() => void) | null;
   onerror: (() => void) | null;
 };
@@ -45,6 +46,7 @@ beforeEach(() => {
       text: string;
       lang = "";
       rate = 1;
+      onboundary: FakeUtterance["onboundary"] = null;
       onend: (() => void) | null = null;
       onerror: (() => void) | null = null;
       constructor(text: string) {
@@ -167,5 +169,73 @@ describe("Inline Listen, following the reading", () => {
       "Three.",
     ]);
     expect(screen.getByText(/Reading sentence 3 of 3/)).toBeTruthy();
+  });
+});
+
+// Some browsers stop the sentence being read when you click anywhere on the
+// page, even on empty space, and the page used to move on to the next
+// sentence (Questions 115 and 116).
+describe("Inline Listen, a click on empty space", () => {
+  it("carries the sentence on from the word it had reached", () => {
+    vi.useFakeTimers();
+    render(<InlineListenTool />);
+    fireEvent.change(
+      screen.getByPlaceholderText("Paste the passage you want to listen to…"),
+      { target: { value: "One two three four. Five six." } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "▶ Play" }));
+    act(() => vi.advanceTimersByTime(3000));
+
+    // The browser reports the word it is saying: "three".
+    act(() => speaking?.onboundary?.({ name: "word", charIndex: 8 }));
+    fireEvent.pointerDown(document.body);
+    act(() => speaking?.onend?.());
+    expect(spoken.map((utterance) => utterance.text)).toEqual([
+      "One two three four.",
+      "three four.",
+    ]);
+    expect(screen.getByText(/Reading sentence 1 of 2/)).toBeTruthy();
+
+    // The rest, when it really finishes, moves on as usual.
+    act(() => vi.advanceTimersByTime(3000));
+    act(() => speaking?.onend?.());
+    expect(spoken.at(-1)?.text).toBe("Five six.");
+  });
+
+  it("reads the sentence from its start if the browser reports no words", () => {
+    vi.useFakeTimers();
+    pasteAndPlay();
+    act(() => vi.advanceTimersByTime(3000));
+
+    fireEvent.pointerDown(document.body);
+    act(() => speaking?.onend?.());
+    expect(spoken.map((utterance) => utterance.text)).toEqual(["One.", "One."]);
+    expect(screen.getByText(/Reading sentence 1 of 3/)).toBeTruthy();
+
+    // The repeat, when it really finishes, moves on as usual.
+    act(() => vi.advanceTimersByTime(3000));
+    act(() => speaking?.onend?.());
+    expect(spoken.at(-1)?.text).toBe("Two.");
+  });
+
+  it("moves on as usual when the sentence ends long after the click", () => {
+    vi.useFakeTimers();
+    pasteAndPlay();
+
+    fireEvent.pointerDown(document.body);
+    act(() => vi.advanceTimersByTime(1001));
+    act(() => speaking?.onend?.());
+    expect(spoken.map((utterance) => utterance.text)).toEqual(["One.", "Two."]);
+  });
+
+  it("doesn't repeat a short sentence that the click itself started", () => {
+    vi.useFakeTimers();
+    pasteAndPlay();
+
+    fireEvent.pointerDown(screen.getByText("Three."));
+    fireEvent.click(screen.getByText("Three."));
+    act(() => speaking?.onend?.());
+    expect(spoken.map((utterance) => utterance.text)).toEqual(["One.", "Three."]);
+    expect(screen.queryByText(/Reading sentence/)).toBeNull();
   });
 });

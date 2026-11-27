@@ -19,6 +19,7 @@ import ParallelListenTool from "./parallel-listen-tool";
 type FakeUtterance = {
   text: string;
   rate: number;
+  onboundary: ((event: { name: string; charIndex: number }) => void) | null;
   onend: (() => void) | null;
   onerror: (() => void) | null;
 };
@@ -44,6 +45,7 @@ beforeEach(() => {
       text: string;
       lang = "";
       rate = 1;
+      onboundary: FakeUtterance["onboundary"] = null;
       onend: (() => void) | null = null;
       onerror: (() => void) | null = null;
       constructor(text: string) {
@@ -184,5 +186,72 @@ describe("Parallel Listen, Pause and Resume", () => {
     fireEvent.click(screen.getByRole("button", { name: "▶ Resume" }));
     expect(spoken.at(-1)?.text).toBe("One.");
     expect(spoken.at(-1)?.rate).toBe(0.75);
+  });
+});
+
+// Some browsers stop the sentence being read when you click anywhere on the
+// page, even on empty space, and the page used to move on to the next
+// sentence (Questions 115 and 116).
+describe("Parallel Listen, a click on empty space", () => {
+  it("carries the sentence on from the word it had reached", () => {
+    render(<ParallelListenTool />);
+    const [first] = screen.getAllByPlaceholderText("Paste your text here...");
+    fireEvent.change(first, { target: { value: "One two three four. Five six." } });
+    fireEvent.click(screen.getByRole("button", { name: "▶ Play" }));
+    act(() => vi.advanceTimersByTime(3000));
+
+    // The browser reports the word it is saying: "three".
+    act(() => speaking?.onboundary?.({ name: "word", charIndex: 8 }));
+    fireEvent.pointerDown(document.body);
+    finishCurrentSentence();
+    expect(spoken.map((utterance) => utterance.text)).toEqual([
+      "One two three four.",
+      "three four.",
+    ]);
+    expect(screen.getByText(/Reading sentence 1/)).toBeTruthy();
+
+    // The rest, when it really finishes, moves on as usual.
+    act(() => vi.advanceTimersByTime(3000));
+    finishCurrentSentence();
+    expect(spoken.at(-1)?.text).toBe("Five six.");
+  });
+
+  it("reads the sentence from its start if the browser reports no words", () => {
+    pasteTwoLanguagesInVerticalView();
+    fireEvent.click(screen.getByRole("button", { name: "▶ Play" }));
+    act(() => vi.advanceTimersByTime(3000));
+
+    fireEvent.pointerDown(document.body);
+    finishCurrentSentence();
+    expect(spoken.map((utterance) => utterance.text)).toEqual(["One.", "One."]);
+    expect(screen.getByText(/Reading sentence 1/)).toBeTruthy();
+
+    // The repeat, when it really finishes, moves on as usual.
+    act(() => vi.advanceTimersByTime(3000));
+    finishCurrentSentence();
+    expect(spoken.at(-1)?.text).toBe("Eins.");
+  });
+
+  it("moves on as usual when the sentence ends long after the click", () => {
+    pasteTwoLanguagesInVerticalView();
+    fireEvent.click(screen.getByRole("button", { name: "▶ Play" }));
+
+    fireEvent.pointerDown(document.body);
+    act(() => vi.advanceTimersByTime(1001));
+    finishCurrentSentence();
+    expect(spoken.map((utterance) => utterance.text)).toEqual(["One.", "Eins."]);
+  });
+
+  it("doesn't repeat a short sentence that the click itself started", () => {
+    pasteTwoLanguagesInVerticalView();
+    fireEvent.click(screen.getByRole("button", { name: "▶ Play" }));
+
+    fireEvent.pointerDown(screen.getByText("Three."));
+    fireEvent.click(screen.getByText("Three."));
+    finishCurrentSentence();
+    expect(spoken.slice(1).map((utterance) => utterance.text)).toEqual([
+      "Three.",
+      "Drei.",
+    ]);
   });
 });

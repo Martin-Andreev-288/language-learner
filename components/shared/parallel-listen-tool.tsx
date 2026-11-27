@@ -52,6 +52,10 @@ const SEEK_HINT = "Click to start reading from here";
 // the sentence being read).
 const PREVIEW_SETTLE_MS = 2000;
 
+// How soon after a click the browser's end of a sentence counts as caused by
+// that click rather than by the sentence being finished (see cutOffByAClick).
+const CLICK_CUT_OFF_MS = 1000;
+
 // Same palette Parallel Translate uses to color-code language labels in its
 // own vertical preview — duplicated rather than imported, since it's a
 // small, purely presentational constant, not shared logic.
@@ -138,6 +142,9 @@ export default function ParallelListenTool() {
   const activeSentenceRef = useRef<HTMLElement | null>(null);
   // When the pointer last moved, or the wheel last turned, over the preview.
   const lastPreviewActivityRef = useRef(0);
+  // When the pointer last went down anywhere on the page while playing, and
+  // which run was playing then.
+  const lastPointerDownRef = useRef({ at: 0, run: -1 });
 
   // Playback is driven entirely by the browser's speechSynthesis queue, not
   // React state — this only cancels it if the page is left mid-playback.
@@ -181,6 +188,41 @@ export default function ParallelListenTool() {
 
   function markPreviewActivity() {
     lastPreviewActivityRef.current = Date.now();
+  }
+
+  // A click the page does nothing with must not change the reading
+  // (Questions 115 and 116). Some browsers stop the sentence being read when
+  // you click anywhere on the page, even on empty space beside the content,
+  // and report it as ended, so the page moved on to the next sentence. The
+  // page can't keep the browser from stopping, but it can carry on: a
+  // sentence that ends within CLICK_CUT_OFF_MS of a click goes on from the
+  // word it had reached, so the click costs a short break and nothing more.
+  // A browser that doesn't report words gets the sentence from its start.
+  // A click the page acts on (a sentence, Pause, Stop, a speed change)
+  // starts a new run first, so the sentence it cuts off is already stale
+  // and never gets this far, and the click itself belongs to the run
+  // before: it can't make a sentence of the new run repeat.
+  useEffect(() => {
+    if (!playing) return;
+    function markPointerDown() {
+      lastPointerDownRef.current = {
+        at: Date.now(),
+        run: playbackIdRef.current,
+      };
+    }
+    // Capture phase, so a click whose target stops it still counts.
+    document.addEventListener("pointerdown", markPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", markPointerDown, true);
+  }, [playing]);
+
+  function cutOffByAClick(playId: number): boolean {
+    const click = lastPointerDownRef.current;
+    if (click.run !== playId || Date.now() - click.at > CLICK_CUT_OFF_MS) {
+      return false;
+    }
+    lastPointerDownRef.current = { at: 0, run: -1 }; // one click, one repeat
+    return true;
   }
 
   function handleStop() {
@@ -228,7 +270,9 @@ export default function ParallelListenTool() {
   // Speaks queueRef.current[index] and chains to the next index on end,
   // as long as playId is still the active run (a new one is minted whenever
   // playback is stopped, replayed, or restarted after a live speed change).
-  function speakFrom(index: number, playId: number) {
+  // fromChar carries a sentence on from the word it had reached when a click
+  // cut it off (see cutOffByAClick).
+  function speakFrom(index: number, playId: number, fromChar = 0) {
     const queue = queueRef.current;
     if (index >= queue.length) {
       setPlaying(false);
@@ -239,17 +283,32 @@ export default function ParallelListenTool() {
     currentIndexRef.current = index;
     const item = queue[index];
     setCurrent(item.position);
-    const utterance = new SpeechSynthesisUtterance(speakableText(item.text));
+    const sentence = speakableText(item.text);
+    const rest = sentence.slice(fromChar);
+    // Nothing left worth saying after the word it had reached: move on.
+    if (fromChar > 0 && !/[\p{L}\p{N}]/u.test(rest)) {
+      speakFrom(index + 1, playId);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(rest);
     if (item.lang) utterance.lang = item.lang;
     utterance.rate = rateRef.current;
-    utterance.onend = () => {
+    // Where in the sentence the word being said starts, as the browser
+    // reports each word. Not every browser or voice reports words; without
+    // them this stays where the utterance started.
+    let reached = fromChar;
+    utterance.onboundary = (event) => {
+      if (event.name !== "sentence") reached = fromChar + event.charIndex;
+    };
+    // On an error as well as an end: skip what the browser can't voice, and
+    // keep going.
+    const next = () => {
       if (playbackIdRef.current !== playId) return; // stopped or superseded
-      speakFrom(index + 1, playId);
+      if (cutOffByAClick(playId)) speakFrom(index, playId, reached);
+      else speakFrom(index + 1, playId);
     };
-    utterance.onerror = () => {
-      if (playbackIdRef.current !== playId) return;
-      speakFrom(index + 1, playId); // skip what the browser can't voice, keep going
-    };
+    utterance.onend = next;
+    utterance.onerror = next;
     window.speechSynthesis.speak(utterance);
   }
 
