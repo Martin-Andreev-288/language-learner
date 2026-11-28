@@ -111,6 +111,14 @@ const NOT_SPEAKABLE = new RegExp(
 // than one line.
 const HORIZONTAL_WHITESPACE = /[^\S\n]+/g;
 
+// The text as shown, with everything speakableText would drop replaced by
+// spaces of the same length (Question 118). Words then stay where they are
+// on the screen, and split the same way as in what the voice is given, so a
+// word the voice reports can be found on the screen (lib/word-highlight.ts).
+export function maskUnspeakable(text: string): string {
+    return text.replace(NOT_SPEAKABLE, (symbol) => " ".repeat(symbol.length));
+}
+
 // Stress marks in Cyrillic learner texts are dropped first (Question 113):
 // a voice took the mark for the end of a word and spelled out the rest.
 // See lib/stress-marks.ts.

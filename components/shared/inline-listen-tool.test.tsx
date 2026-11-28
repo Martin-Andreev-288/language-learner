@@ -239,3 +239,29 @@ describe("Inline Listen, a click on empty space", () => {
     expect(screen.queryByText(/Reading sentence/)).toBeNull();
   });
 });
+
+// The word the voice is saying is marked, not only its sentence, when the
+// voice reports its words (Question 118).
+describe("Inline Listen, the word being read", () => {
+  const markedWord = () =>
+    document.querySelector("[data-reading-word]")?.textContent ?? null;
+
+  // A passage sent from Inline Translate: a bold word with its translation,
+  // which is shown but never read.
+  it("marks the reported word, inside a bold word and after a translation", () => {
+    render(<InlineListenTool />);
+    fireEvent.change(
+      screen.getByPlaceholderText("Paste the passage you want to listen to…"),
+      { target: { value: "Ich **möchte** (*would like*) schlafen." } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "▶ Play" }));
+    expect(spoken[0].text).toBe("Ich möchte schlafen.");
+    expect(markedWord()).toBeNull();
+
+    act(() => speaking?.onboundary?.({ name: "word", charIndex: 4 }));
+    expect(markedWord()).toBe("möchte");
+
+    act(() => speaking?.onboundary?.({ name: "word", charIndex: 11 }));
+    expect(markedWord()).toBe("schlafen");
+  });
+});

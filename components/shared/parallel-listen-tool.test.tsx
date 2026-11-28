@@ -255,3 +255,41 @@ describe("Parallel Listen, a click on empty space", () => {
     ]);
   });
 });
+
+// The word the voice is saying is marked, not only its sentence, when the
+// voice reports its words (Question 118).
+describe("Parallel Listen, the word being read", () => {
+  function playText(value: string) {
+    render(<ParallelListenTool />);
+    const [first] = screen.getAllByPlaceholderText("Paste your text here...");
+    fireEvent.change(first, { target: { value } });
+    fireEvent.click(screen.getByRole("button", { name: "Vertical" }));
+    fireEvent.click(screen.getByRole("button", { name: "▶ Play" }));
+  }
+  const markedWord = () =>
+    document.querySelector("[data-reading-word]")?.textContent ?? null;
+
+  it("marks the word the voice reports, and nothing before it does", () => {
+    playText("One two three four. Five six.");
+    expect(markedWord()).toBeNull();
+
+    act(() => speaking?.onboundary?.({ name: "word", charIndex: 8 }));
+    expect(markedWord()).toBe("three");
+
+    // The next sentence starts unmarked until its first word is reported.
+    finishCurrentSentence();
+    expect(markedWord()).toBeNull();
+    act(() => speaking?.onboundary?.({ name: "word", charIndex: 0 }));
+    expect(markedWord()).toBe("Five");
+  });
+
+  // The voice is given the sentence without its stress marks, so its
+  // positions count different characters from the screen's.
+  it("finds the word on the screen across stress marks", () => {
+    playText("Я иду\u0301 домо\u0301й.");
+    expect(spoken[0].text).toBe("Я иду домой.");
+
+    act(() => speaking?.onboundary?.({ name: "word", charIndex: 6 }));
+    expect(markedWord()).toBe("домо\u0301й");
+  });
+});

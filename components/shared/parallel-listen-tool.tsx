@@ -12,6 +12,8 @@ import { guessLanguageCode } from "@/lib/language-codes";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import { buildParagraphs } from "@/lib/paragraph-sentences";
 import { speakableText } from "@/lib/speech-text";
+import { shownWords, spokenWordAt } from "@/lib/word-highlight";
+import ReadingWords from "@/components/shared/reading-words";
 import { createNote } from "@/app/actions/note-actions";
 import { NotePage } from "@/app/generated/prisma";
 
@@ -113,6 +115,9 @@ export default function ParallelListenTool() {
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   const [current, setCurrent] = useState<PlaybackPosition | null>(null);
+  // Which word of the sentence being read the voice is saying, as a number
+  // within the sentence, when the voice reports its words (Question 118).
+  const [currentWord, setCurrentWord] = useState<number | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [rate, setRate] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
@@ -226,6 +231,7 @@ export default function ParallelListenTool() {
   }
 
   function handleStop() {
+    setCurrentWord(null);
     playbackIdRef.current += 1;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
@@ -283,6 +289,7 @@ export default function ParallelListenTool() {
     currentIndexRef.current = index;
     const item = queue[index];
     setCurrent(item.position);
+    if (fromChar === 0) setCurrentWord(null);
     const sentence = speakableText(item.text);
     const rest = sentence.slice(fromChar);
     // Nothing left worth saying after the word it had reached: move on.
@@ -297,8 +304,12 @@ export default function ParallelListenTool() {
     // reports each word. Not every browser or voice reports words; without
     // them this stays where the utterance started.
     let reached = fromChar;
+    // The same report marks that word on the screen (Question 118).
     utterance.onboundary = (event) => {
-      if (event.name !== "sentence") reached = fromChar + event.charIndex;
+      if (playbackIdRef.current !== playId) return; // stopped or superseded
+      if (event.name === "sentence") return;
+      reached = fromChar + event.charIndex;
+      setCurrentWord(spokenWordAt(sentence, reached));
     };
     // On an error as well as an end: skip what the browser can't voice, and
     // keep going.
@@ -548,6 +559,24 @@ export default function ParallelListenTool() {
   // grouped by language, regardless of whatever `viewMode` was last set to.
   const effectiveViewMode: ViewMode =
     readingOrder === "language" ? "vertical" : viewMode;
+
+  // The sentence being read is marked strongly when the voice doesn't report
+  // its words, and only faintly when it does, so the word stands out
+  // (Question 118).
+  const sentenceReadClass =
+    currentWord === null
+      ? "bg-indigo-900/50 ring-1 ring-inset ring-indigo-500"
+      : "bg-indigo-900/25";
+  function readingContent(text: string) {
+    if (currentWord === null) return text;
+    return (
+      <ReadingWords
+        text={text}
+        words={shownWords(text)}
+        activeWord={currentWord}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -881,11 +910,11 @@ export default function ParallelListenTool() {
                                 canSeek ? "cursor-pointer" : ""
                               } ${
                                 isSpeaking
-                                  ? "bg-indigo-900/50 text-indigo-100 ring-1 ring-inset ring-indigo-500"
+                                  ? `${sentenceReadClass} text-indigo-100`
                                   : "text-zinc-300"
                               }`}
                             >
-                              {text}
+                              {isSpeaking ? readingContent(text) : text}
                             </td>
                           );
                         })}
@@ -946,12 +975,12 @@ export default function ParallelListenTool() {
                                         ? "cursor-pointer hover:bg-zinc-800"
                                         : ""
                                     } ${
-                                      isSpeaking
-                                        ? "bg-indigo-900/50 ring-1 ring-inset ring-indigo-500"
-                                        : ""
+                                      isSpeaking ? sentenceReadClass : ""
                                     }`}
                                   >
-                                    {sentence.text}
+                                    {isSpeaking
+                                      ? readingContent(sentence.text)
+                                      : sentence.text}
                                   </span>
                                 </span>
                               );
@@ -992,9 +1021,7 @@ export default function ParallelListenTool() {
                               ? "cursor-pointer hover:bg-zinc-800/60"
                               : ""
                           } ${
-                            isSpeaking
-                              ? "bg-indigo-900/50 ring-1 ring-inset ring-indigo-500"
-                              : ""
+                            isSpeaking ? sentenceReadClass : ""
                           }`}
                         >
                           <span
@@ -1003,7 +1030,7 @@ export default function ParallelListenTool() {
                             {name}
                             {!column?.included && " (skipped)"}:{" "}
                           </span>
-                          {text}
+                          {isSpeaking ? readingContent(text) : text}
                         </p>
                       );
                     })}

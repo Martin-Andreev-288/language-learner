@@ -6,6 +6,8 @@ import { buildParagraphs } from "@/lib/paragraph-sentences";
 import { parseAnnotated, stripAnnotations } from "@/lib/inline-annotations";
 import { guessLanguageCode } from "@/lib/language-codes";
 import { speakableText } from "@/lib/speech-text";
+import { shownWords, spokenWordAt } from "@/lib/word-highlight";
+import ReadingWords from "@/components/shared/reading-words";
 import LanguageCombobox from "@/components/shared/language-combobox";
 import {
   encodeInlineListenMetadata,
@@ -43,6 +45,9 @@ export default function InlineListenTool() {
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
+  // Which word of the sentence being read the voice is saying, as a number
+  // within the sentence, when the voice reports its words (Question 118).
+  const [currentWord, setCurrentWord] = useState<number | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [savingNote, setSavingNote] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
@@ -158,6 +163,42 @@ export default function InlineListenTool() {
     parseAnnotated(sentence.text).some((segment) => segment.marked),
   );
 
+  // The sentence being read is marked strongly when the voice doesn't report
+  // its words, and only faintly when it does, so the word stands out
+  // (Question 118).
+  const sentenceReadClass =
+    currentWord === null
+      ? "bg-indigo-900/50 ring-1 ring-inset ring-indigo-500"
+      : "bg-indigo-900/25";
+
+  // A sentence's pieces as Inline Translate marked them, each with where it
+  // starts in the sentence as spoken, translations left out. A word keeps its
+  // number across a bold piece and the plain text around it.
+  function annotatedPieces(text: string) {
+    let offset = 0;
+    return parseAnnotated(text).map((segment) => {
+      const piece = { segment, offset };
+      offset += segment.text.length;
+      return piece;
+    });
+  }
+
+  function readingContent(
+    sentenceText: string,
+    pieceText: string,
+    offset: number,
+  ) {
+    if (currentWord === null) return pieceText;
+    return (
+      <ReadingWords
+        text={pieceText}
+        words={shownWords(stripAnnotations(sentenceText))}
+        offset={offset}
+        activeWord={currentWord}
+      />
+    );
+  }
+
   function handleClear() {
     handleStop();
     setText("");
@@ -197,6 +238,7 @@ export default function InlineListenTool() {
   }
 
   function handleStop() {
+    setCurrentWord(null);
     playbackIdRef.current += 1;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
@@ -245,6 +287,7 @@ export default function InlineListenTool() {
       return;
     }
     setCurrentIndex(index);
+    if (fromChar === 0) setCurrentWord(null);
     // The sentence is spoken with its translations stripped out — the whole
     // point of sending a passage here from Inline Translate is to hear the
     // original, not to have a translation read into the middle of it
@@ -256,7 +299,8 @@ export default function InlineListenTool() {
       speakFrom(index + 1, playId);
       return;
     }
-    const rest = speakableText(spoken).slice(fromChar);
+    const sentenceSpoken = speakableText(spoken);
+    const rest = sentenceSpoken.slice(fromChar);
     // Nothing left worth saying after the word it had reached: move on.
     if (fromChar > 0 && !/[\p{L}\p{N}]/u.test(rest)) {
       speakFrom(index + 1, playId);
@@ -270,8 +314,12 @@ export default function InlineListenTool() {
     // reports each word. Not every browser or voice reports words; without
     // them this stays where the utterance started.
     let reached = fromChar;
+    // The same report marks that word on the screen (Question 118).
     utterance.onboundary = (event) => {
-      if (event.name !== "sentence") reached = fromChar + event.charIndex;
+      if (playbackIdRef.current !== playId) return; // stopped or superseded
+      if (event.name === "sentence") return;
+      reached = fromChar + event.charIndex;
+      setCurrentWord(spokenWordAt(sentenceSpoken, reached));
     };
     const next = () => {
       if (playbackIdRef.current !== playId) return; // stopped or superseded
@@ -529,9 +577,7 @@ export default function InlineListenTool() {
                         onClick={() => handleSeekTo(sentence.index)}
                         title="Click to start reading from here"
                         className={`cursor-pointer rounded px-1 py-0.5 hover:bg-zinc-800 ${
-                          isSpeaking
-                            ? "bg-indigo-900/50 ring-1 ring-inset ring-indigo-500"
-                            : ""
+                          isSpeaking ? sentenceReadClass : ""
                         }`}
                       >
                         {/* Same bold-word, dimmed-translation treatment
@@ -540,12 +586,18 @@ export default function InlineListenTool() {
                             there — the raw `**word** (*translation*)` text
                             stays in the editable field above, not in the
                             reading view. */}
-                        {parseAnnotated(sentence.text).map(
-                          (segment, segmentIndex) =>
+                        {annotatedPieces(sentence.text).map(
+                          ({ segment, offset }, segmentIndex) =>
                             segment.marked ? (
                               <span key={segmentIndex}>
                                 <strong className="text-indigo-200">
-                                  {segment.text}
+                                  {isSpeaking
+                                    ? readingContent(
+                                        sentence.text,
+                                        segment.text,
+                                        offset,
+                                      )
+                                    : segment.text}
                                 </strong>
                                 {segment.translation && (
                                   <em className="text-zinc-500">
@@ -555,7 +607,15 @@ export default function InlineListenTool() {
                                 )}
                               </span>
                             ) : (
-                              <span key={segmentIndex}>{segment.text}</span>
+                              <span key={segmentIndex}>
+                                {isSpeaking
+                                  ? readingContent(
+                                      sentence.text,
+                                      segment.text,
+                                      offset,
+                                    )
+                                  : segment.text}
+                              </span>
                             ),
                         )}
                       </span>
